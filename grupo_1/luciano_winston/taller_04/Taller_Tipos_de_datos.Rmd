@@ -1,0 +1,447 @@
+---
+title: "Taller Tipos de Datos"
+author: "Winston Lucano"
+output:
+  html_document:
+    theme: yeti
+    highlight: kate
+    toc: true
+    toc_float: true
+    number_sections: false
+    code_folding: show
+---
+
+<style>
+
+.nota {
+  background-color: #E3F2FD;
+  border-left: 6px solid #1E88E5;
+  padding: 15px 18px;
+  margin: 25px 0;
+  border-radius: 8px;
+}
+
+h1.title {
+  text-align: center;
+  font-family: 'Playfair Display', serif;
+}
+
+.author {
+  text-align: center;
+  font-family: 'Playfair Display', serif;
+  font-size: 1.2em;
+  font-style: italic;
+  color: #444;
+}
+
+.author::after {
+  content: "";
+  display: block;
+  width: 120px;
+  height: 4px;
+  background: linear-gradient(to right, #1E88E5, #00A8A8);
+  margin: 12px auto 0 auto;
+  border-radius: 2px;
+}
+
+
+
+h1 {
+  color: #1E88E5;
+  font-weight: 700;
+}
+
+h2 {
+  color: #00A8A8;
+}
+
+h3 {
+  color: #6F42C1;
+}
+
+
+pre {
+  background-color: #F8F9FA;
+  border-left: 5px solid #1E88E5;
+  border-radius: 6px;
+}
+
+code {
+  color: #D63384;
+}
+
+
+body {
+  text-align: justify;
+}
+
+.destacado {
+  font-family: "Times New Roman", Times, serif !important;
+  font-style: italic;
+  font-size: 1.05em;
+  display: block;
+  margin: 15px 0;
+}
+
+</style>
+
+
+
+
+# Clasificación de tipos de datos
+Para cada fuente de datos, indique: (a) si es estructurada, semi-estructurada o no estructurada; (b) la razón; (c) el paso de preprocesamiento mínimo para convertirla en un tibble analizable.
+
+<div class="destacado">
+1. Microdatos GEIH del DANE (archivo .csv de 300.000 filas).
+</div>
+
+Dado que el archivo .csv está tabulado, ya son datos estructurados, y para convertirla en un tibble, dado que los datos son 300.000 es más adecuado usar "vroom::vroom()"
+
+<div class="destacado">
+2. Respuesta JSON de la API pública datos.gov.co con indicadores de calidad del aire.
+</div>
+
+Lo anterior es Semi-estructurada, dado que los datos en formato JSON no es una tabla en si misma, dado el formato, esto consta de una dupla clave-valor, luego la estructura puede ser anidada. Depende de como estén los datos, se puede convertir directamente con "as.tibble" en R, de lo contrario, tendriamos que usar alguna función del paquete de tidyverse
+
+
+<div class="destacado">
+3. Grabaciones de audio de audiencias judiciales de la Rama Judicial
+</div>
+Es de tipo no estructurada, dado que los audios carecen de una estructura interna de filas o columnas, y no contiene metadatos para identificar al locutor y tampoco se tiene el texto en sí para organizarlo.
+
+Se requiere de un proceso de transcripción automatica, actualmente dada por las IAS, después de ello si podemos extraer entidades para realizar la respectiva tabulación.
+
+<div class="destacado">
+4. Factura electrónica emitida por la DIAN (formato XML)
+</div>
+
+Es un archivo de tipo semi estructurado, dado que XML usa etiquetas para definir la estructura de manera jerarquica.
+
+El preprocesamiento se hace con xml2, leyendo el archivo, navegando por los nodos hasta obtener la información deseada para tabular.
+
+<div class="destacado">
+5. Tabla HTML de Wikipedia scrapeada con rvest en las clases 2–3
+</div>
+De tipo semi estructurada, dado que se tuvo que hacer un proceso de scraping para que la máquina pudiera entenderlo desde el lenguaje HTML.
+El preprocesamiento es tal cual, con la libreria rvest, luego podriamos hacerlo con as.tibble para que quede de mejor manera.
+
+
+# JSON anidado a DataFrame
+Cargamos la URL
+```{r, message=FALSE, warning=FALSE}
+
+library(jsonlite); library(dplyr); library(tibble); library(tidyverse);library(readxl); library(FactoMineR); library(factoextra); library(Matrix); library(kableExtra); library(knitr); library(NbClust); library(mclust)
+url  <- "https://jsonplaceholder.typicode.com/users"
+raw  <- fromJSON(url)
+
+```
+
+Veamos la estructura de raw
+```{r}
+str(raw)
+```
+<div class="destacado">
+1. Explore la estructura con str(raw). ¿Qué columnas son listas anidadas?
+</div>
+Las columnas que son listas anidadas son adress, adress$geo y company, esto se muestra a través del informe, en cada una de ellas dice que es un dataframe con x variables.
+<div class="destacado">
+2. Aplane el objeto a un tibble con una fila por usuario, extrayendo al menos: name, email, address.city, address.geo.lat, address.geo.lng y company.name.
+</div>
+```{r}
+usuarios_flat <- raw %>%
+  as_tibble() %>%
+  tidyr::unpack(cols = c(address, company), names_sep = ".") %>%
+  tidyr::unpack(cols = address.geo, names_sep = ".") %>%
+
+  select(
+    name, 
+    email, 
+    address.city, 
+    address.geo.lat, 
+    address.geo.lng, 
+    company.name
+  )
+```
+
+```{r, warning=FALSE,message=FALSE,echo=FALSE}
+kable(usuarios_flat, booktabs = T,
+      caption = "Usuarios", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+<div class="destacado">
+3. ¿Qué tipo de dato es esta fuente? ¿Por qué fromJSON no produce directamente un tibble plano?
+</div>
+La anterior fuente al estar en formato JSON, son datos semi estructurado, dadas las jerarquias que se manejan en el mismo. 
+La función fromJSON no produce directamente un tibble por lo que miramos hace un momento que tiene columnas anidadas, al aplicar cualquier función de "aplanar" nos encontrariamos con el problema que el software no sabrá decidir que nombre colocarle a la columna, tal como vimos en address.
+
+# Matriz de Diseño
+
+Con titanic.csv y las variables age, fare, sibsp, parch (elimine NA), cargamos el data frame desde github.
+
+```{r}
+titanic <- read.csv("https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv")
+titanic_a <- na.omit(titanic) %>% select(Age, Fare, SibSp, Parch)
+```
+
+<div class="destacado">
+1. Construya \(X\) centrada y escalada con scale(). Reporte sus dimensiones y la memoria que ocupa.
+</div>
+```{r}
+titanic_scale <- scale(titanic_a, center = T, scale = T)
+size <- object.size(titanic_scale)
+dim <- dim(titanic_scale)
+cat("Tamaño matriz centrada:", size, "bytes")
+cat("Dimensiones matriz centrada:", dim)
+```
+<div class="destacado">
+2. Calcule \(X^TX\). ¿Qué representa la diagonal cuando \(X\) está escalada?.
+</div>
+
+```{r, warning=FALSE,message=FALSE,echo=FALSE}
+Mult_m <- crossprod(titanic_scale)
+kable(Mult_m, booktabs = T,
+      caption = "X^TX", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+La diagonal de la matriz que acabamos de calcular, es 713, lo que es \(n-1\)
+representando el número de datos -1, por definición de como escalamos la matriz.
+
+<div class="destacado">
+3. Construya la versión dispersa con Matrix(X, sparse = TRUE). Compare el tamaño en memoria con object.size(). ¿Tiene sentido usar formato disperso aquí?
+</div>
+
+```{r}
+dtm_sparse <- Matrix(as.matrix(titanic_a), sparse = TRUE)
+size_spar <- object.size(dtm_sparse)
+cat("Tamaño matriz dispersa:", size_spar, "bytes")
+```
+Dado lo anterior, no tiene mucho sentido usar el formato disperso dado que los datos en su mayoria son distintos de 0, y viendo que el tamaño de las dos matrices no es muy diferente en sí, luego concluimos de que no es conveniente usar el formato disperso.
+
+<div class="destacado">
+4. ¿Qué estructura de datos usaría para modelar las relaciones familiares entre pasajeros (sibsp, parch)? Justifique.
+</div>
+
+Dada la estructura de los datos, lo más adecuado sería modelar las relaciones familiares a través de un grafo, esto por comodidad visual e interpretación del mismo.
+
+# Concentración de Distancias 
+
+Replique la demostración de la clase para \(p \in \{1, 2, 5, 10, 50, 100, 500, 1000, 5000\}\) (use set.seed(42)):
+
+
+<div class="destacado">
+1. Para cada \(p\), genere 500 puntos uniformes en \([0,1]^p\) y calcule 200 distancias euclidianas entre pares. Reporte la distancia media y el coeficiente de variación (CV).
+</div>
+```{r}
+set.seed(42)
+dimensiones <- c(1, 2, 5, 10, 50, 100, 500, 1000, 5000)
+
+resumen <- sapply(dimensiones, function(p) {
+  puntos <- matrix(runif(500 * p), nrow = 500, ncol = p)
+  dists  <- sapply(1:200, function(i)
+    sqrt(sum((puntos[i, ] - puntos[i + 200, ])^2)))
+  c(media = mean(dists), cv = sd(dists) / mean(dists))
+})
+
+data.frame(
+  p          = dimensiones,
+  dist_media = round(resumen["media", ], 4),
+  cv_pct     = round(resumen["cv", ] * 100, 2)   # coeficiente de variación
+)
+```
+
+
+<div class="destacado">
+2. Grafique distancia media y CV vs. \(p\) (escala log en \(x\)) con ggplot2.
+</div>
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+
+datos_plot <- tibble(
+  p = dimensiones,
+  dist_media = resumen["media", ],
+  cv = resumen["cv", ]
+)
+
+ggplot(datos_plot, aes(x = dist_media, y = cv)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_point(color = "darkblue", size = 3) +
+  geom_text(aes(label = paste0("p=", p)), vjust = -1, size = 3) +
+  scale_x_log10() +
+  theme_minimal() +
+  labs(
+    title = "La Maldición de la Dimensionalidad",
+    subtitle = "Relación entre Distancia Media y Coeficiente de Variación (Escala Log)",
+    x = "Distancia Media (log)",
+    y = "Coeficiente de Variación"
+  )
+```
+
+<div class="destacado">
+3. ¿A partir de qué \(p\) el CV cae por debajo del 5%? ¿Qué implica esto para K-NN?
+</div>
+Desde el \(p = 500\) nos encontramos con que el cv es inferior a 5, exactamente es 0,248, esto implica que el algoritmo K-NN ya no distingue entre los vecinos cercanos, para este, la diferencia entre la distancia mínima y la distancia máxima se vuelve despreciable.
+
+
+<div class="destacado">
+4. Repita el punto 1 usando distancia coseno en lugar de euclidiana. ¿Se concentra igual de rápido?
+```{r}
+set.seed(42)
+dimensiones <- c(1, 2, 5, 10, 50, 100, 500, 1000, 5000)
+
+calc_dist_cos <- function(v1, v2) {
+  similitud <- sum(v1 * v2) / (sqrt(sum(v1^2)) * sqrt(sum(v2^2)))
+  return(1 - similitud)
+}
+
+resumen_coseno <- sapply(dimensiones, function(p) {
+  puntos <- matrix(runif(500 * p), nrow = 500, ncol = p)
+  dists  <- sapply(1:200, function(i) {
+    calc_dist_cos(puntos[i, ], puntos[i + 200, ])
+  })
+  c(media = mean(dists), cv = sd(dists) / mean(dists))
+})
+
+tabla_coseno <- tibble(
+  p          = dimensiones,
+  dist_media = round(resumen_coseno["media", ], 4),
+  cv_pct     = round(resumen_coseno["cv", ] * 100, 2)
+)
+```
+
+
+```{r, message=FALSE, warning=FALSE, echo= FALSE}
+kable(tabla_coseno, booktabs = T,
+      caption = "Tabla Coseno", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+
+```{r, message=FALSE, warning=FALSE}
+datos_plot <- tibble(
+  p = dimensiones,
+  dist_media = resumen_coseno["media", ],
+  cv_pct = resumen_coseno["cv", ]
+)
+
+ggplot(datos_plot, aes(x = dist_media, y = cv_pct)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_point(color = "darkblue", size = 3) +
+  geom_text(aes(label = paste0("p=", p)), vjust = -1, size = 3) +
+  theme_minimal() +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(
+    title = "La Maldición de la Dimensionalidad",
+    subtitle = "Relación entre Distancia Coseno y Coeficiente de Variación (Escala Log)",
+    x = "Distancia Media (Log) ",
+    y = "Coeficiente de Variación (Log)"
+  )
+```
+La distancia coseno preserva un mayor coeficiente de variación en dimensiones altas comparada con la euclidiana. Esto garantiza que el algoritmo de agrupamiento mantenga el contraste necesario para distinguir vecinos reales de puntos aleatorios, retrasando los efectos de la concentración de la medida. 
+
+</div>
+
+# PCA y reducción de dimensionalidad
+
+Con las variables numéricas del Titanic escaladas (age, fare, sibsp, parch, pclass):
+
+<div class="destacado">
+1. Aplique PCA con prcomp(..., scale. = TRUE). ¿Cuántos componentes son necesarios para retener ≥ 80% de la varianza? ¿Y para ≥ 95%?
+</div>
+
+```{r}
+p_titanic <- na.omit(titanic) %>% select(Age, Fare, SibSp, Parch, Pclass)
+pca_titanic <- PCA(p_titanic, graph = FALSE, )
+Varianza_acum <- round(pca_titanic$eig, 3)
+```
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+kable(Varianza_acum, booktabs = T,
+      caption = "Valores propios, porcentajes de varianza
+     y de varianza acumulados", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+
+```
+
+Para retener al menos el 80% de la varianza son necesarios 3 componentes, tal cual nos lo indica la tabla anterior, ya para al menos el 95% son necesarios 5 componentes, lo cual ya carece de sentido, a no ser que se le indique a la función PCA que queremos más componentes que los que trae por default.
+
+
+<div class="destacado">
+2. Grafique el scree plot (varianza acumulada vs. número de componente) con ggplot2.
+
+```{r}
+fviz_eig(pca_titanic, addlabels = TRUE, ylim = c(0, 100), main = "Dimensiones - Porcentaje de VarExpl")
+```
+
+<div class="destacado">
+3. Examine los loadings de PC1 y PC2. ¿Qué variables dominan cada componente? Proponga una interpretación en el contexto del Titanic.
+</div>
+```{r}
+contribuciones <- as.data.frame(pca_titanic$var$contrib)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+kable(contribuciones[, 1:2], booktabs = T,
+      caption = "Contribuciones PC1 y PC2", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+Las variables que dominan en cada componente son "Pclass" en el primero, y "Parch" en el segundo, esto nos indica que los componentes mayormente están separando Dinero o Estatus y Estructura Familiar.
+Dado el primer componente su interpretación sería que el mayor factor de diferencia entre una persona y otra no era su edad ni su sexo, sino si pertenecía a la élite o a la clase trabajadora.
+Y en el segundo componente basicamente  separa a las personas que viajaban solas de aquellas que viajaban en un núcleo familiar.
+
+Añadiendo algo de importancia a la segunda variable que más aporta al primer componente que es "Age" nos damos cuenta que lo de estatus es más marcado, la diferencia entre alguien con edad avanzada y mas poder adquisitivo que otra persona en el mismo barco siendo menor, naturalmente con menor poder adquisitivo.
+
+
+<div class="destacado">
+4. Reto: aplique K-Means (\(k = 2\)) sobre \(X\) original y sobre los 2 primeros PCs por separado. Compare los grupos resultantes con la variable survived. ¿En cuál representación los grupos coinciden mejor con la supervivencia?
+</div>
+
+```{r}
+
+set.seed(42)
+km_original <- kmeans(scale(p_titanic), centers = 2, nstart = 25)
+
+
+km_pca <- kmeans(pca_titanic$ind$coord[, 1:2], centers = 2, nstart = 25)
+
+res_nb_orig <- NbClust(scale(p_titanic), distance = "euclidean", 
+                       min.nc = 2, max.nc = 10, 
+                       method = "kmeans", index = "ch")
+
+res_nb_pca <- NbClust(pca_titanic$ind$coord[, 1:2], distance = "euclidean", 
+                      min.nc = 2, max.nc = 10, 
+                      method = "kmeans", index = "ch")
+
+```
+
+```{r}
+
+comparacion <- data.frame(
+  a = titanic$Survived[as.numeric(rownames(p_titanic))],
+  Cluster_Original = km_original$cluster,
+  Cluster_PCA = km_pca$cluster
+)
+
+
+table(comparacion$a, comparacion$Cluster_Original)
+table(comparacion$a, comparacion$Cluster_PCA)
+```
+Dada la tablas tablas vistas, tomando a 0 como fallecido y a 1 como sobreviviente, vemos que la que mejor se ajusta a la supervivencia es la tabla hecha por el PCA, dado que elimina las variables que causan ruido causando que los grupos se alineen mejor con la realidad de la supervivencia.
+```{r}
+library(factoextra)
+fviz_cluster(km_pca, data = pca_titanic$ind$coord[, 1:2],
+             palette = c("#2E9FDF", "#E7B800"),
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_minimal(),
+             main = "Agrupamiento K-Means sobre el espacio PCA")
+```
+
+En el Clúster 2, al estar tan apretados en el espacio de datos, su destino también fue más uniforme, la gran mayoría no sobrevivió. La falta de varianza en sus datos se traduce en una falta de varianza en su resultado (muerte).
+
+En el Clúster 1, la dispersión refleja que, aunque tenían el privilegio de la clase, otros factores individuales quizás la ubicación del camarote o decisiones de último minuto influyeron más, por eso la tabla de supervivencia está más dividida.

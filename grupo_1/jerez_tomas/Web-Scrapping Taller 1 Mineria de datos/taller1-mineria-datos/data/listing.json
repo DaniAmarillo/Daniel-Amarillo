@@ -1,0 +1,830 @@
+[
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01166-9",
+    "title_listing": "Reusability report: Optimizing T count in general quantum circuits with AlphaTensor-Quantum",
+    "date_listing": "2025-12-31",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01170-z",
+    "title_listing": "Harnessing the power of single-cell large language models with parameter-efficient fine-tuning using scPEFT",
+    "date_listing": "2025-12-31",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01161-0",
+    "title_listing": "Inferring spatial single-cell-level interactions through interpreting cell state and niche correlations learned by self-supervised graph transformer",
+    "date_listing": "2025-12-31",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01162-z",
+    "title_listing": "Current-diffusion model for metasurface structure discoveries with spatial-frequency dynamics",
+    "date_listing": "2025-12-31",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01160-1",
+    "title_listing": "Assessing the potential of deep learning for protein–ligand docking",
+    "date_listing": "2025-12-31",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01163-y",
+    "title_listing": "ImmunoStruct enables multimodal deep learning for immunogenicity prediction",
+    "date_listing": "2025-12-31",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01147-y",
+    "title_listing": "Versatile cardiovascular signal generation with a unified diffusion transformer",
+    "date_listing": "2025-12-29",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01150-3",
+    "title_listing": "Learning cell dynamics with neural differential equations",
+    "date_listing": "2025-12-18",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01115-6",
+    "title_listing": "A psychometric framework for evaluating and shaping personality traits in large language models",
+    "date_listing": "2025-12-18",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01151-2",
+    "title_listing": "Multimodal out-of-distribution individual uncertainty quantification enhances binding affinity prediction for polypharmacology",
+    "date_listing": "2025-12-18",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01156-x",
+    "title_listing": "Network-aware self-supervised learning enables high-content phenotypic screening for genetic modifiers of neuronal activity dynamics",
+    "date_listing": "2025-12-17",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01154-z",
+    "title_listing": "Deciphering RNA–ligand binding specificity with GerNA-Bind",
+    "date_listing": "2025-12-12",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01148-x",
+    "title_listing": "A multimodal cell-free RNA language model for liquid biopsy applications",
+    "date_listing": "2025-12-10",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01149-w",
+    "title_listing": "Actor–critic networks with analogue memristors mimicking reward-based learning",
+    "date_listing": "2025-12-09",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01135-2",
+    "title_listing": "Empowering artificial intelligence with homomorphic encryption for secure deep reinforcement learning",
+    "date_listing": "2025-12-01",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01122-7",
+    "title_listing": "Deep generative classification of blood cell morphology",
+    "date_listing": "2025-11-19",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01141-4",
+    "title_listing": "Reusability report: A distributed strategy for solving combinatorial optimization problems with hypergraph neural networks",
+    "date_listing": "2025-11-19",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01140-5",
+    "title_listing": "Pseudodata-based molecular structure generator to reveal unknown chemicals",
+    "date_listing": "2025-11-14",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01142-3",
+    "title_listing": "Convolutional architectures are cortex-aligned de novo",
+    "date_listing": "2025-11-13",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01143-2",
+    "title_listing": "Solving sparse finite element problems on neuromorphic hardware",
+    "date_listing": "2025-11-13",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01130-7",
+    "title_listing": "Emulating human-like adaptive vision for efficient and flexible machine visual perception",
+    "date_listing": "2025-11-06",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01137-0",
+    "title_listing": "Densing law of LLMs",
+    "date_listing": "2025-11-06",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01113-8",
+    "title_listing": "Language models cannot reliably distinguish belief from knowledge and fact",
+    "date_listing": "2025-11-03",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01136-1",
+    "title_listing": "An interaction-derived graph learning framework for scoring protein–peptide complexes",
+    "date_listing": "2025-10-23",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01119-2",
+    "title_listing": "Tailored structured peptide design with a key-cutting machine approach",
+    "date_listing": "2025-10-21",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01124-5",
+    "title_listing": "Resolving data bias improves generalization in binding affinity prediction",
+    "date_listing": "2025-10-21",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01111-w",
+    "title_listing": "Cooperative multi-view integration with a scalable and interpretable model explainer",
+    "date_listing": "2025-10-21",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01127-2",
+    "title_listing": "Single-unit activations confer inductive biases for emergent circuit solutions to cognitive tasks",
+    "date_listing": "2025-10-20",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01131-6",
+    "title_listing": "Predicting the conformational flexibility of antibody and T cell receptor complementarity-determining regions",
+    "date_listing": "2025-10-16",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01125-4",
+    "title_listing": "Flow matching for accelerated simulation of atomic transport in crystalline materials",
+    "date_listing": "2025-10-16",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01126-3",
+    "title_listing": "A neural symbolic model for space physics",
+    "date_listing": "2025-10-15",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01120-9",
+    "title_listing": "An adaptive autoregressive diffusion approach to design active humanized antibodies and nanobodies",
+    "date_listing": "2025-10-01",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01100-z",
+    "title_listing": "Efficient protein structure generation with sparse denoising models",
+    "date_listing": "2025-09-24",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01086-8",
+    "title_listing": "Error-controlled non-additive interaction discovery in machine learning models",
+    "date_listing": "2025-09-22",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01105-8",
+    "title_listing": "A multi-joint soft exosuit improves shoulder and elbow motor functions in individuals with spinal cord injury",
+    "date_listing": "2025-09-22",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01104-9",
+    "title_listing": "Modelling neural coding in the auditory midbrain with high resolution and accuracy",
+    "date_listing": "2025-09-18",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01082-y",
+    "title_listing": "Target-specific de novo design of drug candidate molecules with graph-transformer-based generative adversarial networks",
+    "date_listing": "2025-09-15",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01112-9",
+    "title_listing": "Sampling-enabled scalable manifold learning unveils the discriminative cluster structure of high-dimensional data",
+    "date_listing": "2025-09-10",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01107-6",
+    "title_listing": "Towards compute-efficient Byzantine-robust federated learning with fully homomorphic encryption",
+    "date_listing": "2025-09-08",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01096-6",
+    "title_listing": "Conditional generation of real antigen-specific T cell receptor sequences",
+    "date_listing": "2025-09-08",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01103-w",
+    "title_listing": "Accelerating protein engineering with fitness landscape modelling and reinforcement learning",
+    "date_listing": "2025-09-08",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01090-y",
+    "title_listing": "Brain–computer interface control with artificial intelligence copilots",
+    "date_listing": "2025-09-01",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01099-3",
+    "title_listing": "Rigorous integration of single-cell ATAC-seq data using regularized barycentric mapping",
+    "date_listing": "2025-08-26",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01097-5",
+    "title_listing": "Reusability report: Exploring the transferability of self-supervised learning models from single-cell to spatial transcriptomics",
+    "date_listing": "2025-08-21",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01095-7",
+    "title_listing": "Electron-density-informed effective and reliable de novo molecular design and optimization with ED2Mol",
+    "date_listing": "2025-08-20",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01089-5",
+    "title_listing": "Training data composition determines machine learning generalization and biological rule discovery",
+    "date_listing": "2025-08-20",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01098-4",
+    "title_listing": "A unified pre-trained deep learning framework for cross-task reaction performance prediction and synthesis planning",
+    "date_listing": "2025-08-19",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01088-6",
+    "title_listing": "Boosting the predictive power of protein representations with a corpus of text annotations",
+    "date_listing": "2025-08-18",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01091-x",
+    "title_listing": "Informed protein–ligand docking via geodesic guidance in translational, rotational and torsional spaces",
+    "date_listing": "2025-08-15",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01084-w",
+    "title_listing": "Mechanistic understanding and validation of large AI models with SemanticLens",
+    "date_listing": "2025-08-14",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01087-7",
+    "title_listing": "Kolmogorov–Arnold graph neural networks for molecular property prediction",
+    "date_listing": "2025-08-11",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01085-9",
+    "title_listing": "Deep learning-based prediction of the selection factors for quantifying selection in immune receptor repertoires",
+    "date_listing": "2025-08-11",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01072-0",
+    "title_listing": "High-level visual representations in the human brain are aligned with large language models",
+    "date_listing": "2025-08-07",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01074-y",
+    "title_listing": "Histopathology-based protein multiplex generation using deep learning",
+    "date_listing": "2025-08-04",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01077-9",
+    "title_listing": "Protein–peptide docking with a rational and accurate diffusion generative model",
+    "date_listing": "2025-08-04",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01078-8",
+    "title_listing": "A semantic-enhanced multi-modal remote sensing foundation model for Earth observation",
+    "date_listing": "2025-08-04",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01076-w",
+    "title_listing": "Type II mechanoreceptors and cuneate spiking neuronal network enable touch localization on a large-area e-skin",
+    "date_listing": "2025-08-04",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01083-x",
+    "title_listing": "Towards generalizable and interpretable three-dimensional tracking with inverse neural rendering",
+    "date_listing": "2025-08-04",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01062-2",
+    "title_listing": "Bioinspired trajectory modulation for effective slip control in robot manipulation",
+    "date_listing": "2025-07-22",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01067-x",
+    "title_listing": "Designing metamaterials with programmable nonlinear responses and geometric constraints in graph space",
+    "date_listing": "2025-07-22",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01063-1",
+    "title_listing": "Enhancing deep learning-based field reconstruction with a differentiable learning framework",
+    "date_listing": "2025-07-22",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01052-4",
+    "title_listing": "Integrating multimodal cancer data using deep latent variable path modelling",
+    "date_listing": "2025-07-22",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01069-9",
+    "title_listing": "Unifying multi-sample network inference from prior knowledge and omics data with CORNETO",
+    "date_listing": "2025-07-22",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01039-1",
+    "title_listing": "Combining grasping and rotation with a spherical robot hand mechanism",
+    "date_listing": "2025-07-21",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01064-0",
+    "title_listing": "Advancing biomolecular understanding and design following human instructions",
+    "date_listing": "2025-07-21",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01068-w",
+    "title_listing": "Machine learning modelling for multi-order human visual motion processing",
+    "date_listing": "2025-07-15",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01070-2",
+    "title_listing": "Deep-learning-aided dismantling of interdependent networks",
+    "date_listing": "2025-07-14",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01065-z",
+    "title_listing": "Learning to adapt through bio-inspired gait strategies for versatile quadruped locomotion",
+    "date_listing": "2025-07-11",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01073-z",
+    "title_listing": "Self-iterative multiple-instance learning enables the prediction of CD4+T cell immunogenic epitopes",
+    "date_listing": "2025-07-10",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01066-y",
+    "title_listing": "Large language models to accelerate organic chemistry synthesis",
+    "date_listing": "2025-07-01",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01054-2",
+    "title_listing": "Model-based reinforcement learning for ultrasound-driven autonomous microrobots",
+    "date_listing": "2025-06-26",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01056-0",
+    "title_listing": "End-to-end cryo-EM complex structure determination with high accuracy and ultra-fast speed",
+    "date_listing": "2025-06-24",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01046-2",
+    "title_listing": "Robust virtual staining of landmark organelles with Cytoland",
+    "date_listing": "2025-06-23",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01041-7",
+    "title_listing": "Dimensions underlying the representational alignment of deep neural networks with humans",
+    "date_listing": "2025-06-23",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01045-3",
+    "title_listing": "A process-centric manipulation taxonomy for the organization, classification and synthesis of tactile robot skills",
+    "date_listing": "2025-06-23",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01055-1",
+    "title_listing": "A framework to evaluate machine learning crystal stability predictions",
+    "date_listing": "2025-06-23",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01044-4",
+    "title_listing": "Generalized biological foundation model with unified nucleic acid and protein language",
+    "date_listing": "2025-06-18",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01059-x",
+    "title_listing": "Improving diffusion-based protein backbone generation with global-geometry-aware latent encoding",
+    "date_listing": "2025-06-18",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01040-8",
+    "title_listing": "Next-generation phenotyping of inherited retinal diseases from multimodal imaging with Eye2Gene",
+    "date_listing": "2025-06-18",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01042-6",
+    "title_listing": "Mask-prior-guided denoising diffusion improves inverse protein folding",
+    "date_listing": "2025-06-16",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01048-0",
+    "title_listing": "Learning vision-based agile flight via differentiable physics",
+    "date_listing": "2025-06-16",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01053-3",
+    "title_listing": "Embedding high-resolution touch across robotic hands enables adaptive human-like grasping",
+    "date_listing": "2025-06-09",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01049-z",
+    "title_listing": "Human-like object concept representations emerge naturally in multimodal large language models",
+    "date_listing": "2025-06-09",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01047-1",
+    "title_listing": "A multimodal conversational agent for DNA, RNA and protein tasks",
+    "date_listing": "2025-06-06",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01031-9",
+    "title_listing": "Advancing molecular machine learning representations with stereoelectronics-infused molecular graphs",
+    "date_listing": "2025-05-23",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01027-5",
+    "title_listing": "Deep spectral component filtering as a foundation model for spectral analysis demonstrated in metabolic profiling",
+    "date_listing": "2025-05-23",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01035-5",
+    "title_listing": "A personalized time-resolved 3D mesh generative model for unveiling normal heart dynamics",
+    "date_listing": "2025-05-19",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01029-3",
+    "title_listing": "Compositional pretraining improves computational efficiency and matches animal behaviour on complex tasks",
+    "date_listing": "2025-05-19",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01032-8",
+    "title_listing": "Bridging chemistry and artificial intelligence by a reaction description language",
+    "date_listing": "2025-05-13",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01030-w",
+    "title_listing": "Generating 3D small binding molecules using shape-conditioned diffusion models with guidance",
+    "date_listing": "2025-05-12",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01033-7",
+    "title_listing": "Lossless data compression by large models",
+    "date_listing": "2025-05-01",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01026-6",
+    "title_listing": "Machine learning prediction of enzyme optimum pH",
+    "date_listing": "2025-04-29",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01010-0",
+    "title_listing": "Optimal transport for generating transition states in chemical reactions",
+    "date_listing": "2025-04-23",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01025-7",
+    "title_listing": "Sparse and transferable three-dimensional dynamic vascular reconstruction for instantaneous diagnosis",
+    "date_listing": "2025-04-21",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01028-4",
+    "title_listing": "Transforming machines capable of continuous 3D shape morphing and locking",
+    "date_listing": "2025-04-18",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01018-6",
+    "title_listing": "Human-centred design and fabrication of a wearable multimodal visual assistance system",
+    "date_listing": "2025-04-14",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01009-7",
+    "title_listing": "A predictive machine learning force-field framework for liquid electrolyte development",
+    "date_listing": "2025-04-01",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01019-5",
+    "title_listing": "InstaNovo enables diffusion-powered de novo peptide sequencing in large-scale proteomics experiments",
+    "date_listing": "2025-03-31",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01011-z",
+    "title_listing": "A text-guided protein design framework",
+    "date_listing": "2025-03-27",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01016-8",
+    "title_listing": "A disease-specific language model for variant pathogenicity in cardiac and regulatory genomics",
+    "date_listing": "2025-03-24",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01001-1",
+    "title_listing": "Quantum circuit optimization with AlphaTensor",
+    "date_listing": "2025-03-20",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01005-x",
+    "title_listing": "Embodied large language models enable robots to complete complex tasks in unpredictable environments",
+    "date_listing": "2025-03-19",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01012-y",
+    "title_listing": "Active exploration and reconstruction of vascular networks using microrobot swarms",
+    "date_listing": "2025-03-19",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-00998-9",
+    "title_listing": "Towards unveiling sensitive and decisive patterns in explainable AI with a case study in geometric deep learning",
+    "date_listing": "2025-03-17",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01014-w",
+    "title_listing": "A comprehensive large-scale biomedical knowledge graph for AI-powered data-driven biomedical research",
+    "date_listing": "2025-03-17",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-00988-x",
+    "title_listing": "Synergy-based robotic quadruped leveraging passivity for natural intelligence and behavioural diversity",
+    "date_listing": "2025-03-17",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01000-2",
+    "title_listing": "Explainable AI reveals Clever Hans effects in unsupervised learning models",
+    "date_listing": "2025-03-17",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-00980-5",
+    "title_listing": "Fast, scale-adaptive and uncertainty-aware downscaling of Earth system model fields with generative machine learning",
+    "date_listing": "2025-03-13",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-00991-2",
+    "title_listing": "Data-driven federated learning in drug discovery with knowledge distillation",
+    "date_listing": "2025-03-05",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01002-0",
+    "title_listing": "A unified deep framework for peptide–major histocompatibility complex–T cell receptor binding prediction",
+    "date_listing": "2025-02-26",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01006-w",
+    "title_listing": "Teaching robots to build simulations of themselves",
+    "date_listing": "2025-02-25",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-00994-z",
+    "title_listing": "Large language models for scientific discovery in molecular property prediction",
+    "date_listing": "2025-02-25",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-01003-z",
+    "title_listing": "Scalable and robust DNA-based storage via coding theory and deep learning",
+    "date_listing": "2025-02-21",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-00995-y",
+    "title_listing": "Categorizing robots by performance fitness into the tree of robots",
+    "date_listing": "2025-02-21",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-00981-4",
+    "title_listing": "Goals as reward-producing programs",
+    "date_listing": "2025-02-21",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-00997-w",
+    "title_listing": "Deep lead optimization enveloped in protein pocket and its application in designing potent and selective ligands targeting LTK protein",
+    "date_listing": "2025-02-20",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-00986-z",
+    "title_listing": "Large language models that replace human participants can harmfully misportray and flatten identity groups",
+    "date_listing": "2025-02-17",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-00982-3",
+    "title_listing": "Image-based generation for molecule design with SketchMol",
+    "date_listing": "2025-02-13",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-00987-y",
+    "title_listing": "Towards a more inductive world for drug repurposing approaches",
+    "date_listing": "2025-02-13",
+    "article_type": "Analysis"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-00993-0",
+    "title_listing": "Benchmarking AI-powered docking methods from the perspective of virtual screening",
+    "date_listing": "2025-02-13",
+    "article_type": "Analysis"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-024-00978-5",
+    "title_listing": "Discovering fully semantic representations via centroid- and orientation-aware feature learning",
+    "date_listing": "2025-02-06",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-025-00983-2",
+    "title_listing": "Preserving and combining knowledge in robotic lifelong reinforcement learning",
+    "date_listing": "2025-02-05",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-024-00971-y",
+    "title_listing": "Deep learning enhances the prediction of HLA class I-presented CD8+T cell epitopes in foreign pathogens",
+    "date_listing": "2025-01-28",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-024-00973-w",
+    "title_listing": "A unified cross-attention model for predicting antigen binding specificity to both HLA and TCR molecules",
+    "date_listing": "2025-01-28",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-024-00975-8",
+    "title_listing": "Evolutionary optimization of model merging recipes",
+    "date_listing": "2025-01-27",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-024-00942-3",
+    "title_listing": "Moving towards genome-wide data integration for patient stratification with Integrate Any Omics",
+    "date_listing": "2025-01-23",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-024-00976-7",
+    "title_listing": "What large language models know and what people think they know",
+    "date_listing": "2025-01-21",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-024-00977-6",
+    "title_listing": "A quantitative analysis of knowledge-learning preferences in large language models in molecular science",
+    "date_listing": "2025-01-17",
+    "article_type": "Analysis"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-024-00966-9",
+    "title_listing": "A unified evolution-driven deep learning framework for virus variation driver prediction",
+    "date_listing": "2025-01-17",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-024-00974-9",
+    "title_listing": "A machine learning approach to leveraging electronic health records for enhanced omics analysis",
+    "date_listing": "2025-01-16",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-024-00972-x",
+    "title_listing": "Battery lifetime prediction across diverse ageing conditions with inter-cell deep learning",
+    "date_listing": "2025-01-15",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-024-00956-x",
+    "title_listing": "The design space of E(3)-equivariant atom-centred interatomic potentials",
+    "date_listing": "2025-01-15",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-024-00963-y",
+    "title_listing": "Visual cognition in multimodal large language models",
+    "date_listing": "2025-01-15",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-024-00964-x",
+    "title_listing": "Causal chambers as a real-world physical testbed for AI methodology",
+    "date_listing": "2025-01-15",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-024-00965-w",
+    "title_listing": "Exploring scalable medical image encoders beyond text supervision",
+    "date_listing": "2025-01-13",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-024-00969-6",
+    "title_listing": "Investigating machine moral judgement through the Delphi experiment",
+    "date_listing": "2025-01-13",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-024-00960-1",
+    "title_listing": "Towards highly sensitive deep learning-based end-to-end database search for tandem mass spectrometry",
+    "date_listing": "2025-01-06",
+    "article_type": "Article"
+  },
+  {
+    "url": "https://www.nature.com/articles/s42256-024-00958-9",
+    "title_listing": "Reusability report: Deep learning-based analysis of images and spectroscopy data with AtomAI",
+    "date_listing": "2025-01-02",
+    "article_type": "Article"
+  }
+]

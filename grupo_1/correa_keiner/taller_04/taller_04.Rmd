@@ -1,0 +1,110 @@
+---
+title: "Taller C6"
+author: "Keiner Correa"
+date: "2026-04-28"
+output: html_document
+---
+
+### Ejercicio 1: clasificación de tipos de datos
+
+Para cada fuente de datos, indique: (a) si es estructurada, semi-estructurada o no estructurada; (b) la razón; (c) el paso de preprocesamiento mínimo para convertirla en un tibble analizable.
+
+1.  Microdatos GEIH del DANE (archivo `.csv` de 300.000 filas)
+
+El tipo de los datos es estructurada porque viene de un archivo .csv un formato tabular.
+
+Para procesar los datos :
+
+-   Leer el CSV (read_csv)
+
+-   Verificar tipos de variables
+
+-   Verificar NA
+
+-   Convertir a tibble
+
+2.  Respuesta JSON de la API pública `datos.gov.co` con indicadores de calidad del aire
+
+Los datos son semi-estructurados porque vienen de un JSON, un formato con jerárquias.
+
+Procesamiento:
+
+-   Parsear JSON (fromJSON)
+
+-   Aplanar estructura (flatten)
+
+-   Convertir a data frame/tibble
+
+3.  Grabaciones de audio de audiencias judiciales de la Rama Judicial
+
+4.  Factura electrónica emitida por la DIAN (formato XML)
+
+5.  Tabla HTML de Wikipedia scrapeada con `rvest` en las clases 2–3
+
+### Ejercicio 2:
+
+Datos
+
+```{r}
+#| message: false
+#| warning: false
+library(jsonlite); library(dplyr); library(tibble)
+url  <- "https://jsonplaceholder.typicode.com/users"
+raw  <- fromJSON(url)
+```
+
+1.  Explore la estructura con `str(raw)`. ¿Qué columnas son listas anidadas?
+
+    ```{r}
+    str(raw)
+    ```
+
+    Las columnas `address` y `company` son listas anidadas porque tienen información en forma jerárquica. Ademas, en la columna de `address` se encuentra otra lista anidada `geo`conteniendo otros niveles jerárquicos.
+
+2.  Aplane el objeto a un tibble con una fila por usuario, extrayendo al menos: `name`, `email`, `address.city`, `address.geo.lat`, `address.geo.lng` y `company.name`.
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+raw %>%
+  unnest_wider(address) %>%
+  unnest_wider(geo, names_sep = "_") %>%
+  unnest_wider(company, names_sep = "_") %>%
+  select(name, email, city, geo_lat, geo_lng, company_name)
+
+
+```
+
+3.  ¿Qué tipo de dato es esta fuente? ¿Por qué `fromJSON` no produce directamente un tibble plano?
+
+Es un dato semi-estructurado ya que proviene de un formato JSON y estaba organizado de forma jerárquica.
+
+La función fromJSON no lo convierte directamente en un tibble plano porque mantiene esas estructuras anidadas, por lo que se requiere aplanarlas posteriormente.
+
+### Ejercicio 3:
+
+Con titanic.csv y las variables age, fare, sibsp, parch (elimine NA):
+
+```{r}
+#| message: false
+#| warning: false
+library(readr)
+
+df <- read_csv("https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv")
+df1 <-df %>% select(Age, Fare,SibSp,Parch)
+df1 <- df1[!is.na(df1$Age),]
+```
+
+1.  Construya $X$ centrada y escalada con scale(). Reporte sus dimensiones y la memoria que ocupa.
+
+```{r}
+
+X <- df1 - colMeans(df1);head(X)
+Xs <- scale(X)
+head(Xs)
+dim(Xs)
+object.size(Xs)
+```
+
+La matriz $X$ escalada tiene dimensiones 714 x 4, y ocupa 24760 bytes en la memoria.

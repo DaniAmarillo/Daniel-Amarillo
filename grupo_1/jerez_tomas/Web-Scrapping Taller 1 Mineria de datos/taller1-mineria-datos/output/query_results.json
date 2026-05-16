@@ -1,0 +1,119 @@
+{
+  "Q1_promedio_autores_por_paper": {
+    "sql": "SELECT ROUND(AVG(n_authors), 2) AS promedio_autores\n        FROM papers;",
+    "result": [
+      {
+        "promedio_autores": 8.93
+      }
+    ]
+  },
+  "Q2_articulos_machine_learning": {
+    "sql": "SELECT COUNT(*) AS n_papers_ML\n        FROM papers\n        WHERE topic_label = 'Machine Learning';",
+    "result": [
+      {
+        "n_papers_ML": 86
+      }
+    ]
+  },
+  "Q3_articulos_ia_generativa": {
+    "sql": "SELECT COUNT(*) AS n_papers_IAGen\n        FROM papers\n        WHERE topic_label = 'IA Generativa';",
+    "result": [
+      {
+        "n_papers_IAGen": 40
+      }
+    ]
+  },
+  "Q4_articulos_estadistica_otros": {
+    "sql": "SELECT topic_label, COUNT(*) AS n_papers\n        FROM papers\n        WHERE topic_label IN ('Estadística', 'Otros')\n        GROUP BY topic_label\n        ORDER BY n_papers DESC;",
+    "result": [
+      {
+        "topic_label": "Otros",
+        "n_papers": 12
+      }
+    ]
+  },
+  "Q5_total_descargas_2025": {
+    "sql": "SELECT SUM(downloads) AS total_descargas\n        FROM papers\n        WHERE year = 2025\n          AND downloads IS NOT NULL;",
+    "result": [
+      {
+        "total_descargas": 2038028
+      }
+    ]
+  },
+  "Q6_promedio_referencias_por_paper": {
+    "sql": "SELECT ROUND(AVG(n_references), 2) AS promedio_referencias\n        FROM papers\n        WHERE n_references > 0;",
+    "result": [
+      {
+        "promedio_referencias": 66.16
+      }
+    ]
+  },
+  "Q7_referencia_mas_repetida": {
+    "sql": "SELECT r.reference_text AS referencia,\n               COUNT(*)        AS veces_citada\n        FROM paper_refs pr\n        JOIN refs r ON r.reference_id = pr.reference_id\n        GROUP BY r.reference_id\n        ORDER BY veces_citada DESC\n        LIMIT 5;",
+    "result": [
+      {
+        "referencia": "Lin, Z. et al. Evolutionary-scale prediction of atomic-level protein structure with a language model. Science 379 , 1123–1130 (2023).",
+        "veces_citada": 18
+      },
+      {
+        "referencia": "Jumper, J. et al. Highly accurate protein structure prediction with AlphaFold. Nature 596 , 583–589 (2021).",
+        "veces_citada": 17
+      },
+      {
+        "referencia": "Abramson, J. et al. Accurate structure prediction of biomolecular interactions with AlphaFold 3. Nature 630 , 493–500 (2024).",
+        "veces_citada": 13
+      },
+      {
+        "referencia": "Baek, M. et al. Accurate prediction of protein structures and interactions using a three-track neural network. Science 373 , 871–876 (2021).",
+        "veces_citada": 8
+      },
+      {
+        "referencia": "Kaplan, J. et al. Scaling laws for neural language models. Preprint at https://arxiv.org/abs/2001.08361 (2020).",
+        "veces_citada": 8
+      }
+    ]
+  },
+  "Q8_promedio_citas_por_paper": {
+    "sql": "SELECT ROUND(AVG(citations), 2) AS promedio_citas,\n               COUNT(*)                  AS papers_con_dato\n        FROM papers\n        WHERE citations IS NOT NULL;",
+    "result": [
+      {
+        "promedio_citas": 19.63,
+        "papers_con_dato": 133
+      }
+    ]
+  },
+  "Q9_paper_mas_citado": {
+    "sql": "SELECT title, doi, citations, downloads, topic_label\n        FROM papers\n        WHERE citations IS NOT NULL\n        ORDER BY citations DESC\n        LIMIT 1;",
+    "result": [
+      {
+        "title": "The design space of E(3)-equivariant atom-centred interatomic potentials",
+        "doi": "10.1038/s42256-024-00956-x",
+        "citations": 193,
+        "downloads": 26000,
+        "topic_label": "Machine Learning"
+      }
+    ]
+  },
+  "Q10_paper_topico_mas_citado": {
+    "sql": "SELECT title, doi, citations, topic_label\n        FROM papers\n        WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')\n          AND citations IS NOT NULL\n        ORDER BY citations DESC\n        LIMIT 1;",
+    "result": [
+      {
+        "title": "The design space of E(3)-equivariant atom-centred interatomic potentials",
+        "doi": "10.1038/s42256-024-00956-x",
+        "citations": 193,
+        "topic_label": "Machine Learning"
+      }
+    ]
+  },
+  "Q11_paper_topico_mas_descargado": {
+    "sql": "SELECT title, doi, downloads, topic_label\n        FROM papers\n        WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')\n          AND downloads IS NOT NULL\n        ORDER BY downloads DESC\n        LIMIT 1;",
+    "result": [
+      {
+        "title": "What large language models know and what people think they know",
+        "doi": "10.1038/s42256-024-00976-7",
+        "downloads": 79000,
+        "topic_label": "IA Generativa"
+      }
+    ]
+  }
+}

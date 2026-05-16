@@ -1,0 +1,417 @@
+---
+title: "Taller 1 - Minería de Datos"
+author: "Daniela Roncancio Gomez"
+date: "`r Sys.Date()`"
+format: 
+  html:
+    toc: true
+    number-sections: true
+    theme: cosmo
+    code-fold: true
+---
+
+# Descripción de la Fase 1: Recolección de Datos
+
+En esta etapa se obtiene información de los artículos publicados en el año 2025 en la revista científica Machine Learning and Knowledge Extraction MAKE (https://www.mdpi.com/2504-4990/7/4). Esta es una revista de acceso abierto, que cubre investigaciones en áreas como el aprendizaje automático, la extracción de conocimiento y otras relacionadas con la inteligencia artificial basada en datos.
+
+Para el desarrollo de esta fase, se seleccionó el **Volumen 7**, el cual contiene un total de **61 artículos**. A partir de estos artículos, se recolectó la siguiente información:
+
+- Título de la revista
+- Título del artículo
+- Fecha de publicación
+- Año
+- DOI  
+- URL del artículo  
+- Autores  
+- Resumen  
+- Número de visualizaciones  
+- Número de páginas
+- Número de citas
+- Número de referencias
+- Referencias
+
+Nota: Como no se cuenta con la variable "Descargas" se hará uso de el "Número de visualizaciones" en su defecto.
+
+La revista seleccionada esta clasificada como Q1, tiene disponibles en la web los artículos publicados en 2025 y permitió extraer al menos parcialmente los metadatos de los artículos, y mostrar públicamente informción suficiente para responder la mayoría de las preguntas.
+
+```{r setup, message=FALSE, warning=FALSE}
+paquetes <- c("rvest", "xml2", "dplyr", "stringr", "purrr",
+              "janitor", "readr", "knitr", "DBI", "RSQLite")
+
+instalados <- rownames(installed.packages())
+pendientes <- setdiff(paquetes, instalados)
+if (length(pendientes) > 0) install.packages(pendientes)
+invisible(lapply(paquetes, library, character.only = TRUE))
+```
+
+Inicialmente, se establece la conexión con la página web de la revista para verificar que los artículos del número seleccionado sean detectados correctamente antes de proceder con la extracción sistemática de la información.
+
+```{r}
+
+# Prueba con la página del issue completo
+pagina <- read_html_live("https://www.mdpi.com/2504-4990/7/4")
+Sys.sleep(3)
+
+# Ver cuántos artículos encuentra
+pagina %>% html_elements("div.generic-item.article-item") %>% length()
+```
+Al ejecutarlo, se verificó que el número seleccionado — volumen 7, número 4 (diciembre 2025) de Machine Learning and Knowledge Extraction — contiene un total de 61 artículos disponibles para su extracción.
+
+Posteriormente, se define y ejecuta el proceso de extracción sistemática de la información. A partir de los 61 nodos identificados, se construye una función que recorre cada artículo y extrae los campos de interés: título, autores, fecha de publicación, DOI, URL, y número de visualizaciones, organizando esta información en una tabla, y al aplicarla sobre todos los nodos se obtiene un dataframe consolidado con los 61 artículos.
+
+```{r}
+pagina <- read_html_live("https://www.mdpi.com/2504-4990/7/4")
+Sys.sleep(3)
+
+nodos <- pagina %>% html_elements("div.generic-item.article-item")
+
+# ------ FUNCIÓN PARA EXTRAER INFO DE CADA NODO ----
+extraer_articulo <- function(nodo) {
+  titulo  <- nodo %>% html_element("a.title-link")           %>% html_text2()
+  autores <- nodo %>% html_elements("div.authors strong")    %>% html_text2() %>% paste(collapse = "; ")
+  fecha   <- nodo %>% html_element("div.color-grey-dark")    %>% html_text2() %>% str_extract("\\d{1,2} \\w+ \\d{4}")
+  doi     <- nodo %>% html_element("a[href*='doi.org']")     %>% html_attr("href") %>% str_remove("https://doi.org/")
+  art_url <- nodo %>% html_element("a.title-link")           %>% html_attr("href") %>% paste0("https://www.mdpi.com", .)
+  views   <- nodo %>% html_text2()                           %>% str_extract("Viewed by ([\\d,]+)", group = 1) %>% str_remove_all(",") %>% as.integer()
+  
+  tibble(
+    journal_name     = "Machine Learning and Knowledge Extraction",
+    title            = titulo,
+    authors_raw      = autores,
+    publication_date = fecha,
+    year             = 2025L,
+    doi              = doi,
+    url              = art_url,
+    views            = views
+  )
+}
+
+articles <- map_dfr(nodos, extraer_articulo)
+articles
+
+```
+
+Después de esto, se extrajo el resumen de cada artículo accediendo individualmente a su URL.
+
+```{r}
+extraer_detalle <- function(url) {
+  Sys.sleep(1)
+  
+  pagina <- GET(url, add_headers(
+    "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  )) %>% content("text") %>% read_html()
+  
+  abstract <- pagina %>%
+    html_element("div.art-abstract.art-abstract-new") %>%
+    html_text2() %>%
+    str_remove("^Abstract\\s*")
+  
+  tibble(abstract = abstract)
+}
+
+extraer_detalle_seguro <- purrr::possibly(extraer_detalle,
+                                           otherwise = tibble(abstract = NA_character_))
+
+cat("Extrayendo abstracts...\n")
+detalles <- map_dfr(articles$url, function(url) {
+  cat(".")
+  extraer_detalle_seguro(url)
+})
+cat("\nAbstracts extraídos:", sum(!is.na(detalles$abstract)), "\n")
+
+detalles
+```
+
+
+Para complementar la información bibliométrica, se consultaron dos APIs externas: Semantic Scholar, para obtener el conteo de citas y referencias de cada artículo, y CrossRef, para extraer el texto completo de las referencias.
+
+```{r}
+# ---- 4. CITAS Y REFERENCIAS ----
+# Semantic Scholar: citas y conteo de referencias
+# CrossRef: texto de las referencias
+
+# --- 4.1 Semantic Scholar: citationCount y referenceCount ---
+extraer_ss <- function(doi) {
+  Sys.sleep(1)
+  
+  url_ss <- paste0("https://api.semanticscholar.org/graph/v1/paper/DOI:",
+                   doi, "?fields=citationCount,referenceCount")
+  
+  respuesta <- tryCatch(
+    GET(url_ss, add_headers("User-Agent" = "Mozilla/5.0")),
+    error = function(e) NULL
+  )
+  
+  if (is.null(respuesta)) return(tibble(citations = NA_integer_, n_references = NA_integer_))
+  
+  datos <- content(respuesta, "parsed")
+  
+  tibble(
+    citations    = datos$citationCount  %||% NA_integer_,
+    n_references = datos$referenceCount %||% NA_integer_
+  )
+}
+
+cat("\nConsultando Semantic Scholar...\n")
+ss_data <- map_dfr(articles$doi, function(doi) {
+  cat(".")
+  extraer_ss(doi)
+})
+
+# --- 4.2 CrossRef: texto de referencias ---
+extraer_referencias_cr <- function(doi) {
+  Sys.sleep(1)
+  
+  url_cr <- paste0("https://api.crossref.org/works/", doi)
+  
+  respuesta <- tryCatch(
+    GET(url_cr, add_headers("User-Agent" = "Mozilla/5.0")),
+    error = function(e) NULL
+  )
+  
+  if (is.null(respuesta)) return(NULL)
+  
+  datos <- content(respuesta, "parsed")
+  refs  <- datos$message$reference
+  
+  if (is.null(refs)) return(NULL)
+  
+  map_dfr(refs, function(ref) {
+    tibble(
+      doi_paper         = doi,
+      reference_key     = ref$key             %||% NA_character_,
+      reference_text    = ref$unstructured    %||% NA_character_,
+      reference_doi     = ref$DOI             %||% NA_character_,
+      reference_title   = ref$`article-title` %||% NA_character_,
+      reference_author  = ref$author          %||% NA_character_,
+      reference_year    = ref$year            %||% NA_character_,
+      reference_journal = ref$`journal-title` %||% NA_character_
+    )
+  })
+}
+
+cat("\nExtrayendo referencias de CrossRef...\n")
+all_references <- map_dfr(articles$doi, function(doi) {
+  cat(".")
+  extraer_referencias_cr(doi)
+})
+
+cat("\nTotal referencias extraídas:", nrow(all_references), "\n")
+all_references %>% head(5)
+```
+
+Adicionalmente, Los artículos se categorizaron en tres grupos: Estadística, IA Generativa y Machine Learning, aplicando las reglas en ese orden de prioridad, de modo que los no clasificados quedaron agrupados como Otros.
+
+
+```{r}
+papers <- bind_cols(articles, detalles, ss_data) %>%
+  mutate(
+    paper_id  = row_number(),
+    n_authors = str_count(authors_raw, ";") + 1,
+    downloads = NA_integer_, # MDPI no reporta descargas
+    topic_label = case_when(
+      str_detect(title, regex(
+        "statistic|regression|bayesian|probabilistic|inference|distribution|forecasting|time series|anomaly",
+        ignore_case = TRUE)) ~ "Estadística",
+      str_detect(title, regex(
+        "generat|llm|gpt|large language|diffusion|transformer|chatgpt|foundational model|language model|zero.shot|finetuned",
+        ignore_case = TRUE)) ~ "IA Generativa",
+      str_detect(title, regex(
+        "machine learn|deep learn|neural|classif|predict|random forest|svm|gradient|reinforcement|clustering|convolutional|lstm|attention|autoencoder|segmentation|detection|recognition|transfer learn|semi.supervis|unsupervis|few.shot|federated|topic model|knowledge|fault|fusion|explainable|trustworthy|data.driven|soundscape|systematic review|multi.view|hypergraph",
+        ignore_case = TRUE)) ~ "Machine Learning",
+      TRUE ~ "Otros"
+    )
+  ) %>%
+  select(paper_id, journal_name, title, publication_date, year,
+         doi, url, abstract, authors_raw, n_authors,
+         citations, downloads, views, n_references, topic_label)
+
+cat("\n=== CLASIFICACIÓN TEMÁTICA ===\n")
+print(papers %>% count(topic_label))
+```
+
+Como se observa todos los artículos fueron clasificados en alguna de las tres categorías, luego no hay ninguno que pertenezca a "Otros".
+
+Finalmente, se consolida la base de datos en una base de datos SQLite y se ejecuta cinco consultas para verificar cuántos artículos tienen abstract, visualizaciones, citas y referencias disponibles.
+
+```{r}
+# ---- 6. GUARDAR EN SQLITE ----
+con <- dbConnect(SQLite(), "make_q1_2025.sqlite")
+
+# Tablas principales
+dbWriteTable(con, "papers",           papers,           overwrite = TRUE)
+dbWriteTable(con, "references",       all_references,   overwrite = TRUE)
+
+# Validación
+cat("\n=== VALIDACIÓN FINAL ===\n")
+cat("Total artículos:      ", dbGetQuery(con, "SELECT COUNT(*) FROM papers")[[1]], "\n")
+cat("Con abstract:         ", dbGetQuery(con, "SELECT COUNT(*) FROM papers WHERE abstract IS NOT NULL")[[1]], "\n")
+cat("Con visualizaciones:  ", dbGetQuery(con, "SELECT COUNT(*) FROM papers WHERE views IS NOT NULL")[[1]], "\n")
+cat("Con citas:            ", dbGetQuery(con, "SELECT COUNT(*) FROM papers WHERE citations IS NOT NULL")[[1]], "\n")
+cat("Con referencias:      ", dbGetQuery(con, "SELECT COUNT(*) FROM papers WHERE n_references IS NOT NULL")[[1]], "\n")
+cat("Total referencias:    ", dbGetQuery(con, "SELECT COUNT(*) FROM 'references'")[[1]], "\n")
+
+dbDisconnect(con)
+cat("\nBase de datos guardada: make_q1_2025.sqlite ✅\n")
+```
+
+# Descripción de la Fase 2: Consultas SQL
+
+En esta etapa se responderá a cada una de la preguntas solicitadas en la sección 5 del pdf
+
+1. ¿Cúal es el número promedio de autores por paper?
+
+```{r}
+con <- dbConnect(SQLite(), "make_q1_2025.sqlite")
+
+dbGetQuery(con, "
+  SELECT ROUND(AVG(n_authors), 2) AS promedio_autores
+  FROM papers
+")
+```
+
+Luego, se tiene que el número promedio de autores por paper es de 3.82, lo que indica que la mayoría de artículos publicados son de autoria colaborativa, con equipos de aproximadamente 4 integrantes. 
+
+# 2. ¿Cuántos artículos están relacionados con Machine Learning?
+
+```{r}
+dbGetQuery(con, "
+  SELECT COUNT(*) AS n_machine_learning
+  FROM papers
+  WHERE topic_label = 'Machine Learning'
+")
+```
+
+De los 61 artículos extraídos de este volumen, 42 corresponden a Machine Learning. Lo que representa aproximadamente el 69% del total. Esto es de esperarse ya que el título de la revista es Machine Learning and Knowledge Extraction, y por ende, el tema predominante es Machine Learning.
+
+3. ¿Cúantos artículos están relacionados con IA Generativa?
+
+
+```{r}
+dbGetQuery(con, "
+  SELECT COUNT(*) AS n_ia_generativa
+  FROM papers
+  WHERE topic_label = 'IA Generativa'
+")
+```
+
+De los 61 artículos extraídos de este volumen, 12 corresponden a IA Generativa. Lo que representa aproximadamente el 20% del total, posicionando esta temática como la segunda con más frecuencia e interés en ser investigada.
+
+# 4. ¿Cuántos artículos están relacionados con otros temas estadísticos?
+
+```{r}
+dbGetQuery(con, "
+  SELECT COUNT(*) AS n_estadistica
+  FROM papers
+  WHERE topic_label = 'Estadística'
+")
+```
+
+
+SOlo 7 artículos pertenecen a temas estadísticos, representando aproximadamente el 11% del total. A pesar de ser la temática menos investigada  su presencia indica que los métodos estadísticos siguen teniendo relevancia en la revista y son una herramienta poderosa que complementar los enfoques ya anteriormente mencionados.
+
+# 5. ¿Cuál es el número total de visualizaciones de los artículos publicados en 2025?
+
+```{r}
+dbGetQuery(con, "
+  SELECT SUM(views) AS total_visualizaciones
+  FROM papers
+  WHERE year = 2025
+")
+```
+
+Los 61 artículos publicados en 2025 acumularon un total de 122,178 visualizaciones, lo que refleja un alto nivel de interés y difusión del contenido de este número de la revista.
+
+# 6. ¿Cuál es el número promedio de referencias por artículo?
+
+```{r}
+dbGetQuery(con, "
+  SELECT ROUND(AVG(n_references), 2) AS promedio_referencias
+  FROM papers
+")
+```
+
+El promedio de referencias por artículo es de 49.07, lo que indica que los trabajos publicados en este número están respaldados por una base bibliográfica sólida y extensa. 
+
+# 7. ¿Cúal es la referencia que más se repite entre todos los artículos?
+
+```{r}
+dbGetQuery(con, "
+  SELECT reference_title, COUNT(*) AS frecuencia
+  FROM 'references'
+  WHERE reference_title IS NOT NULL
+  GROUP BY reference_title
+  ORDER BY frecuencia DESC
+  LIMIT 1
+")
+```
+
+La referencia más citada entre todos los artículos es "Random Forests", appareceindo en 3 artículos del número analizado. Su presencia como la referencia más frecuente es consistente con el predominio del Machine Learning en este número, dado que este algortimo es muy útil y es usado en aprendizaje automático.
+
+8. ¿Cúal es el promedio de citas por artículo?
+
+```{r}
+dbGetQuery(con, "
+  SELECT ROUND(AVG(citations), 2) AS promedio_citas
+  FROM papers
+")
+```
+
+El promedio de citas por artículo es de 0.98, lo que indica que en general los artículos tienen menos de una cita en promedio. Esto se da a que el número analizado corresponde a diciembre de 2025, lo que significa que los artículos son recientes y aún no han tenido suficiente tiempo para acumular citas en la literatura o investigación científica. 
+
+
+9. ¿Cúal es el paper con más citas?
+
+```{r}
+dbGetQuery(con, "
+  SELECT title, citations
+  FROM papers
+  ORDER BY citations DESC
+  LIMIT 1
+")
+```
+
+El artículo "Attention-Guided Differentiable Channel Pruning for Efficient Deep Networks" es el más citado del número analizado con 5 citas, lo que lo distingue del resto dado que el promedio general es de apenas 0.98 citas por artículo. Su ventaja sobre los demás confirma su relevancia en la comunidad, particularmente en el área de optimización de redes neuronales profundas.
+
+
+
+```{r}
+dbGetQuery(con, "
+  SELECT title, topic_label, citations
+  FROM papers
+  WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+  ORDER BY citations DESC
+  LIMIT 1
+")
+```
+
+El artículo con más citas dentro de las categorías temáticas analizadas es "Attention-Guided Differentiable Channel Pruning for Efficient Deep Networks", clasificado en Machine Learning con 5 citas, confirmando su relevancia e impacto en la comunidad científica.
+
+11. ¿Cúal es el paper relacionado con machine learning, IA generativa o Estadística con más visualizaciones?
+
+```{r}
+dbGetQuery(con, "
+  SELECT title, topic_label, views
+  FROM papers
+  WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+  ORDER BY views DESC
+  LIMIT 1
+")
+```
+
+El artículo con más visualizaciones es "AI-Enabled IoT Intrusion Detection: Unified Conceptual Framework and Research Roadmap", también clasificado en Machine Learning con 7.828 visualizaciones, lo que refleja un alto interés de la comunidad en la inteligencia artificial.
+
+# Descripción de la Fase 3: Hallazgos
+
+El análisis de los 61 artículos publicados en el Vol. 7, Issue 4 (diciembre 2025) de la revista Machine Learning and Knowledge Extraction revela un claro predominio del Machine Learning como tema principal, esto se debe mayormente a la naturaleza de la revista, siendo esta la categoría con mayor representación con el 69% de los artículos (42 de 61). En el segundo lugar, se tienen 12 artículos de IA Generativa que representan el 20% ,y por último, solo el 11% (7 artículos) relacionan temas estadísticos en sus investigaciones.
+
+En términos de impacto, los 61 artículos acumularon 119.926 visualizaciones totales, con un promedio de 49,07 referencias por artículo, lo que evidencia una base bibliográfica sólida. El artículo más citado fue "Attention-Guided Differentiable Channel Pruning for Efficient Deep Networks" con 5 citas, mientras que el más visto fue "AI-Enabled IoT Intrusion Detection: Unified Conceptual Framework and Research Roadmap" con 7.828 visualizaciones. Por otro lado, el promedio de citas no es de nisiquiera 1, esto se puede deber a que este volumen es reciente y que su contenido no se ha difundido lo suficiente. La referencia más compartida entre artículos fue "Random Forests", apareciendo en 3 trabajos distintos, lo cual hace parte del aprendizaje autómatico clásico.
+
+# Descripción de la Fase 4: Limitaciones
+
+Durante el desarrollo del taller se identificaron las siguientes limitaciones. Primero, MDPI carga los artículos de forma dinámica mediante JavaScript, lo que impidió usar read_html() directamente sobre la página del listado. Esto se resolvió con read_html_live(), que ejecuta el JavaScript del navegador. Segundo, las variables citations y n_references no están disponibles en el HTML estático de MDPI, por lo que se complementaron con la API pública de Semantic Scholar. Sin embargo, un artículo no fue encontrado en dicha API, quedando con valores NULL. Tercero, el texto detallado de las referencias tampoco está disponible en el HTML estático ni en Semantic Scholar (el publisher bloqueó ese campo); se recurrió a la API de CrossRef para obtenerlo, aunque algunos campos como reference_text aparecen como NULL cuando la referencia solo tiene DOI. Cuarto, MDPI no reporta descargas directamente; se utilizaron las visualizaciones (views) como métrica equivalente de impacto. Finalmente, la clasificación temática se realizó mediante palabras clave en el título, lo que puede generar clasificaciones incorrectas en artículos con títulos ambiguos.
+
+# Descripción de la Fase 5: Conclusiones
+
+Este taller permitió aplicar de forma práctica las principales etapas de recolección de datos en un proceso de minería de datos: selección de fuente, extracción mediante web scraping, almacenamiento estructurado y consulta analítica. La revista Machine Learning and Knowledge Extraction de MDPI resultó ser una fuente rica y accesible, aunque con algunas restricciones técnicas mencionadas anteriormente. El ejercicio evidenció que las decisiones tomadas en la etapa de recolección (qué métricas obtener, cómo manejar datos faltantes, qué fuentes complementar) influyen directamente la calidad del análisis posterior. Los resultados muestran que el Machine Learning sigue siendo el tema dominante en la revista, con una comunidad activa y un creciente interés en la IA Generativa.
+
