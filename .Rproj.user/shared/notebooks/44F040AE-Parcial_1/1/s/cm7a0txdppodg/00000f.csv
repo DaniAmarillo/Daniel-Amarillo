@@ -1,0 +1,11 @@
+"0",""
+"0","# Prueba con la página del issue completo"
+"0","pagina <- read_html_live(""https://www.mdpi.com/2504-4990/7/4"")"
+"0",""
+"0","# Esperar a que cargue el JavaScript"
+"0","Sys.sleep(3)"
+"0",""
+"0","# Ver cuántos artículos encuentra"
+"0","pagina %>% html_elements(""div.generic-item.article-item"") %>% length()"
+"1","[1] 61
+"

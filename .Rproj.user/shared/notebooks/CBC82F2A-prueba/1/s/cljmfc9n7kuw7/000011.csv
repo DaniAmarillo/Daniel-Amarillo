@@ -1,0 +1,6 @@
+"0","con <- dbConnect(SQLite(), ""make_q1_2025.sqlite"")"
+"0",""
+"0","dbGetQuery(con, """
+"0","  SELECT ROUND(AVG(n_authors), 2) AS promedio_autores"
+"0","  FROM papers"
+"0",""")"
