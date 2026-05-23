@@ -1,0 +1,199 @@
+---
+title: "Taller clase 9"
+output: html_document
+date: "2026-05-8"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+1. Descripción del Dataset
+El conjunto de datos simula el rendimiento académico de r nrow(estudiantes) estudiantes
+.
+Variables: id (identificador), programa (académico), semestre, sexo, nota_final, horas_sem (estudio) y beca
+.
+Tipos: Contiene variables categóricas (programa, sexo, beca) y numéricas (semestre, nota_final, horas_sem)
+.
+Valores faltantes: El dataset no presenta valores NA en ninguna de sus columnas.
+
+
+2. Análisis de Normalidad
+Evaluamos si la nota_final sigue una distribución normal en cada programa mediante la prueba de Shapiro-Wilk
+
+```{r}
+library(tidyverse)
+library(tibble)
+library(dplyr)
+library(ggplot2)
+set.seed(2025)
+
+n <- 400
+estudiantes <- tibble(
+  id         = 1:n,
+  programa   = sample(c("Estadística","Sistemas","Economía","Matemáticas"),
+                      n, replace = TRUE, prob = c(.3,.3,.25,.15)),
+  semestre   = sample(1:10, n, replace = TRUE),
+  sexo       = sample(c("Mujer","Hombre"), n, replace = TRUE),
+  nota_final = round(rnorm(n, mean = 3.5, sd = 0.7), 1) |> pmin(5) |> pmax(0),
+  horas_sem  = round(rnorm(n, mean = 18, sd = 5)),
+  beca       = sample(c("Sí","No"), n, replace = TRUE, prob = c(.3,.7))
+)
+```
+```{r}
+
+estudiantes |>
+  group_by(programa) |>
+  summarise(
+    W       = shapiro.test(nota_final)$statistic,
+    p_valor = shapiro.test(nota_final)$p.value)
+```
+#Ninguna se rechaza ya que todos son mayores a 0,05
+```{r}
+
+# Generar QQ-plot para el programa con p-valor más bajo (Matemáticas)
+estudiantes |> 
+  filter(programa == "Matemáticas") |> 
+  ggplot(aes(sample = nota_final)) +
+  stat_qq() + 
+  stat_qq_line(color = "firebrick") +
+  labs(
+    title = "QQ-Plot: Distribución de Notas en Matemáticas",
+    subtitle = "Comparación contra una distribución normal teórica",
+    x = "Cuantiles Teóricos",
+    y = "Cuantiles Observados"
+  ) +
+  theme_minimal()
+```
+Tiene colas pesadas, a pesar de tener un p-valor mayor a 0.05 y no rechazar la hipotesis de normalidad, en el contexto de las notas, parece haber algunos estudiantes con notas mayores que le dan peso a los extremos.
+
+Aunque la prueba de shapiro wilk, nos da valores en la normalidad, al tener un p-valor bajo, y colas pesadas las pruebas que hipotesis dejan de ser confiables y se tendría que ver metodos no parametricos o transformaciones de los datos para poder aplicar pruebas de hipotesis de una forma confiable.
+3. Estadísticos Robustos y Sesgo
+Comparamos medidas clásicas contra robustas para identificar el impacto de posibles valores extremos
+```{r}
+estudiantes |>
+  group_by(programa) |>
+  summarise(
+    media       = mean(nota_final),
+    mediana     = median(nota_final),
+    media_recortada = mean(nota_final, trim = 0.1),  # trim 10%
+    mad         = mad(nota_final),                   # desv. absoluta mediana
+    cv          = sd(nota_final) / mean(nota_final), # coef. variación
+    asimetria   = (mean(nota_final) - median(nota_final)) / sd(nota_final)
+  )
+```
+1. ¿Qué programa muestra mayor discrepancia entre media y media recortada? ¿Qué indica?
+Haciendo las restas de tus datos, el programa con la diferencia más grande es Matemáticas (3.587 - 3.567 = 0.020), mientras que los otros tienen diferencias mucho menores (de 0.003 a 0.008)
+.
+¿Qué significa esto? Indica que en Matemáticas hay valores extremos o "outliers" que están moviendo el promedio
+. Como la media normal (3.587) es más alta que la recortada (3.567), esto nos dice que hay unos pocos estudiantes con notas muy altas que estaban "inflando" el promedio general del grupo antes de hacer el recorte
+
+2. Interpretación del coeficiente de asimetría de Pearson
+Básicamente, esto nos dice para qué lado se estira la "cola" del dibujo de tus datos:
+Matemáticas, Sistemas y Estadística: En estos tres, la media es mayor que la mediana. Esto da un coeficiente positivo, lo que significa que tienen un sesgo a la derecha
+ Es decir, la mayoría de notas se amontonan en valores bajos/medios y hay una cola de notas altas que jala el promedio
+
+Economía: Aquí pasa lo contrario, la media (3.497) es menor que la mediana (3.50). Esto da un coeficiente negativo, lo que indica un sesgo a la izquierda
+Hay algunas notas bajas que están tirando el promedio hacia abajo.
+3. ¿Cuándo preferirías reportar la MAD en lugar de la desviación estándar?
+Preferiría usar la MAD  cuando tus datos no sean normales o tengan muchos outliers 
+
+la desviación estándar se ve muy afectada con los valores extremos porque los eleva al cuadrado, haciendo que la dispersión parezca más grande de lo que realmente es para la mayoría
+. La MAD es robusta, es decir, no se deja engañar por esos pocos datos locos y te da una idea más real de qué tan repartidas están las notas del grupo "típico"
+
+4. Detección de Valores Atípicos (Outliers)
+Utilizamos dos criterios: el rango intercuartílico (IQR) y el puntaje Z
+
+```{r} 
+#3
+detectar_outliers <- function(x) {
+  q1  <- quantile(x, 0.25); q3 <- quantile(x, 0.75)
+  iqr <- q3 - q1
+  z   <- (x - mean(x)) / sd(x)
+  tibble(
+    valor      = x,
+    outlier_iqr = x < (q1 - 1.5 * iqr) | x > (q3 + 1.5 * iqr),
+    outlier_z   = abs(z) > 3
+  )
+}
+
+estudiantes |>
+  group_by(programa) |>
+  reframe(detectar_outliers(nota_final)) |>
+  summarise(n_iqr = sum(outlier_iqr), n_z = sum(outlier_z))
+```
+1. ¿Coinciden los dos criterios? ¿Cuándo podría el criterio Z fallar con muestras pequeñas? En este ejercicio sí coinciden, ya que ambos detectaron 0 valores atípicos
+. El criterio Z suele fallar con muestras pequeñas porque la media y la desviación estándar son muy sensibles; un solo outlier puede "arrastrarlas" hacia él, inflando la dispersión y haciendo que su propio puntaje Z no supere el umbral de 3, quedando oculto
+```{r}
+data_outliers <- estudiantes |>
+  group_by(programa) |>
+  mutate(
+    q1 = quantile(nota_final, 0.25),
+    q3 = quantile(nota_final, 0.75),
+    iqr = q3 - q1,
+    es_outlier = nota_final < (q1 - 1.5 * iqr) | nota_final > (q3 + 1.5 * iqr)
+  )
+
+# Visualización
+ggplot(data_outliers, aes(x = programa, y = nota_final)) +
+  geom_boxplot(outlier.shape = NA) + # Ocultamos outliers del boxplot base
+  geom_point(data = filter(data_outliers, es_outlier), 
+             color = "firebrick", size = 3) + # Graficamos solo los atípicos en rojo
+  labs(title = "Detección de Outliers por Programa (Criterio IQR)",
+       subtitle = "Puntos rojos representan valores fuera de 1.5 * IQR",
+       x = "Programa", y = "Nota Final") +
+  theme_minimal()
+```
+No se notan Outliers, como en el punto anterior
+
+3. ¿Eliminarías esos puntos del análisis? Justifica estadísticamente. No los eliminaría de entrada. Estadísticamente, borrar puntos extremos sin justificación puede subestimar la variabilidad real del fenómeno y sesgar los resultados
+. Primero validaría si es un error técnico; si el dato es real, es mejor mantenerlo y optar por métodos robustos (como la mediana o la MAD
+```{r}
+# Pearson (asume linealidad y normalidad) vs Spearman (no paramétrico)
+estudiantes |>
+  group_by(programa) |>
+  summarise(
+    r_pearson  = cor(horas_sem, nota_final, method = "pearson"),
+    r_spearman = cor(horas_sem, nota_final, method = "spearman"),
+    p_pearson  = cor.test(horas_sem, nota_final, method = "pearson")$p.value,
+    p_spearman = cor.test(horas_sem, nota_final, method = "spearman")$p.value
+  )
+```
+1. ¿En qué programas hay correlación significativa? ¿Pearson y Spearman coinciden? Hay correlación significativa en Estadística (p≈0.001) y Matemáticas (p≈0.005), ya que sus p-valores son menores a 0.05
+. En ambos programas los coeficientes coinciden en ser positivos, indicando que a más horas de estudio, mejor nota
+. En Economía y Sistemas no hay evidencia de relación (p>0.05).
+2. Si Spearman > Pearson en algún programa, ¿qué sugiere sobre la forma de la relación? Esto ocurre en el programa de Estadística (0.35 vs 0.29). Sugiere que la relación entre las horas y la nota es monotónica pero no perfectamente lineal, o que existen algunos outliers que afectan más al coeficiente de Pearson (que busca una línea recta) que al de Spearman (que trabaja con rangos)
+
+```{r}
+ggplot(estudiantes, aes(x = horas_sem, y = nota_final)) +
+  geom_point(alpha = 0.5, color = "steelblue") +
+  geom_smooth(method = "lm", color = "firebrick", se = TRUE) +
+  facet_wrap(~ programa) +
+  labs(
+    title = "Relación Horas de Estudio vs. Nota Final",
+    x = "Horas semanales", y = "Nota Final"
+  ) +
+  theme_minimal()
+```
+5. Correlación y Dispersión
+Analizamos la relación entre horas_sem y nota_final comparando Pearson y Spearman
+```{r}
+# Kruskal-Wallis (no paramétrico, no asume normalidad)
+kruskal.test(nota_final ~ programa, data = estudiantes)
+
+# Tamaño del efecto: eta-cuadrado de Kruskal-Wallis
+# eta^2 = (H - k + 1) / (n - k)  donde H es el estadístico y k el número de grupos
+H <- kruskal.test(nota_final ~ programa, data = estudiantes)$statistic
+k <- n_distinct(estudiantes$programa)
+n <- nrow(estudiantes)
+eta2 <- (H - k + 1) / (n - k)
+eta2
+```
+1. ¿Se rechaza la hipótesis nula? Interpreta el p-valor en contexto. No se rechaza la hipótesis nula. Aunque no pegaste el p-valor exacto, el valor de eta-cuadrado negativo indica que el estadístico H es menor a los grados de libertad (k−1), lo que resulta en un p-valor alto (p>0.05)
+Esto significa que no hay evidencia estadística para decir que las notas varían significativamente según el programa académico; las distribuciones son esencialmente iguales.
+2. Interpreta eta-cuadrado: ¿el efecto es pequeño (< 0.06), mediano (0.06-0.14) o grande (> 0.14)? El efecto es insignificante o nulo. Tu resultado de −0.0048 está muy por debajo del umbral de 0.06
+Estadísticamente, un valor tan cercano a cero (o negativo en esta estimación) indica que el programa académico explica prácticamente el 0% de la variabilidad en las notas de los estudiantes.
+3. Si hay diferencias, aplica Dunn con corrección de Bonferroni para identificar qué pares difieren. Dado que la prueba de Kruskal-Wallis no fue significativa, no es necesario (ni correcto) realizar pruebas post-hoc como la de Dunn. Al no haber diferencias globales, no existen pares específicos que difieran significativamente entre sí
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

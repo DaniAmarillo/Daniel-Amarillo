@@ -1,0 +1,906 @@
+---
+title: "Taller 1 - Minería de Datos"
+author: "Juan Andrés Camacho Zárate"
+date: "`r Sys.Date()`"
+
+output:
+  rmdformats::robobook:
+    toc_depth: 3
+    number_sections: true
+    code_folding: show
+    highlight: tango
+
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+setwd("C:/Users/juana/Downloads")
+library(rvest)
+library(dplyr)
+library(stringr)
+library(purrr)
+library(tibble)
+library(DBI)
+library(RSQLite)
+library(glue)
+```
+
+# Introducción
+
+En este trabajo se realizó un proceso de web scraping sobre artículos publicados durante el año 2025 en la revista *Frontiers in Big Data*. La selección de esta revista se debe a que presenta una alta relación con temas de minería de datos, machine learning, inteligencia artificial y análisis estadístico, permitiendo construir una base de datos adecuada para el desarrollo del taller.
+
+La información fue extraída directamente desde el sitio oficial de la revista:
+
+<https://www.frontiersin.org/journals/big-data>
+
+A partir de los artículos recolectados se construyó una base de datos SQLite, la cual posteriormente fue utilizada para ejecutar diferentes consultas SQL orientadas al análisis de los datos extraídos.
+
+# Fuente de datos y scraping
+
+## Estrategia general de extracción
+
+El proceso de extracción consistió en recorrer las páginas de artículos publicados en 2025 dentro de la revista *Frontiers in Big Data*. Primero se construyeron las URLs de paginación del sitio web. Luego, en cada página de resultados, se identificaron los enlaces asociados a artículos de la revista. Posteriormente, se definió una función de scraping para entrar a cada artículo y extraer los metadatos necesarios para construir la base de datos.
+
+Las variables recolectadas fueron:
+
+- Título del artículo.
+- Fecha de publicación.
+- DOI.
+- URL del artículo.
+- Resumen o abstract.
+- Autores.
+- Número de autores.
+- Número de referencias.
+- Número de descargas o vistas.
+- Número de citas.
+
+La clasificación temática no se realizó dentro de la función de scraping, sino en una etapa posterior, usando palabras clave sobre el título y el resumen de cada artículo.
+
+## Revista seleccionada
+
+```{r revista-seleccionada}
+journal_name <- "Frontiers in Big Data"
+
+url_base <- "https://www.frontiersin.org/journals/big-data/articles?publication-date=01%2F01%2F2025-31%2F12%2F2025"
+
+pagina <- read_html(url_base)
+```
+
+## Revisión inicial de enlaces en la primera página
+
+```{r links-primera-pagina}
+links_articulos <- pagina %>%
+  html_elements("a") %>%
+  html_attr("href") %>%
+  na.omit() %>%
+  unique()
+
+links_articulos <- links_articulos[str_detect(
+  links_articulos,
+  "/journals/big-data/articles/10.3389/fdata."
+)]
+
+links_articulos <- ifelse(
+  str_starts(links_articulos, "http"),
+  links_articulos,
+  paste0("https://www.frontiersin.org", links_articulos)
+)
+
+links_articulos <- unique(links_articulos)
+
+length(links_articulos)
+head(links_articulos, 10)
+```
+
+## Obtención de URLs de paginación
+
+```{r urls-paginas}
+urls_paginas <- paste0(
+  "https://www.frontiersin.org/journals/big-data/articles?publication-date=01%2F01%2F2025-31%2F12%2F2025&page=",
+  1:5
+)
+
+```
+
+## Función para extraer enlaces por página
+
+```{r funcion-extraer-links}
+extraer_links_pagina <- function(url_pagina) {
+  
+  pagina <- read_html(url_pagina)
+  
+  links <- pagina %>%
+    html_elements("a") %>%
+    html_attr("href") %>%
+    na.omit() %>%
+    unique()
+  
+  links <- links[str_detect(
+    links,
+    "/journals/big-data/articles/10.3389/fdata."
+  )]
+  
+  links <- ifelse(
+    str_starts(links, "http"),
+    links,
+    paste0("https://www.frontiersin.org", links)
+  )
+  
+  unique(links)
+}
+```
+
+## Extracción de enlaces de todas las páginas
+
+```{r links-todos}
+links_todos <- urls_paginas %>%
+  map(extraer_links_pagina) %>%
+  unlist() %>%
+  unique()
+
+length(links_todos)
+```
+
+## Función principal de scraping de artículos
+
+```{r funcion-scraping-articulo}
+scrapear_articulo <- function(url) {
+  
+  tryCatch({
+    
+    url_full <- url
+    
+    pagina_articulo <- read_html(url_full)
+    texto <- pagina_articulo %>% html_text2()
+    
+    titulo <- pagina_articulo %>%
+      html_element("h1") %>%
+      html_text2() %>%
+      str_remove_all("^\\[|\\]$") %>%
+      str_squish()
+    
+    doi <- str_extract(texto, "10\\.3389/fdata\\.[0-9]{4}\\.[0-9]+")
+    
+    fecha <- str_extract(texto, "[0-9]{1,2} [A-Za-z]+ 2025")
+    
+    autores <- pagina_articulo %>%
+      html_elements("meta[name='citation_author']") %>%
+      html_attr("content")
+    
+    autores_raw <- paste(autores, collapse = "; ")
+    n_authors <- length(autores)
+    
+    abstract <- pagina_articulo %>%
+      html_elements("meta[name='description']") %>%
+      html_attr("content") %>%
+      first()
+    
+    if (is.na(abstract) || length(abstract) == 0) {
+      abstract <- texto %>%
+        str_extract(regex("Abstract\\s+.*?(Introduction|1 Introduction|Keywords|1\\.)", dotall = TRUE)) %>%
+        str_remove("^Abstract\\s+") %>%
+        str_remove("(Introduction|1 Introduction|Keywords|1\\.)$") %>%
+        str_squish()
+    }
+    
+    # --------------------------------------------------------
+    # Referencias
+    # --------------------------------------------------------
+    
+    referencias <- pagina_articulo %>%
+      html_elements("ol.references li, .References li, #references li, .ref-list li, li") %>%
+      html_text2()
+    
+    referencias <- referencias %>%
+      str_squish()
+    
+    # Eliminar vacíos y enlaces auxiliares que NO son referencias
+    referencias <- referencias[
+      !is.na(referencias) &
+        referencias != "" &
+        !str_detect(referencias, "^CrossRef$|^Google Scholar$|^Pubmed Abstract$")
+    ]
+    
+    # Conservar solo textos que parezcan referencias reales
+    referencias <- referencias[
+      str_detect(referencias, "doi:|\\([0-9]{4}\\)|[0-9]{4}")
+    ]
+    
+    # Limpiar texto interno
+    referencias <- referencias %>%
+      str_replace_all("CrossRef", "") %>%
+      str_replace_all("Google Scholar", "") %>%
+      str_replace_all("Pubmed Abstract", "") %>%
+      str_replace_all("\\s+", " ") %>%
+      str_squish()
+    
+    # Quitar duplicados
+    referencias <- unique(referencias)
+    
+    n_references <- length(referencias)
+    tibble(
+      journal_name = journal_name,
+      title = titulo,
+      publication_date = fecha,
+      year = 2025,
+      doi = doi,
+      url = url_full,
+      abstract = abstract,
+      authors_raw = autores_raw,
+      n_authors = n_authors,
+      n_references = n_references,
+      referencias = list(referencias)
+    )
+    
+  }, error = function(e) {
+    message(paste("Error en:", url))
+    return(NULL)
+  })
+}
+```
+
+## Ejecución del scraping completo
+
+Este bloque realiza la descarga artículo por artículo.
+
+```{r ejecutar-scraping-completo}
+papers_raw <- links_todos %>%
+  map_dfr(function(u) {
+    
+    Sys.sleep(1)
+    
+    scrapear_articulo(u)
+  })
+```
+
+## Extracción de métricas desde páginas de resultados
+
+```{r extraer-metricas}
+extraer_metricas_pagina <- function(url_pagina) {
+  
+  texto <- read_html(url_pagina) %>%
+    html_text2()
+  
+  patron <- "doi\\s+(10\\.3389/fdata\\.[0-9]{4}\\.[0-9]+)\\s+([0-9,]+)\\s+views(?:\\s+([0-9,]+)\\s+citation[s]?)?"
+  
+  matriz <- str_match_all(texto, regex(patron, ignore_case = TRUE))[[1]]
+  
+  if (nrow(matriz) == 0) {
+    return(tibble())
+  }
+  
+  tibble(
+    doi = matriz[, 2],
+    downloads = as.numeric(str_replace_all(matriz[, 3], ",", "")),
+    citations = as.numeric(str_replace_all(matriz[, 4], ",", ""))
+  ) %>%
+    mutate(
+      citations = ifelse(is.na(citations), 0, citations)
+    )
+}
+
+metricas <- urls_paginas %>%
+  map_dfr(extraer_metricas_pagina) %>%
+  distinct(doi, .keep_all = TRUE)
+```
+
+## Unión de métricas con los artículos
+
+```{r unir-metricas}
+papers_raw <- papers_raw %>%
+  left_join(metricas, by = "doi")
+
+glimpse(papers_raw)
+```
+
+# Construcción de la base SQLite
+
+En esta sección se construye una base de datos SQLite a partir de los artículos recolectados mediante web scraping. La base de datos contiene una tabla principal llamada `papers` y varias tablas auxiliares para representar autores y referencias bibliográficas de forma normalizada.
+
+La utilización de un modelo relacional permite reducir redundancia, mejorar la organización de la información y facilitar posteriormente la ejecución de consultas SQL complejas.
+
+## Preparación de la tabla principal
+
+En primer lugar, se preparó la tabla principal `papers`, la cual contiene la información general de cada artículo extraído mediante web scraping. Para ello, se creó un identificador único (`paper_id`) que posteriormente permitiría relacionar los artículos con autores y referencias bibliográficas dentro de la base de datos relacional.
+
+```{r preparar-papers-sql}
+papers <- papers_raw %>%
+  mutate(
+    paper_id = row_number()
+  ) %>%
+  select(
+    paper_id,
+    journal_name,
+    title,
+    publication_date,
+    year,
+    doi,
+    url,
+    abstract,
+    authors_raw,
+    n_authors,
+    citations,
+    downloads,
+    n_references,
+    referencias
+  )
+
+papers_sql <- papers %>%
+  select(-referencias)
+
+glimpse(papers_sql)
+```
+
+## Construcción de tabla de autores
+
+Con el fin de normalizar la información de autores y evitar redundancia dentro de la base de datos, se construyeron dos tablas auxiliares: `authors` y `paper_authors`.
+
+La tabla `authors` almacena cada autor de manera única mediante un identificador (`author_id`), mientras que la tabla `paper_authors` permite representar la relación muchos-a-muchos entre artículos y autores. Además, se conservó el orden de aparición de los autores dentro de cada paper mediante la variable `author_order`.
+
+```{r tabla-autores}
+authors <- papers %>%
+  select(
+    paper_id,
+    authors_raw
+  ) %>%
+  rowwise() %>%
+  mutate(
+    author_list = list(str_split(authors_raw, ";")[[1]])
+  ) %>%
+  ungroup()
+
+authors_expandido <- map_dfr(
+  1:nrow(authors),
+  function(i) {
+    
+    tibble(
+      paper_id = authors$paper_id[i],
+      author_order = seq_along(authors$author_list[[i]]),
+      author_name = str_squish(authors$author_list[[i]])
+    )
+  }
+)
+
+authors_tabla <- authors_expandido %>%
+  distinct(author_name) %>%
+  mutate(
+    author_id = row_number()
+  ) %>%
+  select(
+    author_id,
+    author_name
+  )
+
+paper_authors <- authors_expandido %>%
+  left_join(
+    authors_tabla,
+    by = "author_name"
+  ) %>%
+  select(
+    paper_id,
+    author_id,
+    author_order
+  )
+```
+
+## Construcción de tabla de referencias
+
+Las referencias bibliográficas también fueron normalizadas debido a que múltiples artículos pueden citar la misma referencia. Para ello, primero se extrajeron todas las referencias de cada artículo y posteriormente se realizó un proceso de limpieza y estandarización.
+
+Durante esta etapa se eliminaron caracteres especiales, espacios redundantes y elementos irrelevantes provenientes del scraping, como enlaces auxiliares de CrossRef o Google Scholar. Adicionalmente, cuando fue posible, se utilizó el DOI como identificador normalizado de cada referencia, permitiendo detectar referencias repetidas incluso cuando presentaban pequeñas diferencias de formato.
+
+Finalmente, se construyeron dos tablas:
+
+- `references_table`: contiene cada referencia única.
+- `paper_references`: representa la relación entre artículos y referencias.
+
+```{r tabla-referencias}
+paper_references <- map_dfr(
+  1:nrow(papers_raw),
+  function(i) {
+    
+    refs <- papers_raw$referencias[[i]]
+    
+    if (length(refs) == 0 || all(is.na(refs))) {
+      return(tibble())
+    }
+    
+    tibble(
+      doi = papers_raw$doi[i],
+      reference_text = refs
+    )
+  }
+) %>%
+  filter(!is.na(reference_text), reference_text != "") %>%
+  left_join(
+    papers %>% select(paper_id, doi),
+    by = "doi"
+  ) %>%
+  select(paper_id, reference_text) %>%
+  distinct()
+
+paper_references <- paper_references %>%
+  mutate(
+    reference_text = reference_text %>%
+      str_replace("^\\d+\\s+", "") %>%
+      str_replace_all("\\[|\\]", "") %>%
+      str_replace_all("“|”", "") %>%
+      str_replace_all("\\s+", " ") %>%
+      str_squish()
+  )
+
+paper_references <- paper_references %>%
+  mutate(
+    reference_text_clean = reference_text %>%
+      str_to_lower() %>%
+      str_replace("^\\d+\\s+", "") %>%
+      str_replace_all("\\[|\\]", "") %>%
+      str_replace_all("“|”|\"|'", "") %>%
+      str_replace_all("crossref|google scholar|pubmed abstract", "") %>%
+      str_replace_all("\\s+", " ") %>%
+      str_squish(),
+    
+    doi_ref = str_extract(
+      reference_text_clean,
+      "10\\.\\d{4,9}/[^\\s]+"
+    ),
+    
+    reference_text_normalized = ifelse(
+      !is.na(doi_ref),
+      doi_ref,
+      reference_text_clean %>%
+        str_replace_all("[[:punct:]]", " ") %>%
+        str_replace_all("\\s+", " ") %>%
+        str_squish()
+    )
+  )
+
+references_tabla <- paper_references %>%
+  group_by(reference_text_normalized) %>%
+  summarise(
+    reference_text = first(reference_text),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    reference_id = row_number()
+  ) %>%
+  select(
+    reference_id,
+    reference_text_normalized,
+    reference_text
+  )
+
+paper_references_final <- paper_references %>%
+  left_join(
+    references_tabla,
+    by = "reference_text_normalized"
+  ) %>%
+  select(
+    paper_id,
+    reference_id
+  ) %>%
+  distinct()
+```
+
+## Creación y carga de la base SQLite
+
+Una vez construidas todas las tablas necesarias, se creó la base de datos SQLite y se cargaron las tablas principales y auxiliares. Este enfoque permitió construir un modelo relacional organizado y consistente, facilitando posteriormente la ejecución de consultas SQL complejas.
+
+Las tablas creadas fueron:
+
+- `papers`
+- `authors`
+- `paper_authors`
+- `references_table`
+- `paper_references`
+
+```{r crear-sqlite}
+con <- dbConnect(
+  SQLite(),
+  "frontiers_big_data_2025.sqlite"
+)
+
+dbWriteTable(con, "papers", papers_sql, overwrite = TRUE)
+dbWriteTable(con, "authors", authors_tabla, overwrite = TRUE)
+dbWriteTable(con, "paper_authors", paper_authors, overwrite = TRUE)
+dbWriteTable(con, "references_table", references_tabla, overwrite = TRUE)
+dbWriteTable(con, "paper_references", paper_references_final, overwrite = TRUE)
+
+dbListTables(con)
+```
+
+## Validación inicial de registros
+
+Finalmente, se realizó una validación básica de la base de datos mediante consultas de conteo sobre cada tabla. Esto permitió verificar que la carga de información se hubiera realizado correctamente y que las relaciones entre tablas fueran consistentes.
+
+```{r validacion-sqlite}
+dbGetQuery(con, "SELECT COUNT(*) AS total_papers FROM papers;")
+dbGetQuery(con, "SELECT COUNT(*) AS total_authors FROM authors;")
+dbGetQuery(con, "SELECT COUNT(*) AS total_references FROM references_table;")
+dbGetQuery(con, "SELECT COUNT(*) AS total_paper_references FROM paper_references;")
+```
+
+# Clasificación temática en SQLite
+
+Después de construir la base de datos, se realizó una clasificación temática de los artículos directamente dentro de SQLite. Esta clasificación se basó en la búsqueda de palabras clave dentro del título y el abstract de cada artículo.
+
+El objetivo de esta etapa fue identificar artículos relacionados principalmente con:
+
+- IA Generativa
+- Estadística
+- Machine Learning
+
+Los artículos que no coincidieron con ninguno de estos grupos de palabras clave fueron clasificados como `Otros`.
+
+La clasificación se implementó mediante una instrucción `CASE WHEN` ejecutada directamente sobre la tabla `papers`, garantizando reproducibilidad dentro del motor SQL.
+
+## Creación de la columna de clasificación
+
+Antes de realizar la clasificación, fue necesario agregar una nueva columna llamada `topic_label` dentro de la tabla `papers`. Esta columna almacenaría la categoría temática asignada a cada artículo.
+
+```{r clasificacion-sqlite}
+if (!"topic_label" %in% dbListFields(con, "papers")) {
+  dbExecute(con, "ALTER TABLE papers ADD COLUMN topic_label TEXT;")
+}
+
+dbExecute(con, "
+UPDATE papers
+SET topic_label =
+CASE
+
+WHEN 
+LOWER(title || ' ' || abstract) LIKE '%large language model%' OR
+LOWER(title || ' ' || abstract) LIKE '%large language models%' OR
+LOWER(title || ' ' || abstract) LIKE '%llm%' OR
+LOWER(title || ' ' || abstract) LIKE '%chatgpt%' OR
+LOWER(title || ' ' || abstract) LIKE '%gpt%' OR
+LOWER(title || ' ' || abstract) LIKE '%bert%' OR
+LOWER(title || ' ' || abstract) LIKE '%roberta%' OR
+LOWER(title || ' ' || abstract) LIKE '%language model%' OR
+LOWER(title || ' ' || abstract) LIKE '%transformer%' OR
+LOWER(title || ' ' || abstract) LIKE '%foundation model%' OR
+LOWER(title || ' ' || abstract) LIKE '%generative ai%' OR
+LOWER(title || ' ' || abstract) LIKE '%prompt engineering%' OR
+LOWER(title || ' ' || abstract) LIKE '%text generation%' OR
+LOWER(title || ' ' || abstract) LIKE '%synthetic data%' OR
+LOWER(title || ' ' || abstract) LIKE '%diffusion model%' OR
+LOWER(title || ' ' || abstract) LIKE '%linguistic analysis%' OR
+LOWER(title || ' ' || abstract) LIKE '%sentiment analysis%' OR
+LOWER(title || ' ' || abstract) LIKE '%frame detection%' OR
+LOWER(title || ' ' || abstract) LIKE '%text analysis%' OR
+LOWER(title || ' ' || abstract) LIKE '%text mining%' OR
+LOWER(title || ' ' || abstract) LIKE '%semantic analysis%' OR
+LOWER(title || ' ' || abstract) LIKE '%natural language processing%' OR
+LOWER(title || ' ' || abstract) LIKE '%nlp%'
+THEN 'IA Generativa'
+
+WHEN 
+LOWER(title || ' ' || abstract) LIKE '%statistics%' OR
+LOWER(title || ' ' || abstract) LIKE '%statistical%' OR
+LOWER(title || ' ' || abstract) LIKE '%bayesian%' OR
+LOWER(title || ' ' || abstract) LIKE '%probability%' OR
+LOWER(title || ' ' || abstract) LIKE '%regression%' OR
+LOWER(title || ' ' || abstract) LIKE '%time series%' OR
+LOWER(title || ' ' || abstract) LIKE '%causal%' OR
+LOWER(title || ' ' || abstract) LIKE '%causality%' OR
+LOWER(title || ' ' || abstract) LIKE '%causal effect%' OR
+LOWER(title || ' ' || abstract) LIKE '%causal inference%' OR
+LOWER(title || ' ' || abstract) LIKE '%sampling%' OR
+LOWER(title || ' ' || abstract) LIKE '%stochastic%' OR
+LOWER(title || ' ' || abstract) LIKE '%markov%' OR
+LOWER(title || ' ' || abstract) LIKE '%monte carlo%' OR
+LOWER(title || ' ' || abstract) LIKE '%epidemiological%' OR
+LOWER(title || ' ' || abstract) LIKE '%epidemiology%' OR
+LOWER(title || ' ' || abstract) LIKE '%multivariate%' OR
+LOWER(title || ' ' || abstract) LIKE '%variance%' OR
+LOWER(title || ' ' || abstract) LIKE '%covariance%' OR
+LOWER(title || ' ' || abstract) LIKE '%inferential%' OR
+LOWER(title || ' ' || abstract) LIKE '%correlation%' OR
+LOWER(title || ' ' || abstract) LIKE '%survey%' OR
+LOWER(title || ' ' || abstract) LIKE '%socio-demographic%' OR
+LOWER(title || ' ' || abstract) LIKE '%google trends%' OR
+LOWER(title || ' ' || abstract) LIKE '%infodemiology%' OR
+LOWER(title || ' ' || abstract) LIKE '%burden%' OR
+LOWER(title || ' ' || abstract) LIKE '%risk assessment%' OR
+LOWER(title || ' ' || abstract) LIKE '%social media analysis%' OR
+LOWER(title || ' ' || abstract) LIKE '%privacy calculus%' OR
+LOWER(title || ' ' || abstract) LIKE '%socioeconomic%' OR
+LOWER(title || ' ' || abstract) LIKE '%longitudinal%' OR
+LOWER(title || ' ' || abstract) LIKE '%demographic%' OR
+LOWER(title || ' ' || abstract) LIKE '%population study%' OR
+LOWER(title || ' ' || abstract) LIKE '%statistical analysis%' OR
+LOWER(title || ' ' || abstract) LIKE '%inference%'
+THEN 'Estadística'
+
+WHEN 
+LOWER(title || ' ' || abstract) LIKE '%machine learning%' OR
+LOWER(title || ' ' || abstract) LIKE '%deep learning%' OR
+LOWER(title || ' ' || abstract) LIKE '%artificial intelligence%' OR
+LOWER(title || ' ' || abstract) LIKE '%neural network%' OR
+LOWER(title || ' ' || abstract) LIKE '%cnn%' OR
+LOWER(title || ' ' || abstract) LIKE '%rnn%' OR
+LOWER(title || ' ' || abstract) LIKE '%lstm%' OR
+LOWER(title || ' ' || abstract) LIKE '%gru%' OR
+LOWER(title || ' ' || abstract) LIKE '%classification%' OR
+LOWER(title || ' ' || abstract) LIKE '%prediction%' OR
+LOWER(title || ' ' || abstract) LIKE '%predictive%' OR
+LOWER(title || ' ' || abstract) LIKE '%forecasting%' OR
+LOWER(title || ' ' || abstract) LIKE '%data mining%' OR
+LOWER(title || ' ' || abstract) LIKE '%pattern mining%' OR
+LOWER(title || ' ' || abstract) LIKE '%clustering%' OR
+LOWER(title || ' ' || abstract) LIKE '%feature selection%' OR
+LOWER(title || ' ' || abstract) LIKE '%recommendation%' OR
+LOWER(title || ' ' || abstract) LIKE '%recommender%' OR
+LOWER(title || ' ' || abstract) LIKE '%computer vision%' OR
+LOWER(title || ' ' || abstract) LIKE '%machine vision%' OR
+LOWER(title || ' ' || abstract) LIKE '%deepfake%' OR
+LOWER(title || ' ' || abstract) LIKE '%xai%' OR
+LOWER(title || ' ' || abstract) LIKE '%explainable ai%' OR
+LOWER(title || ' ' || abstract) LIKE '%graph neural%' OR
+LOWER(title || ' ' || abstract) LIKE '%graph pattern%' OR
+LOWER(title || ' ' || abstract) LIKE '%knowledge graph%' OR
+LOWER(title || ' ' || abstract) LIKE '%multi-agent%' OR
+LOWER(title || ' ' || abstract) LIKE '%genetic algorithm%' OR
+LOWER(title || ' ' || abstract) LIKE '%back propagation%' OR
+LOWER(title || ' ' || abstract) LIKE '%optimization%' OR
+LOWER(title || ' ' || abstract) LIKE '%anomaly detection%' OR
+LOWER(title || ' ' || abstract) LIKE '%image analysis%' OR
+LOWER(title || ' ' || abstract) LIKE '%radiogenomics%' OR
+LOWER(title || ' ' || abstract) LIKE '%decision algorithm%' OR
+LOWER(title || ' ' || abstract) LIKE '%intelligent%' OR
+LOWER(title || ' ' || abstract) LIKE '%ai-based%' OR
+LOWER(title || ' ' || abstract) LIKE '%ai-driven%' OR
+LOWER(title || ' ' || abstract) LIKE '%collaborative filtering%' OR
+LOWER(title || ' ' || abstract) LIKE '%matrix factorization%' OR
+LOWER(title || ' ' || abstract) LIKE '%adaptive q-network%' OR
+LOWER(title || ' ' || abstract) LIKE '%q-network%' OR
+LOWER(title || ' ' || abstract) LIKE '%cybersecurity%' OR
+LOWER(title || ' ' || abstract) LIKE '%phishing detection%' OR
+LOWER(title || ' ' || abstract) LIKE '%self-supervised%' OR
+LOWER(title || ' ' || abstract) LIKE '%pattern recognition%' OR
+LOWER(title || ' ' || abstract) LIKE '%feature engineering%' OR
+LOWER(title || ' ' || abstract) LIKE '%feature extraction%' OR
+LOWER(title || ' ' || abstract) LIKE '%retinal disease detection%' OR
+LOWER(title || ' ' || abstract) LIKE '%medical ai%' OR
+LOWER(title || ' ' || abstract) LIKE '%representation learning%' OR
+LOWER(title || ' ' || abstract) LIKE '%analytics%' OR
+LOWER(title || ' ' || abstract) LIKE '%intelligent detection%'
+THEN 'Machine Learning'
+
+ELSE 'Otros'
+END;
+")
+
+(resultado_clasificacion <- dbGetQuery(con, "
+SELECT topic_label, COUNT(*) AS total_articulos
+FROM papers
+GROUP BY topic_label
+ORDER BY total_articulos DESC;
+"))
+```
+
+# Consultas SQL y resultados
+
+En esta sección se presentan las consultas realizadas sobre la base SQLite construida. Cada pregunta se responde mediante una consulta SQL ejecutada desde R con `dbGetQuery()`. Debajo de cada resultado se incluye una interpretación breve.
+
+## 1. ¿Cuál es el número promedio de autores por paper?
+
+```{r consulta-1}
+(resultado_1 <- dbGetQuery(con, "
+SELECT
+    ROUND(AVG(n_authors), 2) AS promedio_autores
+FROM papers;
+"))
+
+```
+
+**Interpretación.** El número promedio de autores por artículo es de **4.57**, lo cual indica que la mayoría de publicaciones analizadas son trabajos colaborativos.
+
+---
+
+## 2. ¿Cuántos artículos están relacionados con Machine Learning?
+
+```{r consulta-2}
+(resultado_2 <- dbGetQuery(con, "
+SELECT
+    COUNT(*) AS total_machine_learning
+FROM papers
+WHERE topic_label = 'Machine Learning';
+"))
+
+```
+
+**Interpretación.** Se encontraron **56 artículos** clasificados como *Machine Learning*, siendo esta la categoría dominante dentro de la muestra.
+
+---
+
+## 3. ¿Cuántos artículos están relacionados con IA Generativa?
+
+```{r consulta-3}
+(resultado_3 <- dbGetQuery(con, "
+SELECT
+    COUNT(*) AS total_ia_generativa
+FROM papers
+WHERE topic_label = 'IA Generativa';
+"))
+
+```
+
+**Interpretación.** Se identificaron **13 artículos** relacionados con IA Generativa, principalmente asociados con modelos de lenguaje, transformers, NLP y sistemas generativos.
+
+---
+
+## 4. ¿Cuántos artículos están relacionados con otros temas estadísticos?
+
+```{r consulta-4}
+(resultado_4 <- dbGetQuery(con, "
+SELECT
+    COUNT(*) AS total_estadistica
+FROM papers
+WHERE topic_label = 'Estadística';
+"))
+
+```
+
+**Interpretación.** Se identificaron **17 artículos** clasificados dentro de la categoría *Estadística*. Esto indica que una parte importante de los trabajos publicados incorpora métodos estadísticos, inferencia, análisis probabilístico o técnicas relacionadas con series temporales y análisis de datos.
+
+---
+
+## 5. ¿Cuál es el número total de descargas de los artículos publicados en 2025?
+
+```{r consulta-5}
+(resultado_5 <- dbGetQuery(con, "
+SELECT
+    SUM(downloads) AS total_downloads
+FROM papers
+WHERE year = 2025;
+"))
+
+```
+
+**Interpretación.** Los artículos publicados en 2025 acumulan un total de **410941 descargas o vistas**, lo que muestra un nivel alto de consulta dentro de la revista.
+
+---
+
+## 6. ¿Cuál es el número promedio de referencias por artículo?
+
+```{r consulta-6}
+(resultado_6 <- dbGetQuery(con, "
+SELECT
+    ROUND(AVG(n_references), 2) AS promedio_referencias
+FROM papers;
+"))
+
+```
+
+**Interpretación.** En promedio, cada artículo tiene **41.75 referencias**, lo cual sugiere que los trabajos analizados presentan una base bibliográfica amplia.
+
+---
+
+## 7. ¿Cuál es la referencia que más se repite entre todos los artículos?
+
+```{r consulta-7}
+(resultado_7 <- dbGetQuery(con, "
+SELECT
+    rt.reference_text,
+    COUNT(*) AS veces_repetida
+FROM paper_references AS pr
+INNER JOIN references_table AS rt
+    ON pr.reference_id = rt.reference_id
+GROUP BY rt.reference_id, rt.reference_text
+ORDER BY veces_repetida DESC
+LIMIT 1;
+"))
+
+```
+
+**Interpretación.** La referencia más repetida corresponde al trabajo de **Hochreiter y Schmidhuber (1997), “Long short-term memory”**, con **5 apariciones**. Esto es consistente con la presencia de artículos relacionados con aprendizaje profundo, series temporales y modelos secuenciales.
+
+---
+
+## 8. ¿Cuál es el promedio de citas por artículo?
+
+```{r consulta-8}
+(resultado_8 <- dbGetQuery(con, "
+SELECT
+    ROUND(AVG(citations), 2) AS promedio_citas
+FROM papers;
+"))
+
+```
+
+**Interpretación.** El promedio de citas por artículo es de **2.68**. Dado que los artículos pertenecen a 2025, este valor es razonable porque son publicaciones recientes.
+
+---
+
+## 9. ¿Cuál es el paper con más citas?
+
+```{r consulta-9}
+(resultado_9 <- dbGetQuery(con, "
+SELECT
+    title,
+    citations
+FROM papers
+ORDER BY citations DESC
+LIMIT 1;
+"))
+
+```
+
+**Interpretación.** El artículo con más citas es **“On explaining recommendations with Large Language Models: a review”**, con **21 citas**.
+
+---
+
+## 10. ¿Cuál es el paper relacionado con Machine Learning, IA Generativa o Estadística con más citas?
+
+```{r consulta-10}
+(resultado_10 <- dbGetQuery(con, "
+SELECT
+    title,
+    topic_label,
+    citations
+FROM papers
+WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+ORDER BY citations DESC
+LIMIT 1;
+"))
+
+```
+
+**Interpretación.** Dentro de las categorías temáticas principales, el artículo con más citas también es **“On explaining recommendations with Large Language Models: a review”**, clasificado como **IA Generativa**, con **21 citas**.
+
+---
+
+## 11. ¿Cuál es el paper relacionado con Machine Learning, IA Generativa o Estadística con más descargas?
+
+```{r consulta-11}
+(resultado_11 <- dbGetQuery(con, "
+SELECT
+    title,
+    topic_label,
+    downloads
+FROM papers
+WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+ORDER BY downloads DESC
+LIMIT 1;
+"))
+
+```
+
+**Interpretación.** El artículo con más descargas o vistas dentro de las categorías principales es **“Big data analytics and AI as success factors for online video streaming platforms”**, clasificado como **Machine Learning**, con **16457 descargas o vistas**.
+
+# Hallazgos
+
+Se identificaron varios resultados relevantes relacionados con la producción científica publicada en *Frontiers in Big Data* durante 2025. En primera instancia, se observó que la mayoría de artículos pertenecen a la categoría de *Machine Learning*, lo cual evidencia la fuerte presencia de técnicas de aprendizaje automático dentro de la revista. En contraste, los artículos asociados explícitamente con IA Generativa fueron menos numerosos, aunque varios de ellos presentaron altos niveles de impacto en términos de citas.
+
+También se encontró que los artículos analizados presentan un carácter altamente colaborativo, con un promedio cercano a cinco autores por publicación. Por otro lado, el artículo más citado correspondió a una revisión relacionada con Large Language Models y sistemas de recomendación explicables, mostrando la relevancia actual de los modelos generativos y del NLP dentro de la investigación en inteligencia artificial.
+
+Adicionalmente, la referencia más repetida dentro de toda la base de datos fue el trabajo de Hochreiter y Schmidhuber sobre redes LSTM, lo cual evidencia la importancia de estas arquitecturas en problemas de series temporales y aprendizaje secuencial.
+
+Finalmente, el alto número total de descargas o vistas acumuladas por los artículos publicados en 2025 sugiere una actividad significativa de consulta y difusión dentro de la comunidad académica.
+
+# Limitaciones
+
+Durante el desarrollo del proyecto se presentaron varias limitaciones asociadas principalmente al proceso de web scraping y a la estructura del sitio web utilizado.
+
+Una de las principales dificultades fue la extracción de referencias bibliográficas, ya que estas aparecían mezcladas con elementos adicionales como enlaces de CrossRef y Google Scholar. Esto hizo necesario implementar procesos de limpieza para evitar referencias duplicadas o mal estructuradas.
+
+Asimismo, algunas métricas como descargas y citas no estaban disponibles directamente dentro de cada artículo individual, por lo que debieron extraerse desde las páginas generales de resultados utilizando expresiones regulares sobre el texto completo de la página.
+
+Otra limitación importante fue la clasificación temática de los artículos. Debido a que esta se realizó mediante palabras clave, algunos artículos pudieron quedar clasificados en categorías que no representan completamente su temática principal. Además, el orden jerárquico de las condiciones dentro del `CASE WHEN` pudo influir en la categoría final asignada a ciertos artículos.
+
+# Conclusión
+
+A lo largo de este trabajo se desarrolló un proceso completo de extracción, transformación y análisis de datos utilizando herramientas vistas en el curso. A partir del web scraping realizado sobre la revista *Frontiers in Big Data*, fue posible construir una base de datos relacional en SQLite que permitió organizar adecuadamente la información de artículos, autores y referencias bibliográficas.
+
+El ejercicio también permitió evidenciar varias de las dificultades reales que aparecen al trabajar con datos extraídos desde páginas web, especialmente en procesos de limpieza, normalización y estructuración de información no organizada. Aspectos como la detección de referencias repetidas, la extracción de métricas y la clasificación temática requirieron múltiples ajustes para obtener resultados consistentes.
+
+Por otro lado, las consultas SQL facilitaron responder preguntas concretas sobre la producción científica analizada, permitiendo identificar tendencias relacionadas con Machine Learning, IA Generativa y otros temas asociados al análisis de datos. Además, los resultados obtenidos mostraron cómo técnicas de minería de datos y bases de datos relacionales pueden combinarse para analizar grandes volúmenes de información académica de manera eficiente.
+
+En general, el desarrollo del taller permitió integrar conceptos de scraping, limpieza de datos, normalización de bases relacionales y consultas SQL dentro de un mismo flujo de trabajo.

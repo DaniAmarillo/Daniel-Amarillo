@@ -1,0 +1,90 @@
+---
+title: "6 Taller"
+output: html_document
+date: "2026-04-30"
+---
+
+6 Taller
+
+Cargamos los datos
+```{r}
+library(tidyverse)
+
+precios <- read_csv("house_prices.csv", show_col_types = FALSE)
+
+```
+
+Identifica las 5 columnas con mayor porcentaje de NA. ¿Cuáles eliminarías y cuáles imputarías? Justifica.
+
+```{r}
+
+na_pct <- precios %>%
+  summarise(across(everything(), ~ mean(is.na(.)))) %>%
+  pivot_longer(cols = everything(),
+               names_to = "columna",
+               values_to = "na_pct") %>%
+  arrange(desc(na_pct))
+
+top5_na <- na_pct %>% slice(1:5)
+top5_na
+```
+
+Imputa las columnas numéricas con NA usando la mediana y las categóricas con la moda. ¿Cuántas filas quedan completas (sin ningún NA) después?
+
+
+
+
+```{r}
+moda <- function(x) {
+  ux <- na.omit(x)
+  ux[which.max(tabulate(match(ux, ux)))]
+}
+
+precios_imp <- precios %>%
+  mutate(across(where(is.numeric),
+                ~ ifelse(is.na(.), median(., na.rm = TRUE), .))) %>%
+  mutate(across(where(is.character),
+                ~ ifelse(is.na(.), moda(.), .)))
+
+sum(complete.cases(precios_imp))
+```
+la respuesta son 2919 filas completas con nuevos datos.
+
+Crea una variable antiguedad = 2024 - YearBuilt. Discretízala en 4 grupos con cut usando los cuartiles como puntos de corte.
+
+```{r}
+precios_imp <- precios_imp %>%
+  mutate(
+    antiguedad = 2024 - YearBuilt,
+    grupo_antiguedad = cut(
+      antiguedad,
+      breaks = quantile(antiguedad, probs = seq(0, 1, 0.25), na.rm = TRUE),
+      include.lowest = TRUE
+    )
+  )
+```
+
+Ejercicio 2
+
+Aplica el criterio IQR para detectar outliers en fare. ¿Qué porcentaje de pasajeros son outliers?
+
+```{r}
+titanic <- read_csv("titanic.csv", show_col_types = FALSE)
+
+Q1 <- quantile(titanic$Fare, 0.25, na.rm = TRUE)
+Q3 <- quantile(titanic$Fare, 0.75, na.rm = TRUE)
+IQR_val <- Q3 - Q1
+
+lim_inf <- Q1 - 1.5 * IQR_val
+lim_sup <- Q3 + 1.5 * IQR_val
+
+outliers <- titanic %>%
+  filter(Fare < lim_inf | Fare > lim_sup)
+
+porcentaje_outliers <- nrow(outliers) / nrow(titanic) * 100
+
+porcentaje_outliers
+```
+
+
+

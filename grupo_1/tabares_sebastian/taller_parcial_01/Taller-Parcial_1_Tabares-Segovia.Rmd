@@ -1,0 +1,611 @@
+---
+title: "Taller 1 - Tabares-Segovia (Nature Ecology & Evolution)"
+output: html_document
+date: "2026-04-28"
+---
+
+#Taller Parcial 1 - Sebastian Tabares-Segovia
+
+## 1. Introducción
+
+La revista seleccionada es **Nature Ecology & Evolution**, disponible en [https://www.nature.com/natecolevol](https://www.nature.com/natecolevol). Lanzada en enero de 2017 por el grupo editorial Springer Nature, es considerada una de las revistas más influyentes en ecología y biología evolutiva, clasificada como Q1 en Ecology y en Ecology, Evolution, Behavior and Systematics (Impact Factor 2024: 14.5).
+
+### Artículos que han cambiado el rumbo del conocimiento
+
+A lo largo de la historia de esta revista diversos articulos han sido de gran utilidad para el avance de la ciencia, o para enfocar el camino al avance de la misma. Revisemos unos cuantos.
+
+**Ecología de la biodiversidad.** En 2018, Courchamp et al. publicaron el resultado de un ejercicio colectivo en el que 368 expertos votaron los 100 artículos que todo ecólogo debería leer, demostrando que los más recomendados no son necesariamente los más citados ni los publicados en las revistas de mayor impacto. Courchamp, F., et al. (2018). 100 articles every ecologist should read. *Nature Ecology & Evolution*, 2, 395–401. https://doi.org/10.1038/s41559-017-0370-9
+
+**Cambio climático y disrupciones ecológicas abruptas.** En 2020, Trisos et al. analizaron proyecciones climáticas para 30.652 especies y demostraron que el cambio climático produce disrupciones repentinas: múltiples especies superan sus umbrales térmicos simultáneamente en plazos de pocos años, no de forma gradual. Trisos, C. H., Merow, C., & Pigot, A. L. (2020). The projected timing of abrupt ecological disruption from climate change. *Nature Ecology & Evolution*, 4, 838–845. https://doi.org/10.1038/s41559-020-1100-3
+
+**Biodiversidad y ciclo del carbono en la Amazonia.** En 2017, Sobral et al. demostraron cuantitativamente que la diversidad de mamíferos influye en el ciclo del carbono a través de interacciones tróficas en ecosistemas amazónicos. Sobral, M., et al. (2017). Mammal diversity influences the carbon cycle through trophic interactions in the Amazon. *Nature Ecology & Evolution*, 1, 1670–1676. https://doi.org/10.1038/s41559-017-0334-0
+
+**Historia colonial y sesgos en el conocimiento paleontológico.** En 2022, Dunne et al. demostraron que investigadores de países de renta alta controlan el 97% de la producción de datos paleontológicos, introduciendo sesgos sistemáticos en la comprensión de la biodiversidad pasada. Dunne, E. M., et al. (2022). Colonial history and global economics distort our understanding of deep-time biodiversity. *Nature Ecology & Evolution*, 6, 145–150. https://doi.org/10.1038/s41559-021-01608-8
+
+**Incendios extremos y cambio climático.** El artículo más citado de la revista en 2024, Cunningham et al. documentaron que la frecuencia de incendios extremos aumentó más del doble entre 2003 y 2023. Cunningham, C. X., et al. (2024). *Nature Ecology & Evolution*. https://doi.org/10.1038/s41559-024-02452-2
+
+### Justificación de la elección
+
+Nature Ecology & Evolution fue seleccionada porque: (1) sus artículos de 2025 están completamente indexados en OpenAlex; (2) el sitio web responde sin bloqueo (HTTP 200) y la métrica de *Accesses* está en el HTML estático, extraíble con `rvest`; y (3) con ~325 artículos en 2025, el scraping artículo por artículo es completamente manejable en una sola ejecución. Ha de mencionarse que previamente se habia escogido PNAS, sin embargo, la métrica *descargas* fue imposible de obtener debido a las protecciones en ciberseguridad generadas por *cloudfare*
+
+
+## 2. Recolección de datos
+
+```{r}
+
+paquetes <- c("rvest", "httr2", "dplyr", "stringr", "purrr",
+              "DBI", "RSQLite", "knitr", "tibble", "ggplot2")
+
+instalados <- rownames(installed.packages())
+pendientes <- setdiff(paquetes, instalados)
+if (length(pendientes) > 0) install.packages(pendientes)
+
+invisible(lapply(paquetes, library, character.only = TRUE))
+```
+
+**Función auxiliar: reconstrucción del abstract**
+
+```{r}
+
+reconstruir_abstract <- function(inv_index) {
+  if (is.null(inv_index) || length(inv_index) == 0) return(NA_character_)
+  palabras <- names(inv_index)
+  posiciones <- unlist(lapply(palabras, function(w) {
+    resultado <- rep(w, length(inv_index[[w]]))
+    names(resultado) <- inv_index[[w]]
+    resultado
+  }))
+  paste(posiciones[order(as.integer(names(posiciones)))], collapse = " ")
+}
+```
+
+**Función segura de petición HTTP**
+
+```{r}
+
+hacer_peticion <- function(url) {
+  request(url) |>
+    req_user_agent("Mozilla/5.0 (compatible; academic-scraper/1.0)") |>
+    req_perform()
+}
+hacer_peticion_segura <- purrr::possibly(hacer_peticion, otherwise = NULL)
+```
+
+**Recolección de artículos via OpenAlex**
+
+```{r}
+
+obtener_papers_openalex <- function() {
+  todos  <- list()
+  cursor <- "*"
+  pagina <- 0
+
+  repeat {
+    pagina <- pagina + 1
+    url <- paste0(
+      "https://api.openalex.org/works",
+      "?filter=primary_location.source.issn:2397-334X,publication_year:2025",
+      "&per_page=200",
+      "&select=id,title,publication_date,publication_year,doi,",
+      "abstract_inverted_index,authorships,cited_by_count,",
+      "referenced_works_count,referenced_works",
+      "&cursor=", URLencode(cursor, reserved = TRUE),
+      "&mailto=setabaress@unal.edu.co"
+    )
+
+    resp <- hacer_peticion_segura(url)
+    if (is.null(resp)) break
+
+    datos      <- resp |> resp_body_json(simplifyVector = FALSE)
+    resultados <- datos$results
+
+    if (length(resultados) == 0) break
+    todos <- c(todos, resultados)
+
+    cursor_sig <- datos$meta$next_cursor
+    if (is.null(cursor_sig)) break
+    cursor <- cursor_sig
+
+    cat("Página", pagina, "| Total recuperados:", length(todos), "\n")
+    Sys.sleep(0.1)
+  }
+  todos
+}
+
+papers_raw <- obtener_papers_openalex()
+cat("Total de artículos recuperados:", length(papers_raw), "\n")
+```
+
+**Procesamiento en data frame**
+
+```{r}
+
+procesar_papers <- function(papers) {
+  filas <- lapply(papers, function(p) {
+    autores <- p$authorships
+    nombres <- sapply(autores, function(a) {
+      nm <- a$author$display_name
+      if (is.null(nm)) NA_character_ else nm
+    })
+    nombres <- nombres[!is.na(nombres)]
+
+    doi_limpio <- if (!is.null(p$doi)) str_remove(p$doi, "https://doi.org/") else NA_character_
+
+    autores_limpios <- if (length(nombres) > 0) {
+      str_squish(paste(nombres, collapse = "; "))
+    } else {
+      NA_character_
+    }
+
+    url_articulo <- if (!is.null(doi_limpio) && !is.na(doi_limpio)) {
+      paste0("https://www.nature.com/articles/", str_remove(doi_limpio, "10.1038/"))
+    } else {
+      NA_character_
+    }
+
+    tibble(
+      paper_id         = if (!is.null(p$id)) p$id else NA_character_,
+      journal_name     = "Nature Ecology and Evolution",
+      title            = if (!is.null(p$title)) p$title else NA_character_,
+      publication_date = if (!is.null(p$publication_date)) p$publication_date else NA_character_,
+      year             = if (!is.null(p$publication_year)) as.integer(p$publication_year) else NA_integer_,
+      doi              = doi_limpio,
+      url              = url_articulo,
+      abstract         = reconstruir_abstract(p$abstract_inverted_index),
+      authors_raw      = autores_limpios,
+      n_authors        = length(autores),
+      citations        = if (!is.null(p$cited_by_count)) as.integer(p$cited_by_count) else NA_integer_,
+      downloads        = NA_integer_,
+      n_references     = if (!is.null(p$referenced_works_count)) as.integer(p$referenced_works_count) else NA_integer_,
+      topic_label      = NA_character_
+    )
+  })
+  bind_rows(filas)
+}
+
+papers_df <- procesar_papers(papers_raw)
+cat("Dimensiones:", nrow(papers_df), "filas x", ncol(papers_df), "columnas\n")
+```
+
+**Diagnóstico de valores faltantes**
+
+```{r}
+glimpse(papers_df)
+```
+Como vemos aún no hemos agregado la métrica de downloads, ya que toca revisar artículo por artículo. Sin embargo, la pondremos a continuación al igual que la agrupación de los artículos por tópicos.
+
+```{r}
+
+resumen_na <- papers_df |>
+  map(\(x) tibble(n_na = sum(is.na(x)), pct_na = round(mean(is.na(x)) * 100, 1))) |>
+  list_rbind(names_to = "columna") |>
+  filter(n_na > 0) |>
+  arrange(desc(pct_na))
+
+knitr::kable(resumen_na)
+cat("Filas completas:", sum(complete.cases(papers_df)), "\n")
+cat("Con al menos un NA:", sum(!complete.cases(papers_df)), "\n")
+```
+Claramente todos los articulos publicados en 2025 *325* iban a estar faltos de una métrica.
+
+**Extracción de referencias**
+
+```{r}
+
+extraer_referencias <- function(papers) {
+  filas <- list()
+  for (p in papers) {
+    refs <- p$referenced_works
+    if (!is.null(refs) && length(refs) > 0) {
+      for (ref in refs) {
+        filas[[length(filas) + 1]] <- tibble(
+          paper_id     = p$id,
+          reference_id = ref
+        )
+      }
+    }
+  }
+  bind_rows(filas)
+}
+
+referencias_df <- extraer_referencias(papers_raw)
+cat("Total de pares paper–referencia:", nrow(referencias_df), "\n")
+```
+
+
+## 3. Clasificación temática
+
+Ponemos palabras clave para agrupar los articulos por tópicos. Nota, las palabras claves fueron sacadas usando la ayuda de Chatgpt.
+
+```{r}
+
+kw_ia   <- paste(c("generative ai","large language model","llm","gpt","chatgpt",
+                   "diffusion model","generative model","foundation model",
+                   "text generation","image generation","generative adversarial",
+                   "variational autoencoder","vae","stable diffusion"), collapse="|")
+
+kw_ml   <- paste(c("machine learning","deep learning","neural network",
+                   "random forest","gradient boosting","supervised learning",
+                   "unsupervised learning","reinforcement learning","convolutional",
+                   "support vector","xgboost","artificial intelligence",
+                   "training data","prediction model"), collapse="|")
+
+kw_stat <- paste(c("bayesian","statistical inference","regression analysis",
+                   "hypothesis test","confidence interval","causal inference",
+                   "statistical model","multivariate analysis","time series",
+                   "monte carlo","markov chain","survival analysis",
+                   "mixed model","analysis of variance","stochastic"), collapse="|")
+
+papers_df <- papers_df |>
+  mutate(
+    texto_clasificar = str_to_lower(paste(title, coalesce(abstract, ""), sep = " ")),
+    topic_label = case_when(
+      str_detect(texto_clasificar, kw_ia)   ~ "IA Generativa",
+      str_detect(texto_clasificar, kw_ml)   ~ "Machine Learning",
+      str_detect(texto_clasificar, kw_stat) ~ "Estadística",
+      .default                              = "Otros"
+    )
+  ) |>
+  select(-texto_clasificar)
+
+knitr::kable(papers_df |> count(topic_label) |> arrange(desc(n)))
+```
+
+Distribución temática:
+
+```{r}
+
+papers_df |>
+  count(topic_label) |>
+  mutate(topic_label = reorder(topic_label, -n)) |>
+  ggplot(aes(x = topic_label, y = n, fill = topic_label)) +
+  geom_col(width = 0.6, show.legend = FALSE) +
+  geom_text(aes(label = n), vjust = -0.6, size = 3.5,
+            color = "grey40", fontface = "plain") +
+  scale_fill_manual(values = c(
+    "Otros"           = "#4d7c5f",
+    "Machine Learning"= "#3266ad",
+    "Estadística"     = "#7a5c99",
+    "IA Generativa"   = "#b85c38"
+  )) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
+  labs(
+    title    = "Distribución temática — Nature Ecology & Evolution 2025",
+    subtitle = "Clasificación basada en palabras clave en título y abstract · Fuente: OpenAlex",
+    x        = NULL,
+    y        = "Número de artículos"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title         = element_text(face = "bold", size = 13, color = "grey20"),
+    plot.subtitle      = element_text(size = 9, color = "grey50", margin = margin(b = 12)),
+    axis.line          = element_line(color = "grey85"),
+    axis.ticks         = element_line(color = "grey85"),
+    axis.text          = element_text(color = "grey40"),
+    axis.title.y       = element_text(color = "grey40", size = 10),
+    panel.grid.major.y = element_line(color = "grey92", linetype = "dashed"),
+    panel.grid.major.x = element_blank(),
+    plot.margin        = margin(t = 10, r = 20, b = 10, l = 10)
+  )
+```
+
+
+## 4. Recolección de Accesses desde nature.com
+
+Nature Ecology & Evolution muestra el número de *Accesses* (vistas totales) en el HTML estático de cada artículo sin requerir autenticación ni superar protecciones anti-bot. Es curioso ya que la revista principal, Nature, impide esto con protecciones cloudefire. Se verificó que nature.com devuelve HTTP 200 y que el número está disponible con el patrón `"[0-9]+k? Accesses"`. Con ~325 artículos y pausas de 1.5–4 segundos el proceso tomó alrededor de 30 minutos.Nota: chunk hecho con ayuda de inteligencia artificial para ayudar al autoguardado automatico. Vamos a crear el archivo csv llamado *nature_accesses.csv* a fin de ir guardando toda la informacion de la métrica Accesses.
+
+```{r}
+
+archivo_accesses <- "nature_accesses.csv"
+
+if (file.exists(archivo_accesses)) {
+  accesses_guardado <- read.csv(archivo_accesses, stringsAsFactors = FALSE)
+  ya_procesados     <- accesses_guardado$paper_id
+  cat("Retomando progreso previo:", nrow(accesses_guardado), "artículos procesados.\n")
+} else {
+  accesses_guardado <- tibble(paper_id = character(), accesses = integer())
+  ya_procesados     <- character()
+  cat("Iniciando desde cero.\n")
+}
+
+pendientes_acc <- papers_df |> filter(!paper_id %in% ya_procesados)
+cat("Artículos pendientes:", nrow(pendientes_acc), "\n")
+
+scrape_accesses <- function(url_articulo) {
+  peticion_segura <- purrr::possibly(
+    function(u) {
+      request(u) |>
+        req_user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36") |>
+        req_headers(`accept-language` = "en-US,en;q=0.9") |>
+        req_perform() |>
+        resp_body_html()
+    },
+    otherwise = NULL
+  )
+
+  pagina <- peticion_segura(url_articulo)
+  if (is.null(pagina)) return(NA_integer_)
+
+  accesses_texto <- pagina |>
+    html_elements("span, p, li, div") |>
+    html_text2() |>
+    (\(x) x[grepl("^[0-9]+\\.?[0-9]*k?\\s+Accesses$", x, ignore.case = TRUE)])() |>
+    head(1)
+
+  if (length(accesses_texto) == 0 || is.na(accesses_texto)) return(NA_integer_)
+
+  numero <- str_extract(accesses_texto, "[0-9]+\\.?[0-9]*k?")
+  if (str_detect(numero, "k")) {
+    as.integer(as.numeric(str_remove(numero, "k")) * 1000)
+  } else {
+    as.integer(numero)
+  }
+}
+
+tamano_bloque     <- 50
+resultados_nuevos <- list()
+
+for (i in seq_len(nrow(pendientes_acc))) {
+  pid <- pendientes_acc$paper_id[i]
+  url <- pendientes_acc$url[i]
+
+  if (is.na(url)) {
+    resultados_nuevos[[i]] <- tibble(paper_id = pid, accesses = NA_integer_)
+  } else {
+    acc <- scrape_accesses(url)
+    resultados_nuevos[[i]] <- tibble(paper_id = pid, accesses = acc)
+    cat("Artículo", i, "de", nrow(pendientes_acc),
+        "| Accesses:", ifelse(is.na(acc), "NA", acc), "\n")
+  }
+
+  Sys.sleep(runif(1, min = 1.5, max = 4.0))
+
+  if (i %% tamano_bloque == 0 || i == nrow(pendientes_acc)) {
+    accesses_guardado <- bind_rows(accesses_guardado, bind_rows(resultados_nuevos))
+    write.csv(accesses_guardado, archivo_accesses, row.names = FALSE)
+    resultados_nuevos <- list()
+    cat("--- Checkpoint guardado:", nrow(accesses_guardado), "artículos ---\n")
+  }
+}
+
+cat("Recolección de Accesses finalizada.\n")
+```
+
+Incorporamos los Accesses al data frame principal:
+
+```{r}
+
+accesses_final <- read.csv(archivo_accesses, stringsAsFactors = FALSE)
+
+papers_df <- papers_df |>
+  left_join(accesses_final, by = "paper_id") |>
+  mutate(downloads = accesses) |>
+  select(-accesses)
+
+knitr::kable(tibble(
+  total_papers = nrow(papers_df),
+  con_accesses = sum(!is.na(papers_df$downloads)),
+  sin_accesses = sum(is.na(papers_df$downloads))
+))
+```
+
+
+
+
+## 5. Construcción de la base SQLite
+
+```{r}
+con <- dbConnect(RSQLite::SQLite(), "nature_eco_evo_2025.sqlite")
+cat("Conexión a SQLite establecida.\n")
+```
+
+```{r}
+
+dbExecute(con, "DROP TABLE IF EXISTS paper_references;")
+dbExecute(con, "DROP TABLE IF EXISTS papers;")
+
+dbExecute(con, "
+  CREATE TABLE papers (
+    paper_id TEXT PRIMARY KEY, journal_name TEXT, title TEXT,
+    publication_date TEXT, year INTEGER, doi TEXT, url TEXT,
+    abstract TEXT, authors_raw TEXT, n_authors INTEGER,
+    citations INTEGER, downloads INTEGER, n_references INTEGER, topic_label TEXT
+  );
+")
+dbExecute(con, "
+  CREATE TABLE paper_references (
+    paper_id TEXT, reference_id TEXT,
+    FOREIGN KEY (paper_id) REFERENCES papers(paper_id)
+  );
+")
+cat("Tablas creadas correctamente.\n")
+```
+
+```{r}
+
+dbWriteTable(con, "papers", papers_df, append = TRUE, row.names = FALSE)
+cat("Papers insertados:", dbGetQuery(con, "SELECT COUNT(*) AS n FROM papers;")$n, "\n")
+
+if (nrow(referencias_df) > 0) {
+  dbWriteTable(con, "paper_references", referencias_df, append = TRUE, row.names = FALSE)
+  cat("Referencias insertadas:", dbGetQuery(con, "SELECT COUNT(*) AS n FROM paper_references;")$n, "\n")
+}
+```
+
+Verificación básica:
+
+```{r}
+knitr::kable(dbGetQuery(con, "
+  SELECT COUNT(*) AS total_papers,
+    SUM(CASE WHEN abstract IS NOT NULL THEN 1 ELSE 0 END) AS con_abstract,
+    SUM(CASE WHEN citations IS NOT NULL THEN 1 ELSE 0 END) AS con_citas,
+    SUM(CASE WHEN downloads IS NOT NULL THEN 1 ELSE 0 END) AS con_accesses
+  FROM papers;
+"))
+```
+
+Distribución de citas:
+
+```{r}
+
+papers_df |>
+  filter(!is.na(citations)) |>
+  ggplot(aes(x = citations)) +
+  geom_histogram(bins = 30, fill = "#2563eb", color = "white", alpha = 0.85) +
+  geom_vline(aes(xintercept = median(citations)),
+             color = "#dc2626", linetype = "dashed", linewidth = 1) +
+  labs(title = "Distribución de citas — Nature Ecology & Evolution 2025",
+       subtitle = "Línea roja: mediana",
+       x = "Número de citas", y = "Frecuencia") +
+  theme_minimal(base_size = 13)
+```
+
+
+## 6. Consultas SQL y resultados
+
+**Pregunta 1. ¿Cuál es el número promedio de autores por paper?**
+
+```{r}
+knitr::kable(dbGetQuery(con, "
+  SELECT ROUND(AVG(n_authors), 2) AS promedio_autores_por_paper FROM papers;
+"))
+```
+
+**Pregunta 2. ¿Cuántos artículos están relacionados con Machine Learning?**
+
+```{r}
+knitr::kable(dbGetQuery(con, "
+  SELECT COUNT(*) AS n_machine_learning FROM papers WHERE topic_label = 'Machine Learning';
+"))
+```
+
+**Pregunta 3. ¿Cuántos artículos están relacionados con IA Generativa?**
+
+```{r}
+knitr::kable(dbGetQuery(con, "
+  SELECT COUNT(*) AS n_ia_generativa FROM papers WHERE topic_label = 'IA Generativa';
+"))
+```
+
+**Pregunta 4. ¿Cuántos artículos están relacionados con otros temas estadísticos?**
+
+```{r}
+knitr::kable(dbGetQuery(con, "
+  SELECT COUNT(*) AS n_estadistica FROM papers WHERE topic_label = 'Estadística';
+"))
+```
+
+**Pregunta 5. ¿Cuál es el número total de Accesses de los artículos publicados en 2025?**
+
+La métrica usada es *Accesses* (vistas totales), disponible en el HTML público de nature.com y aceptada como equivalente a descargas.
+
+```{r}
+knitr::kable(dbGetQuery(con, "
+  SELECT COUNT(*) AS total_papers, SUM(downloads) AS total_accesses,
+    COUNT(downloads) AS papers_con_dato
+  FROM papers WHERE year = 2025;
+"))
+```
+
+**Pregunta 6. ¿Cuál es el número promedio de referencias por artículo?**
+
+```{r}
+knitr::kable(dbGetQuery(con, "
+  SELECT ROUND(AVG(n_references), 2) AS promedio_referencias FROM papers
+  WHERE n_references IS NOT NULL;
+"))
+```
+
+**Pregunta 7. ¿Cuál es la referencia que más se repite entre todos los artículos?**
+
+```{r}
+knitr::kable(dbGetQuery(con, "
+  SELECT reference_id, COUNT(*) AS veces_citada FROM paper_references
+  GROUP BY reference_id ORDER BY veces_citada DESC LIMIT 1;
+"))
+```
+
+**Pregunta 8. ¿Cuál es el promedio de citas por artículo?**
+
+```{r}
+knitr::kable(dbGetQuery(con, "
+  SELECT ROUND(AVG(citations), 2) AS promedio_citas FROM papers
+  WHERE citations IS NOT NULL;
+"))
+```
+
+**Pregunta 9. ¿Cuál es el paper con más citas?**
+
+```{r}
+knitr::kable(dbGetQuery(con, "
+  SELECT title, authors_raw, citations, doi FROM papers ORDER BY citations DESC LIMIT 1;
+"))
+```
+
+**Pregunta 10. ¿Cuál es el paper de ML, IA Generativa o Estadística con más citas?**
+
+```{r}
+knitr::kable(dbGetQuery(con, "
+  SELECT title, topic_label, citations, doi FROM papers
+  WHERE topic_label IN ('Machine Learning','IA Generativa','Estadística')
+  ORDER BY citations DESC LIMIT 1;
+"))
+```
+
+**Pregunta 11. ¿Cuál es el paper de ML, IA Generativa o Estadística con más Accesses?**
+
+```{r}
+
+resultado <- dbGetQuery(con, "
+  SELECT title, topic_label, downloads, doi FROM papers
+  WHERE topic_label IN ('Machine Learning','IA Generativa','Estadística')
+    AND downloads IS NOT NULL ORDER BY downloads DESC LIMIT 1;
+")
+if (nrow(resultado) == 0) {
+  cat("Sin datos de Accesses para artículos de estas categorías.")
+} else {
+  knitr::kable(resultado)
+}
+```
+
+
+## 7. Hallazgos
+
+
+Como era de esperarse para una revista especializada en ecología y biología evolutiva, la categoría Otros concentra la gran mayoría de los artículos publicados en 2025. Sin embargo, la presencia de trabajos clasificados en Machine Learning e IA Generativa refleja el creciente interés en el uso de métodos computacionales en disciplinas tradicionalmente empíricas, tendencia que se ha acelerado notablemente en los últimos años con la adopción de modelos de lenguaje y aprendizaje profundo en análisis de biodiversidad, genómica y modelamiento de ecosistemas.
+
+Por otro lado, contar con la métrica de Accesses junto a las citas académicas permite una comparación más nutrida del impacto de cada artículo. Mientras las citas reflejan la influencia dentro de la comunidad científica a mediano y largo plazo, los Accesses capturan la visibilidad inmediata y el interés del público más amplio, incluyendo divulgadores, periodistas especializados, tomadores de decisiones y lectores fuera del ámbito académico estricto. 
+
+
+## 8. Limitaciones
+
+**Variable `downloads` (Accesses):** se usó el número de *Accesses* de nature.com como métrica equivalente (sección 6.1 del enunciado). Los artículos sin URL válida o cuya página no devuelve el elemento quedan con NULL.
+
+**Otras revistas evaluadas:** PNAS, Nature (principal) y Science, revistas inicialmente exploradas, devuelven HTTP 403 Forbidden. Nature Ecology & Evolution, siendo una revista especializada del mismo grupo editorial, tiene configuración de seguridad más permisiva. Sin embargo, dada la utilidad de los archivos generados se subirá tambien el SQL de PNAS, aunque claramente con la columna descargas como NA.
+
+**Funciones fuera del contenido de clase:**  A lo largo del taller fue necesario recurrir a  funciones que no aparecen explícitamente en los talleres subidos a la plataforma de classroom, Todos inevitables dado el problema planteado. dbWriteTable() inserta un data frame completo en SQLite en un solo paso, reemplazando la necesidad de escribir INSERT INTO fila por fila. left_join() de dplyr une el data frame de Accesses con el data frame principal por paper_id, siendo la implementación en R de un concepto de JOIN introducido en el Taller SQL Avanzado. Por su parte, repeat se usó en lugar de for para la paginación de OpenAlex porque el número de páginas es determinado por la API en tiempo de ejecución, siendo mejor que fijar un límite arbitrario, o un limite revisado manualmente.
+
+
+## 9. Conclusión
+
+Este taller construyó una base de datos SQLite con artículos de Nature Ecology & Evolution 2025 combinando extracción via API (OpenAlex) y scraping con `rvest` para la métrica de *Accesses*. El volumen reducido (~325 artículos) permitió ejecutar todo el pipeline en una sola sesión, incluyendo el scraping artículo por artículo. 
+
+
+Finalmente cerramos la conexión respetando las buenas prácticas del uso de web scrapping.
+```{r}
+dbDisconnect(con)
+cat("Conexión cerrada.\n")
+```
+
+---
+**Referencias**
+
+Courchamp, F., et al. (2018). 100 articles every ecologist should read. *Nature Ecology & Evolution*, 2, 395–401. https://doi.org/10.1038/s41559-017-0370-9
+
+Trisos, C. H., Merow, C., & Pigot, A. L. (2020). The projected timing of abrupt ecological disruption from climate change. *Nature Ecology & Evolution*, 4, 838–845. https://doi.org/10.1038/s41559-020-1100-3
+
+Sobral, M., et al. (2017). Mammal diversity influences the carbon cycle through trophic interactions in the Amazon. *Nature Ecology & Evolution*, 1, 1670–1676. https://doi.org/10.1038/s41559-017-0334-0
+
+Dunne, E. M., et al. (2022). Colonial history and global economics distort our understanding of deep-time biodiversity. *Nature Ecology & Evolution*, 6, 145–150. https://doi.org/10.1038/s41559-021-01608-8
+
+Cunningham, C. X., et al. (2024). *Nature Ecology & Evolution*. https://doi.org/10.1038/s41559-024-02452-2

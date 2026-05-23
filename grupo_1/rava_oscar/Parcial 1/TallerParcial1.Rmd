@@ -1,0 +1,348 @@
+---
+title: "Taller Parcial 1 - Minería de Datos"
+author: "Oscar David Pava Ariza"
+date: "2026-05-8"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## 1. Introducción
+
+La revista seleccionada es **Frontiers in Plant Science** (ISSN: 1664-462X), una revista de acceso abierto clasificada como **Q1** en Plant Sciences según JCR 2024, con un factor de impacto de 4.8. Publica investigación en todas las áreas de la biología vegetal y cuenta con más de 3.200 artículos publicados en 2025.
+
+URL base: https://www.frontiersin.org/journals/plant-science
+
+## 2. Fuente de datos y scraping
+
+Se utilizaron las librerías `chromote` y `rvest` para realizar web scraping sobre la página de listado de artículos de Frontiers in Plant Science, filtrada por el año 2025. La estrategia consistió en:
+
+1. Abrir un navegador Chrome headless con `chromote` para renderizar el JavaScript de la página.
+2. Paginar sobre la lista de artículos para recolectar las URLs de cada artículo.
+3. Visitar cada artículo individualmente para extraer metadatos desde meta tags y elementos del DOM.
+
+**Limitaciones encontradas:**
+- El sitio requiere JavaScript para cargar el contenido (no es HTML estático).
+- No todos los artículos muestran métricas de citas directamente en la página.
+- Se respetaron pausas entre solicitudes para no sobrecargar el servidor.
+- La métrica usada como equivalente a "descargas" es **Views** (vistas del artículo).
+
+```{r librerias}
+library(chromote)
+library(rvest)
+library(dplyr)
+library(stringr)
+library(DBI)
+library(RSQLite)
+library(lubridate)
+```
+
+```{r configuracion}
+BASE_URL <- "https://www.frontiersin.org/journals/plant-science/articles?publication-date=01%2F01%2F2025-31%2F12%2F2025"
+N_PAGINAS <- 10  # 10 páginas x 24 artículos = ~240 artículos
+```
+
+## 2.1 Recolección de URLs
+
+```{r recolectar_urls}
+b <- ChromoteSession$new()
+
+todos_los_links <- c()
+
+for (pag in 1:N_PAGINAS) {
+  
+  url_pag <- if (pag == 1) {
+    BASE_URL
+  } else {
+    paste0(BASE_URL, "&page=", pag)
+  }
+  
+  cat("Scrapeando página", pag, "...\n")
+  
+  b$Page$navigate(url_pag)
+  Sys.sleep(5)
+  
+  html <- b$Runtime$evaluate("document.documentElement.outerHTML")$result$value
+  pagina <- read_html(html)
+  
+  links <- pagina |>
+    html_elements("a") |>
+    html_attr("href") |>
+    grep("/articles/", x = _, value = TRUE)
+  
+  links_2025 <- links[grepl("fpls\\.2025\\.", links)]
+  links_2025 <- unique(links_2025)
+  
+  cat("  ->", length(links_2025), "artículos encontrados\n")
+  todos_los_links <- c(todos_los_links, links_2025)
+}
+
+todos_los_links <- unique(todos_los_links)
+cat("\nTotal de URLs únicas recolectadas:", length(todos_los_links), "\n")
+```
+
+## 2.2 Extracción de metadatos por artículo
+
+```{r extraer_metadatos}
+extraer_articulo <- function(b, url) {
+  b$Page$navigate(url)
+  Sys.sleep(4)
+  
+  html <- b$Runtime$evaluate("document.documentElement.outerHTML")$result$value
+  pag <- read_html(html)
+  
+  # Título
+  titulo <- pag |> html_element("h1") |> html_text2() |> str_trim()
+  
+  # DOI
+  doi_url <- paste0("https://doi.org/", str_extract(url, "10\\.3389/fpls\\.2025\\.[0-9]+"))
+  
+  # Fecha desde meta tag
+  fecha_raw <- pag |> html_elements("meta[name='citation_online_date']") |> html_attr("content")
+  fecha_pub <- if (length(fecha_raw) > 0 && nchar(fecha_raw[1]) > 0) {
+    as.character(as.Date(fecha_raw[1], format = "%Y/%m/%d"))
+  } else NA_character_
+  
+  # Abstract desde meta tag
+  abstract <- pag |> html_elements("meta[name='citation_abstract']") |>
+    html_attr("content") |> str_remove("^Abstract\\s*") |> str_trim()
+  if (length(abstract) == 0) abstract <- NA_character_
+  
+  # Autores desde meta tags
+  autores <- pag |> html_elements("meta[name='citation_author']") |>
+    html_attr("content") |> paste(collapse = "; ")
+  n_autores <- str_count(autores, ";") + 1
+  if (nchar(autores) == 0) { autores <- NA_character_; n_autores <- NA }
+  
+  # Vistas y citas desde DOM
+  todos_textos <- pag |> html_elements("span, p, div") |> html_text2()
+  
+  descargas <- str_extract(
+    todos_textos[grepl("Views", todos_textos) & nchar(todos_textos) < 30] |> first(),
+    "[0-9,]+"
+  ) |> str_remove_all(",") |> as.integer()
+  
+  citas <- str_extract(
+    todos_textos[grepl("Citations", todos_textos) & nchar(todos_textos) < 30] |> first(),
+    "[0-9,]+"
+  ) |> str_remove_all(",") |> as.integer()
+  
+  # Referencias
+  n_refs <- pag |> html_elements(".References li, [class*='reference'] li") |> length()
+  if (n_refs == 0) n_refs <- NA_integer_
+  
+  list(
+    journal_name     = "Frontiers in Plant Science",
+    title            = titulo,
+    publication_date = fecha_pub,
+    year             = 2025L,
+    doi              = doi_url,
+    url              = url,
+    abstract         = abstract,
+    authors_raw      = autores,
+    n_authors        = n_autores,
+    citations        = citas,
+    downloads        = descargas,
+    n_references     = n_refs
+  )
+}
+
+# Loop principal
+lista_articulos <- list()
+
+for (i in seq_along(todos_los_links)) {
+  cat("Artículo", i, "de", length(todos_los_links), "\n")
+  resultado <- tryCatch(
+    extraer_articulo(b, todos_los_links[i]),
+    error = function(e) { cat("  Error:", e$message, "\n"); NULL }
+  )
+  if (!is.null(resultado)) {
+    lista_articulos[[length(lista_articulos) + 1]] <- resultado
+  }
+  Sys.sleep(1)
+}
+
+b$close()
+
+df_papers <- bind_rows(lista_articulos)
+df_papers$paper_id <- seq_len(nrow(df_papers))
+
+cat("\nArticulos recolectados:", nrow(df_papers), "\n")
+glimpse(df_papers)
+```
+
+## 3. Clasificación temática
+
+```{r clasificacion}
+clasificar <- function(titulo, abstract) {
+  texto <- tolower(paste(titulo, abstract, sep = " "))
+  
+  palabras_ia_gen <- c("generative", "large language model", "llm", "gpt",
+                       "diffusion model", "transformer", "chatgpt",
+                       "generative ai", "foundation model", "bert")
+  
+  palabras_ml <- c("machine learning", "deep learning", "neural network",
+                   "random forest", "classification", "clustering",
+                   "support vector", "convolutional", "cnn", "lstm",
+                   "gradient boosting", "xgboost", "prediction model")
+  
+  palabras_stat <- c("regression", "statistical", "bayesian", "anova",
+                     "multivariate", "principal component", "pca",
+                     "linear model", "mixed model", "correlation analysis",
+                     "hypothesis test", "variance")
+  
+  if (any(str_detect(texto, palabras_ia_gen))) return("IA Generativa")
+  if (any(str_detect(texto, palabras_ml)))     return("Machine Learning")
+  if (any(str_detect(texto, palabras_stat)))   return("Estadística")
+  return("Otros")
+}
+
+df_papers <- df_papers |>
+  mutate(topic_label = mapply(clasificar, title, abstract))
+
+table(df_papers$topic_label)
+```
+
+## 4. Construcción de la base de datos SQLite
+
+```{r crear_db}
+con <- dbConnect(SQLite(), "frontiers_plant_science_2025.sqlite")
+
+dbExecute(con, "DROP TABLE IF EXISTS papers")
+dbExecute(con, "
+  CREATE TABLE papers (
+    paper_id         INTEGER PRIMARY KEY,
+    journal_name     TEXT,
+    title            TEXT,
+    publication_date TEXT,
+    year             INTEGER,
+    doi              TEXT,
+    url              TEXT,
+    abstract         TEXT,
+    authors_raw      TEXT,
+    n_authors        INTEGER,
+    citations        INTEGER,
+    downloads        INTEGER,
+    n_references     INTEGER,
+    topic_label      TEXT
+  )
+")
+
+dbWriteTable(con, "papers", df_papers |> select(
+  paper_id, journal_name, title, publication_date, year,
+  doi, url, abstract, authors_raw, n_authors,
+  citations, downloads, n_references, topic_label
+), append = TRUE)
+
+cat("Registros insertados:", dbGetQuery(con, "SELECT COUNT(*) as n FROM papers")$n, "\n")
+```
+
+## 5. Consultas SQL
+
+```{r sql_1}
+# 1. Promedio de autores por paper
+dbGetQuery(con, "SELECT ROUND(AVG(n_authors), 2) AS promedio_autores FROM papers")
+```
+
+```{r sql_2}
+# 2. Artículos relacionados con Machine Learning
+dbGetQuery(con, "SELECT COUNT(*) AS n_machine_learning FROM papers WHERE topic_label = 'Machine Learning'")
+```
+
+```{r sql_3}
+# 3. Artículos relacionados con IA Generativa
+dbGetQuery(con, "SELECT COUNT(*) AS n_ia_generativa FROM papers WHERE topic_label = 'IA Generativa'")
+```
+
+```{r sql_4}
+# 4. Artículos relacionados con Estadística
+dbGetQuery(con, "SELECT COUNT(*) AS n_estadistica FROM papers WHERE topic_label = 'Estadística'")
+```
+
+```{r sql_5}
+# 5. Total de vistas (equivalente a descargas) en 2025
+dbGetQuery(con, "SELECT SUM(downloads) AS total_vistas FROM papers WHERE year = 2025")
+```
+
+```{r sql_6}
+# 6. Promedio de referencias por artículo
+dbGetQuery(con, "SELECT ROUND(AVG(n_references), 2) AS promedio_referencias FROM papers")
+```
+
+```{r sql_7}
+# 7. Referencia más repetida — no disponible sin tabla auxiliar
+cat("Variable no disponible: Frontiers no expone la lista de referencias en HTML estructurado. Ver sección de limitaciones.")
+```
+
+```{r sql_8}
+# 8. Promedio de citas por artículo
+dbGetQuery(con, "SELECT ROUND(AVG(citations), 2) AS promedio_citas FROM papers")
+```
+
+```{r sql_9}
+# 9. Paper con más citas
+dbGetQuery(con, "SELECT title, citations FROM papers ORDER BY citations DESC LIMIT 1")
+```
+
+```{r sql_10}
+# 10. Paper de ML, IA Gen o Estadística con más citas
+dbGetQuery(con, "
+  SELECT title, topic_label, citations
+  FROM papers
+  WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+  ORDER BY citations DESC
+  LIMIT 1
+")
+```
+
+```{r sql_11}
+# 11. Paper de ML, IA Gen o Estadística con más descargas
+dbGetQuery(con, "
+  SELECT title, topic_label, downloads
+  FROM papers
+  WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+  ORDER BY downloads DESC
+  LIMIT 1
+")
+```
+
+## 6. Hallazgos
+
+```{r hallazgos}
+cat("Distribución temática:\n")
+print(table(df_papers$topic_label))
+
+cat("\nTop 5 artículos por vistas:\n")
+df_papers |>
+  arrange(desc(downloads)) |>
+  select(title, downloads, topic_label) |>
+  head(5) |>
+  print()
+
+cat("\nTop 5 artículos por citas:\n")
+df_papers |>
+  arrange(desc(citations)) |>
+  select(title, citations, topic_label) |>
+  head(5) |>
+  print()
+```
+
+## 7. Limitaciones
+
+- **JavaScript requerido:** Frontiers in Plant Science carga su contenido dinámicamente, lo que obligó a usar `chromote` (navegador headless) en lugar de scraping HTML estático.
+- **Citas:** Frontiers no muestra citas en todos los artículos. Los valores faltantes se registran como `NULL`.
+- **Métrica de descargas:** Se usaron **Views** (vistas) como métrica equivalente a descargas, ya que es la única métrica de uso disponible públicamente en Frontiers.
+- **Referencias individuales:** No fue posible extraer la lista de referencias individuales ya que Frontiers no las expone en HTML estructurado. La columna `n_references` contiene el conteo total cuando está disponible.
+- **Muestra:** Se recolectaron 240 artículos de los 3.243 publicados en 2025 (primeras 10 páginas).
+
+## 8. Conclusión
+
+Se construyó una base de datos SQLite con 240 artículos de 2025 de Frontiers in Plant Science mediante web scraping con `chromote` y `rvest`. La mayoría de los artículos corresponden a la categoría "Otros" (biología vegetal tradicional), con una minoría aplicando técnicas de Machine Learning o estadística avanzada. Las métricas de vistas estuvieron disponibles parcialmente, mientras que las citas fueron escasas dado que muchos artículos son recientes.
+
+```{r cerrar_db}
+dbDisconnect(con)
+```

@@ -1,0 +1,281 @@
+---
+title: "Web Scraping de artículos científicos: Entropy 2025"
+author: "Elián Steven Bejarano González"
+format: html
+editor: visual
+---
+
+# 1. Introducción
+
+Este trabajo tiene como objetivo construir una base de datos en SQLite a partir de artículos publicados en 2025 en la revista *Entropy*, siguiendo un proceso de recolección mediante web scraping. La actividad busca aplicar técnicas de extracción web, organización de datos y consultas SQL dentro de un flujo de minería de datos.
+
+La revista seleccionada fue *Entropy*, publicada por MDPI. Esta revista fue elegida porque dispone públicamente de los artículos del volumen 27 correspondiente al año 2025, permite acceder a metadatos como título, autores, DOI, resumen, referencias y métricas de impacto, y su estructura web permite aplicar técnicas de scraping.
+
+# 2. Fuente de datos y estrategia de scraping
+
+La fuente principal fue la página del volumen 27 de *Entropy*:
+
+```{r}
+url_volumen <- "https://www.mdpi.com/1099-4300/27"
+
+```
+
+El scraping se realizó en varias etapas. Primero, se accedió a la página del volumen completo. Luego, se identificaron los números publicados durante 2025 y se generaron los enlaces correspondientes a los artículos. Para evitar errores de conexión, se usaron encabezados HTTP que simulan una solicitud desde navegador.
+
+Además, las métricas de visualizaciones, descargas y citas se obtuvieron desde el endpoint /stats de cada artículo, el cual devuelve un objeto JSON con las métricas asociadas.
+
+# 3. Construcción de la base SQLite
+
+La base de datos se construyó usando DBI y RSQLite. La tabla principal se llamó papers, como exige el enunciado del taller.
+
+```{r}
+variables <- data.frame(
+  Variable = c(
+    "paper_id",
+    "article_number",
+    "title",
+    "publication_date",
+    "doi",
+    "n_authors",
+    "citations",
+    "downloads",
+    "views",
+    "n_references",
+    "topic_label"
+  ),
+  Descripcion = c(
+    "Identificador interno del paper",
+    "Número oficial del artículo en MDPI",
+    "Título del artículo",
+    "Fecha de publicación",
+    "DOI del artículo",
+    "Número de autores",
+    "Número de citas",
+    "Número de descargas",
+    "Número de visualizaciones",
+    "Número de referencias bibliográficas",
+    "Clasificación temática"
+  )
+)
+
+knitr::kable(variables)
+```
+
+```{r}
+library(DBI)
+library(RSQLite)
+library(dplyr)
+
+papers <- read.csv(
+  "entropy_2025.csv",
+  stringsAsFactors = FALSE
+)
+
+con <- dbConnect(
+  SQLite(),
+  "entropy_2025.sqlite"
+)
+
+dbWriteTable(
+  con,
+  "papers",
+  papers,
+  overwrite = TRUE
+)
+
+dbListTables(con)
+```
+
+La tabla final contiene 1264 artículos y las variables principales requeridas: título, fecha de publicación, DOI, URL, autores, resumen, número de autores, citas, descargas, visualizaciones, número de referencias y clasificación temática.
+
+```{r}
+dim(papers)
+
+dbGetQuery(
+  con,
+  "PRAGMA table_info(papers)"
+)
+```
+
+# 4. Clasificación temática
+
+Cada artículo fue clasificado en una de cuatro categorías: Machine Learning, IA Generativa, Estadística u Otros. La clasificación se realizó mediante palabras clave en el título y el resumen. Por ejemplo, términos como machine learning, deep learning o neural network asignaron la categoría Machine Learning, mientras que términos como llm, gpt o transformer asignaron IA Generativa.
+
+```{r}
+table(papers$topic_label)
+```
+
+# 5. Consultas SQL y resultados
+
+## 5.1 Promedio de autores por paper
+
+```{r}
+dbGetQuery(con, "
+SELECT AVG(n_authors) AS promedio_autores
+FROM papers;
+")
+```
+
+## 5.2 Artículos relacionados con Machine Learning
+
+```{r}
+dbGetQuery(con, "
+SELECT COUNT(*) AS n_ml
+FROM papers
+WHERE topic_label = 'Machine Learning';
+")
+```
+
+## 5.3 Artículos relacionados con IA Generativa
+
+```{r}
+dbGetQuery(con, "
+SELECT COUNT(*) AS n_ia_generativa
+FROM papers
+WHERE topic_label = 'IA Generativa';
+")
+```
+
+## 5.4 Artículos relacionados con Estadística
+
+```{r}
+dbGetQuery(con, "
+SELECT COUNT(*) AS n_estadistica
+FROM papers
+WHERE topic_label = 'Estadística';
+")
+```
+
+## 5.5 Total de descargas
+
+```{r}
+dbGetQuery(con, "
+SELECT SUM(downloads) AS total_downloads
+FROM papers;
+")
+```
+
+## 5.6 Promedio de referencias por artículo
+
+```{r}
+dbGetQuery(con, "
+SELECT AVG(n_references) AS promedio_referencias
+FROM papers;
+")
+```
+
+## 5.7 Promedio de citas por artículo
+
+```{r}
+dbGetQuery(con, "
+SELECT AVG(citations) AS promedio_citas
+FROM papers;
+")
+```
+
+## 5.8 Paper con más citas
+
+```{r}
+dbGetQuery(con, "
+SELECT title, citations
+FROM papers
+ORDER BY citations DESC
+LIMIT 1;
+")
+```
+
+## 5.9 Paper temático con más citas
+
+```{r}
+dbGetQuery(con, "
+SELECT title, topic_label, citations
+FROM papers
+WHERE topic_label IN (
+  'Machine Learning',
+  'IA Generativa',
+  'Estadística'
+)
+ORDER BY citations DESC
+LIMIT 1;
+")
+```
+
+## 5.10 Paper temático con más descargas
+
+```{r}
+dbGetQuery(con, "
+SELECT title, topic_label, downloads
+FROM papers
+WHERE topic_label IN (
+  'Machine Learning',
+  'IA Generativa',
+  'Estadística'
+)
+ORDER BY downloads DESC
+LIMIT 1;
+")
+```
+
+# 6. Comparación entre visualizaciones, descargas y citas
+
+Para explorar la relación entre distintas métricas de impacto, se compararon las visualizaciones, descargas y citas de los artículos. Antes de graficar, se eliminaron los registros con valores faltantes en estas variables.
+
+```{r}
+papers_clean <- papers |>
+  filter(
+    !is.na(citations),
+    !is.na(downloads),
+    !is.na(views),
+    !is.na(n_references)
+  )
+
+dim(papers_clean)
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(papers_clean, aes(x = views, y = downloads)) +
+  geom_point(alpha = 0.6) +
+  labs(
+    title = "Relación entre visualizaciones y descargas",
+    x = "Article Views",
+    y = "Downloads"
+  ) +
+  theme_minimal()
+```
+
+Se observa una relación positiva entre las visualizaciones y las descargas. Los artículos con mayor número de visualizaciones tienden también a presentar mayores descargas, aunque existen algunos valores atípicos con niveles de atención considerablemente altos.
+
+```{r}
+ggplot(papers_clean, aes(x = views, y = citations)) +
+  geom_point(alpha = 0.6) +
+  labs(
+    title = "Relación entre visualizaciones y citas",
+    x = "Article Views",
+    y = "Citations"
+  ) +
+  theme_minimal()
+```
+
+Se observa una relación positiva entre las visualizaciones y las descargas. Los artículos con mayor número de visualizaciones tienden también a presentar mayores descargas, aunque existen algunos valores atípicos con niveles de atención considerablemente altos.
+
+En general, las visualizaciones y descargas presentan una relación positiva más clara que la observada entre visualizaciones y citas. Esto es razonable, pues las citas suelen acumularse más lentamente, mientras que las visualizaciones y descargas reflejan una interacción más inmediata con el artículo.
+
+# 7. Hallazgos
+
+La base final contiene 1264 artículos del volumen 27 de Entropy. La categoría con mayor presencia fue Estadística, seguida por Otros, Machine Learning e IA Generativa. El promedio de autores por artículo fue cercano a 3.38, lo que sugiere una presencia importante de trabajos colaborativos, aunque también existen artículos individuales.
+
+En términos de impacto, el artículo con mayor número de citas fue Social Image Security with Encryption and Watermarking in Hybrid Domains, con 43 citas. Entre los artículos clasificados en Machine Learning, IA Generativa o Estadística, este mismo artículo fue el más citado. En cuanto a descargas, el artículo temático con mayor valor fue Disentangling Boltzmann Brains, the Time-Asymmetry of Memory, and the Second Law.
+
+# 8. Limitaciones
+
+Durante el scraping se encontraron algunas restricciones técnicas. En primer lugar, MDPI bloqueaba solicitudes simples mediante HTTP 403, por lo que fue necesario simular un navegador usando encabezados HTTP. En segundo lugar, las métricas de visualizaciones, descargas y citas no estaban directamente disponibles en el HTML principal, sino en un endpoint adicional /stats.
+
+También se observaron algunos valores faltantes: 5 artículos no tenían métricas completas de citas, descargas o visualizaciones, y 2 artículos no tenían número de referencias disponible. Estos casos fueron conservados como NA, de acuerdo con la instrucción del taller de permitir valores faltantes cuando una variable no está disponible para todos los artículos.
+
+# 9. Conclusión
+
+El taller permitió construir una base de datos SQLite a partir de información recolectada mediante web scraping. A partir de la revista Entropy, se extrajeron metadatos, métricas de impacto y referencias de artículos publicados en 2025. Posteriormente, los datos fueron organizados en una tabla papers, clasificados temáticamente y analizados mediante consultas SQL.
+
+El ejercicio muestra que las decisiones en la etapa de recolección condicionan directamente la calidad del análisis posterior. En particular, fue necesario adaptar la estrategia de scraping para manejar bloqueos, endpoints dinámicos y valores faltantes.

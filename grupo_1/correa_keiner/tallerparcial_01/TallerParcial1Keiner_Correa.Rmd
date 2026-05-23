@@ -1,0 +1,605 @@
+---
+title: "TallerParcial 1"
+subtitle: "Minería de datos- Grupo 1"
+author: "Keiner Felipe Correa"
+date: "2026-05-11"
+output:
+  html_document:
+    theme: united
+    highlight: tango
+    toc: true
+    toc_float: true
+    code_folding: show
+    df_print: paged     # Las tablas grandes se ven con paginación interactiva
+    code_download: true # Agrega un botón para bajar el archivo .Rmd
+    number_sections: true
+    css: styles.css
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{=html}
+<style>
+.nota-azul {
+  background-color: #f0f8ff;
+  border: 1px solid #add8e6;
+  padding: 10px;
+  border-radius: 8px;
+  color: #2c3e50;
+}
+h1 {
+  color: #051E9E;
+  font-weight: 700;
+}
+
+h2 {
+  color: #051E9E;
+}
+
+h3 {
+  color: #2934CC;
+}
+
+/* Código */
+pre {
+  background-color: #F8F9FA;
+  border-left: 5px solid #1E88E5;
+  border-radius: 6px;
+}
+
+code {
+  color: #D63384;
+}
+
+/* Texto justificado */
+body {
+  text-align: justify;
+}
+</style>
+```
+
+## Introducción
+
+Para el desarrollo de este trabajo se seleccionó la revista PLOS ONE,
+una revista científica de acceso abierto clasificada como Q1 y publicada
+por la *Public Library of Science*. En particular, se trabajó con la
+sección de *Computer and Information Sciences*, disponible en el
+siguiente enlace:\
+<https://journals.plos.org/plosone/browse/computer_and_information_sciences>
+
+Se eligió esta fuente por varias razones.Primero, porque permite el
+acceso libre a todos los artículos sin restricciones, lo que facilita la
+recolección de información. Además, ofrece metadatos estructurados para
+cada publicación, incluyendo título, autores, resumen, DOI y fecha de
+publicación.
+
+Adicionalmente, la estructura HTML del sitio es sencilla, lo que
+facilita el proceso de web scraping. Finalmente, la diversidad temática
+dentro del área de computación permite analizar tendencias actuales como
+machine learning, inteligencia artificial y estadística aplicada.
+
+## Fuente de datos y scraping
+
+La recolección de datos se realizó en R utilizando las librerías `httr`,
+`rvest`, `dplyr`, `purrr`, `lubridate`, `tibble` y `tidyr`.
+
+Se extrajeron artículos desde 55 páginas del listado, tomando una
+muestra sistemática de páginas (de la 101 a la 426 con saltos de 6 en
+6), con el objetivo de cubrir diferentes momentos del año 2025. En
+total, se obtuvieron 709 artículos.
+
+El proceso de extracción se dividió en dos etapas:
+
+1.  La obtención de enlaces en donde se recorren las páginas del listado
+    para recolectar los links individuales de cada artículo.
+
+2.  La extracción de la información para cada artículo obteniendo como
+    resultado información detallada como título, fecha, autores,
+    resumen, DOI y referencias.
+
+Durante el scraping se utlizaron varias fuentes debido a limitaciones
+del HTMl.
+
+- HTML estático mediante rvest para título, fecha, DOI, autores, resumen
+  y referencias.
+
+- API de PLOS (api.plos.org) para obtener las vistas totales mediante el
+  campo counter_total_all, dado que este dato se renderiza dinámicamente
+  con JavaScript y no es accesible desde el HTML estático
+
+- API de OpenAlex para obtener el número de citas para cada artículo a
+  partir del DOI.
+
+Esta combinación permitió construir una base de datos más completa y
+robusta que utilizando únicamente scraping tradicional.
+
+Se adjunta el código utilizado para el desarrollo de esta parte.
+
+```{r eval=FALSE, echo=TRUE}
+#carga de librerias
+library(httr)
+library(rvest)
+library(dplyr)
+library(purrr)
+library(lubridate)
+library(tibble)
+library(tidyr)
+
+#1. obtener los links de los articulos
+obtener_links <- function(paginas) {
+ lista_links <- c()
+  
+  for (p in paginas) {
+   url <- paste0(
+      "https://journals.plos.org/plosone/browse/computer_and_information_sciences?resultView=list&page=", p
+    )
+    
+    cat("Procesando página:", p, "\n")
+    
+    res  <- GET(url, user_agent("Mozilla/5.0"))
+    html <- read_html(content(res, "text"))
+    
+    links <- html %>%
+      html_nodes("a[href*='/plosone/article?id=']") %>%
+      html_attr("href")
+    
+    lista_links <- c(lista_links, links)
+    Sys.sleep(runif(1, 1, 2))
+  }
+  
+  lista_links <- unique(lista_links)
+  paste0("https://journals.plos.org", lista_links)
+}
+
+
+#obtener una muestra de todos los meses
+paginas <- seq(101, 426, by = 6)
+lista_links <- obtener_links(paginas) #links para scrapear 
+cat("Total links:", length(lista_links), "\n")
+
+
+#2. Scrapear los artículos individuales
+scrapear_articulo <- function(url) {
+  tryCatch({
+    # Extraer DOI de la URL
+    doi <- sub(".*id=", "", url)
+    
+  
+    api_url <- paste0(
+      'https://api.plos.org/search?q=id:"', doi,
+      '"&fl=id,title_display,publication_date,author_display,abstract,counter_total_all&wt=json'
+    )
+    r    <- GET(api_url, user_agent("Mozilla/5.0"))
+    if (status_code(r) != 200) stop("API PLOS error")
+    
+    json <- content(r, "parsed")
+    doc  <- json$response$docs[[1]]
+    
+    title    <- doc$title_display
+    date     <- as.Date(substr(doc$publication_date, 1, 10))
+    authors  <- paste(unlist(doc$author_display), collapse = ", ")
+    abstract <- paste(unlist(doc$abstract), collapse = " ") %>% trimws()
+    views    <- doc$counter_total_all
+    
+    # Referencias desde scraping HTML
+    res  <- GET(url, user_agent("Mozilla/5.0"))
+    html <- read_html(content(res, "text", encoding = "UTF-8"))
+    
+    references <- html %>%
+      html_nodes("ol.references li") %>%
+      html_text(trim = TRUE) %>%
+      gsub("\\s+", " ", .)   # limpiar espacios extra
+    
+    references_count <- length(references)
+    
+    # Citas desde OpenAlex
+    cited_by <- NA
+    oa_url   <- paste0("https://api.openalex.org/works/https://doi.org/", doi)
+    oa_r     <- GET(oa_url)
+    if (status_code(oa_r) == 200) {
+      cited_by <- content(oa_r, "parsed")$cited_by_count
+    }
+    
+    tibble(
+      title, date, doi, url, authors,
+      abstract, cited_by, views, 
+      references_count,
+      references = list(references)  # guardar como lista
+    )
+    
+  }, error = function(e) {
+    message("Error en: ", url, " — ", e$message)
+    return(NULL)
+  })
+}
+
+
+scrapear_con_pausa <- function(url, i) {
+  cat("Procesando artículo", i, ":", url, "\n")
+  Sys.sleep(runif(1, 0.5, 1.5))
+  scrapear_articulo(url)
+}
+
+
+df_final <- map2_dfr(lista_links, seq_along(lista_links), scrapear_con_pausa)
+```
+
+## Construcción de la base SQLite
+
+La base de datos se construyó en R utilizando las librerías `DBI` y
+`RSQLite`, donde se generó el archivo `revista_plosone.sqlite`.
+
+Primeramente, los datos fueron limpiados y transformados. Esto incluyó
+la estandarización de fechas, conversión de variables numéricas y
+creación de nuevas variables como el número de autores y el año de
+publicación.
+
+El diseño de la base de datos sigue un esquema relacional normalizado,
+compuesto por las siguientes tablas:
+
+- `papers`
+- `authors`
+- `paper_authors`
+- `references`
+- `paper_references`
+
+A continuación el código de la limpieza y creación de la base de datos.
+
+```{r eval=FALSE, echo=TRUE}
+library(DBI)
+library(RSQLite)
+library(stringr)
+library(dplyr)
+library(tidyr)
+
+#limpieza
+df_limpio <- df_final %>%
+  mutate(
+    date     = as.character(date),        
+    abstract = trimws(abstract),
+    views    = as.integer(views),
+    cited_by = as.integer(cited_by),
+    references_count = as.integer(references_count)
+  ) %>%
+  filter(!is.na(title))                     
+
+
+#columnas faltantes
+paper_id <- seq(1:709)
+journal_name <- replicate(709, "PLOS ONE")
+year <- year(df_limpio$date)
+topic_label <- rep(NA, 709)
+names(df_limpio)[2] <- "publication_date"
+names(df_limpio)[7] <- "citations"
+names(df_limpio)[9] <- "n_references"
+df_limpio <- df_limpio %>%
+  mutate(n_authors = lengths(str_split(authors, ",")))
+
+#columnas nuevas
+df_limpio <- cbind(df_limpio,paper_id, journal_name, year, topic_label)
+
+#orden nuevo de las columnas
+df_limpio <- df_limpio%>%
+  select(
+    paper_id,
+    journal_name,
+    title,
+    publication_date,
+    year,
+    doi,
+    url,
+    abstract,
+    authors,
+    n_authors,
+    citations,
+    views,
+    references,
+    n_references,
+    topic_label
+  )
+
+
+#clasificación de los articulos
+clasificar_articulo <- function(title, abstract) {
+  texto <- tolower(paste(title, abstract))
+  
+  if (grepl("machine learning|deep learning|neural network|classification|random forest|xgboost|supervised|unsupervised|reinforcement learning", texto)) {
+    return("Machine Learning")
+  } else if (grepl("generative|large language model|llm|gpt|diffusion|transformer|chatgpt|bert|stable diffusion|text generation|image generation", texto)) {
+    return("IA Generativa")
+  } else if (grepl("regression|bayesian|statistical|hypothesis|p-value|correlation|variance|anova|probability|distribution|sampling", texto)) {
+    return("Estadística")
+  } else {
+    return("Otros")
+  }
+}
+
+
+# agregar la clasificacion a la base de datos
+df_limpio <- df_limpio %>%
+  mutate(
+    topic_label = mapply(clasificar_articulo, title, abstract)
+  )
+
+
+# Crear la base de datos SQLite
+con <- dbConnect(SQLite(), "revista_plosone.sqlite")
+
+
+# Tabla references
+references_df <- df_final %>%
+  mutate(paper_id = row_number()) %>%
+  select(paper_id, references) %>%
+  unnest(references) %>%
+  rename(reference_text_normalized = references) %>%
+  distinct(reference_text_normalized) %>%
+  mutate(reference_id = row_number())
+
+dbWriteTable(con, "references", references_df, overwrite = TRUE)
+
+# Tabla paper_references
+paper_references <- df_final %>%
+  mutate(paper_id = row_number()) %>%
+  select(paper_id, references) %>%
+  unnest(references) %>%
+  rename(reference_text_normalized = references) %>%
+  left_join(references_df, by = "reference_text_normalized") %>%
+  select(paper_id, reference_id)
+
+dbWriteTable(con, "paper_references", paper_references, overwrite = TRUE)
+
+# Tabla authors 
+authors_df <- df_final %>%
+  mutate(paper_id = row_number()) %>%
+  select(paper_id, authors) %>%
+  mutate(author_name = strsplit(authors, ",\\s*")) %>%  # separar por coma
+  tidyr::unnest(author_name) %>%
+  mutate(author_name = trimws(author_name)) %>%
+  distinct(author_name) %>%
+  mutate(author_id = row_number())
+
+dbWriteTable(con, "authors", authors_df, overwrite = TRUE)
+
+# Tabla paper_authors
+paper_authors <- df_final %>%
+  mutate(paper_id = row_number()) %>%
+  select(paper_id, authors) %>%
+  mutate(author_name = strsplit(authors, ",\\s*")) %>%
+  tidyr::unnest(author_name) %>%
+  mutate(author_name = trimws(author_name)) %>%
+  group_by(paper_id) %>%
+  mutate(author_order = row_number()) %>%
+  ungroup() %>%
+  left_join(authors_df, by = "author_name") %>%
+  select(paper_id, author_id, author_order)
+
+dbWriteTable(con, "paper_authors", paper_authors, overwrite = TRUE)
+
+
+# Tabla papers
+papers <- df_limpio %>%
+  mutate(
+    paper_id         = row_number(),
+    journal_name     = "PLOS ONE",
+    publication_date = as.character(publication_date),
+    year             = as.integer(substr(as.character(publication_date), 1, 4)),  
+    n_authors        = sapply(strsplit(authors, ",\\s*"), length)
+  ) %>%
+  select(
+    paper_id, journal_name, title,
+    publication_date,
+    year, doi, url, abstract,
+    authors,
+    n_authors,
+    citations,
+    views,
+    n_references,
+    topic_label
+  )
+
+dbWriteTable(con, "papers", papers, overwrite = TRUE)
+
+# Cerrar conexión
+#dbDisconnect(con)
+
+```
+
+## Clasificación temática
+
+Cada artículo fue clasificado en una de cuatro categorías mediante una
+función en R basada en la detección de palabras clave dentro del título
+y el resumen.
+
+Las categorías definidas fueron:
+
+- **Machine Learning:** incluye términos como *machine learning, deep
+  learning, neural network, random forest, classification, supervised,
+  unsupervised*.
+
+- **IA Generativa:** incluye términos como *generative, large language
+  model (LLM), GPT, diffusion, transformer, BERT, text generation*.
+
+- **Estadística:** incluye términos como *regression, bayesian,
+  statistical, hypothesis testing, p-value, correlation, ANOVA,
+  probability*.
+
+- **Otros:** artículos que no cumplen con los criterios anteriores.
+
+La clasificación es jerárquica y mutuamente excluyente, asignando la
+primera categoría que coincida.
+
+Es importante señalar que este enfoque basado en palabras clave tiene
+limitaciones, ya que no captura el contexto semántico completo de los
+artículos, lo que puede generar clasificaciones imprecisas en algunos
+casos.
+
+## Consultas SQL y resultados
+
+Se realizaron las siguientes consultas sobre la base de datos.
+
+```{r message=FALSE, warning=FALSE}
+library(DBI)
+library(RSQLite)
+con <- dbConnect(SQLite(), "revista_plosone.sqlite")
+```
+
+
+```{sql connection=con}
+
+/* 1. ¿Cúal es el número promedio de autores por paper? */
+SELECT round(AVG(n_authors),0) AS numero_promedio_autores
+FROM papers;
+```
+Se redondeo este valor porque se habla de personas. El promedio hay 5 autores por paper.
+
+```{sql connection=con}
+/* 2. ¿Cúantos artículos están relacionados con Machine Learning? */
+SELECT count(*) as articulos_ML
+FROM papers
+WHERE topic_label = "Machine Learning";
+```
+
+
+```{sql connection=con}
+/* 3. ¿Cúantos artículos están relacionados con IA Generativa?*/
+SELECT count(*) as articulos_IA
+FROM papers
+WHERE topic_label = "IA Generativa";
+
+```
+
+```{sql connection=con}
+/* 4. ¿Cúantos artículos están relacionados con otros temas estadísticos?  */
+SELECT count(*) as articulos_otros_estadística
+FROM papers
+WHERE topic_label = "Estadística"; 
+```
+
+```{sql connection=con}
+/* 5. ¿Cúal es el número total de vistas de los artículos publicados en 2025?*/
+SELECT sum(views) as total_vistas
+FROM papers
+WHERE year = 2025;
+```
+Los 709 artículos tuvieron un total de 1´117.990 vistas, lo que afirma que la revista presenta en su catalogo artículos de calidad.
+
+```{sql connection=con}
+/* 6. ¿Cúal es el número promedio de referencias por artículo?*/
+SELECT round(AVG(n_references),0) as promedio_referencias
+FROM papers;
+```
+
+```{sql connection=con}
+
+/* 7. ¿Cúal es la referencia que más se repite entre todos los artículos?*/
+SELECT reference_text_normalized, count(*) as referencias
+FROM paper_references p
+JOIN "references" r
+ON p.reference_id = r.reference_id
+GROUP BY r.reference_id
+ORDER BY referencias desc
+LIMIT 1 ;
+```
+
+```{sql connection=con}
+
+/* 8. ¿Cúal es el promedio de citas por artículo?*/
+SELECT round(AVG(citations),2) as promedio_citas
+FROM papers;
+```
+
+```{sql connection=con}
+
+/* 9. ¿Cúal es el paper con más citas?*/
+SELECT title, citations
+FROM papers
+ORDER BY citations DESC
+LIMIT 1;
+```
+
+```{sql connection=con}
+/* 10. ¿Cúal es el paper relacionado con machine learning, IA generativa o Estadística con más citas?*/
+SELECT title, topic_label, citations
+FROM papers
+WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+AND citations = (
+    SELECT MAX(citations)
+    FROM papers
+    WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+);
+```
+
+```{sql connection=con}
+
+/* 11. ¿Cúal es el paper relacionado con machine learning, IA generativa o Estadística con más vistas? */
+SELECT title, topic_label, views
+FROM papers
+WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+AND views = (
+    SELECT MAX(views)
+    FROM papers
+    WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+);
+
+```
+
+## Hallazgos
+
+A partir de las consultas realizadas, se destacan los siguientes
+resultados:
+
+- **Promedio de autores por artículo:** aunque existen artículos con un
+  número elevado de autores, el promedio general es cercano a 5 autores
+  por paper. lo que sugiere que se presentan algunos datos atípicos.
+
+- **Clasificación temática:** la categoría más frecuente es **Machine
+  Learning**, lo cual refleja la relevancia actual de esta área dentro
+  de las ciencias de la computación. Las categorías de IA Generativa y
+  Estadística presentan menor frecuencia relativa. Sin embargo, los artículos con mas vistas y mas citas son de la categoría de **IA Generativa**.
+
+- **Referencias más utilizadas:** La referencia más citada entre todos los artículos fue Google Scholar, con 30,149 apariciones en la tabla de referencias. Sin embargo, este resultado puede estar
+  influenciado por problemas de normalización o duplicación en los
+  textos de referencia extraídos.
+
+
+## Limitaciones
+
+Durante el desarrollo del proyecto se identificaron varias limitaciones:
+
+- Parte de la información, como el número de vistas, no está disponible
+  en el HTML estático, lo que obligó a utilizar la API de PLOS.
+
+- No se dispone de una métrica directa de descargas, por lo que se
+  utilizó el número de vistas como aproximación.
+
+- La muestra de artículos no es aleatoria, sino sistemática, lo que
+  puede introducir sesgos en el análisis.
+
+- La clasificación temática se basa en palabras clave, lo que puede
+  generar errores en artículos con contenido ambiguo o
+  interdisciplinario.
+
+- Durante el scraping se presentaron dificultades para capturar ciertos
+  campos, lo que requirió combinar múltiples fuentes de datos. 
+
+## Conclusiones
+
+Este trabajo permitió construir una base de datos relacional a partir de
+datos reales obtenidos mediante técnicas de web scraping y consumo de
+APIs, integrando diferentes fuentes de información en un solo sistema.
+
+Uno de los principales desafíos fue la recolección de datos, debido a
+que no toda la información estaba disponible directamente en el HTML, lo
+que requirió el uso de APIs externas. Asimismo, el proceso de limpieza y
+estructuración de los datos resultó fundamental para garantizar la
+calidad de la base de datos.
+
+El uso de un modelo relacional facilitó la organización de la
+información y permitió realizar consultas SQL de manera eficiente,
+evidenciando la utilidad de este enfoque en el análisis de datos reales.
+
+Como trabajo futuro, se propone ampliar la muestra de artículos,
+incorporar nuevas fuentes de datos y utilizar métodos más avanzados de
+clasificación, como modelos de lenguaje, que permitan mejorar la
+precisión en la categorización temática.

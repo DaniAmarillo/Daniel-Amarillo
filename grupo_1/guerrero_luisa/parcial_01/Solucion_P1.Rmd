@@ -1,0 +1,1117 @@
+---
+title: "Taller 1: Recolección de datos, web scraping y construcción de base SQLite"
+author: "Luisa Fernanda Guerrero Ordoñez"
+date: "2026"
+output:
+  pdf_document: default
+---
+
+# 1. Introducción
+
+Para el desarrollo del presente taller se seleccionó la revista científica **Big Data and Cognitive Computing**, una revista indexada en cuartil Q1. Esta revista se especializa en áreas relacionadas con inteligencia artificial, minería de datos, aprendizaje automático, big data, analítica avanzada y sistemas cognitivos, temáticas que se encuentran directamente relacionadas con los contenidos abordados en la materia.
+
+La revista pertenece a la editorial MDPI y cuenta con acceso público a los artículos y metadatos de sus publicaciones.
+
+El enlace principal utilizado fue:
+
+- https://www.mdpi.com/journal/bdcc
+
+Adicionalmente, para localizar los artículos publicados durante el año 2025 se utilizó la sección de números y volúmenes:
+
+- https://www.mdpi.com/journal/bdcc/issues/2025
+
+La elección de esta revista se realizó porque sus publicaciones están relacionadas con temas propios de minería de datos, inteligencia artificial, aprendizaje automático y analítica de datos. Además de que el sitio web tiene una estructura organizada por volúmenes, números y artículos individuales, lo cual facilita el proceso de extracción automatizada de los datos y la posterior construcción de una base de datos relacional.
+
+# 2. Fuente de datos y scraping
+
+La fuente de datos corresponde al portal oficial de la revista **Big Data and Cognitive Computing** de MDPI. Para el scraping se trabajó con los artículos publicados en el volumen 9, correspondiente al año 2025.
+
+El proceso consistió en:
+
+1. Recorrer los números publicados en 2025.
+2. Extraer los enlaces individuales de los artículos.
+3. Visitar cada artículo.
+4. Extraer metadatos como título, autores, fecha, DOI, URL, resumen, referencias y métricas disponibles.
+5. Construir archivos auxiliares en formato CSV y JSON.
+6. Crear una base de datos SQLite con tablas relacionales.
+
+## 2.1 Desarrollo del scraping y construcción de la base
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, results='hide'}
+
+paquetes_requeridos <- c(
+  "rvest", "httr", "dplyr", "purrr", "stringr",
+  "tidyr", "jsonlite", "readr", "DBI", "RSQLite", "knitr"
+)
+
+paquetes_faltantes <- paquetes_requeridos[
+  !paquetes_requeridos %in% installed.packages()[, "Package"]
+]
+
+if (length(paquetes_faltantes) > 0) {
+  install.packages(paquetes_faltantes, repos = "https://cloud.r-project.org")
+}
+
+library(rvest)
+library(httr)
+library(dplyr)
+library(purrr)
+library(stringr)
+library(tidyr)
+library(jsonlite)
+library(readr)
+library(DBI)
+library(RSQLite)
+library(knitr)
+
+ISSN <- "2504-2289"
+VOLUMEN_2025 <- 9
+BASE_URL <- "https://www.mdpi.com"
+ISSUES_2025 <- 1:12
+PAUSA_ENTRE_REQUESTS <- 3
+
+DIR_SALIDA <- "output"
+if (!dir.exists(DIR_SALIDA)) dir.create(DIR_SALIDA, recursive = TRUE)
+
+CHROME_HEADERS <- add_headers(
+  `User-Agent` = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+  `Accept` = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+  `Accept-Language` = "en-US,en;q=0.9,es;q=0.8",
+  `Accept-Encoding` = "gzip, deflate, br, zstd",
+  `Cache-Control` = "max-age=0",
+  `sec-ch-ua` = '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
+  `sec-ch-ua-mobile` = "?0",
+  `sec-ch-ua-platform` = '"Windows"',
+  `sec-fetch-dest` = "document",
+  `sec-fetch-mode` = "navigate",
+  `sec-fetch-site` = "none",
+  `sec-fetch-user` = "?1",
+  `upgrade-insecure-requests` = "1"
+)
+
+hacer_request <- function(url, max_intentos = 3) {
+  for (i in seq_len(max_intentos)) {
+    tryCatch({
+      resp <- GET(url, CHROME_HEADERS, timeout(30))
+      
+      if (status_code(resp) == 200) return(resp)
+      
+      if (status_code(resp) == 429) {
+        Sys.sleep(15)
+      } else if (status_code(resp) == 403) {
+        Sys.sleep(5 * i)
+      } else {
+        Sys.sleep(PAUSA_ENTRE_REQUESTS)
+      }
+    }, error = function(e) {
+      Sys.sleep(PAUSA_ENTRE_REQUESTS)
+    })
+  }
+  return(NULL)
+}
+
+obtener_urls_articulos <- function(volumen, issue) {
+  url_issue <- sprintf("%s/%s/%d/%d", BASE_URL, ISSN, volumen, issue)
+  
+  resp <- hacer_request(url_issue)
+  if (is.null(resp)) {
+    return(character(0))
+  }
+  
+  pagina <- read_html(resp)
+  
+  enlaces <- pagina %>%
+    html_nodes("a") %>%
+    html_attr("href") %>%
+    na.omit() %>%
+    unique()
+  
+  patron <- sprintf("/%s/%d/%d/\\d+$", ISSN, volumen, issue)
+  
+  urls <- enlaces[str_detect(enlaces, patron)]
+  urls <- ifelse(str_starts(urls, "http"), urls, paste0(BASE_URL, urls))
+  urls <- unique(urls)
+  
+  return(urls)
+}
+
+clasificar_tema <- function(titulo, resumen) {
+  
+  texto <- paste(titulo, resumen) %>% 
+    str_to_lower()
+  
+  case_when(
+    str_detect(texto, "generative|genai|large language model|llm|chatgpt|prompt|diffusion|gpt") ~ "IA Generativa",
+    
+    str_detect(texto, "machine learning|deep learning|neural network|random forest|svm|classification|prediction|classifier|convolutional|transformer") ~ "Machine Learning",
+    
+    str_detect(texto, "statistical|statistics|regression|bayesian|probability|variance|correlation|hypothesis") ~ "Estadística",
+    
+    TRUE ~ "Otros"
+  )
+}
+
+
+
+
+extraer_datos_articulo <- function(url_articulo) {
+  Sys.sleep(PAUSA_ENTRE_REQUESTS)
+  
+  resp <- hacer_request(url_articulo)
+  
+  if (is.null(resp)) {
+    return(NULL)
+  }
+  
+  pagina <- read_html(resp)
+  
+  titulo <- pagina %>%
+    html_node("h1.title") %>%
+    html_text(trim = TRUE)
+  
+  if (is.na(titulo) || titulo == "") {
+    titulo <- pagina %>%
+      html_node("meta[name='citation_title']") %>%
+      html_attr("content")
+  }
+  
+  autores <- pagina %>%
+    html_nodes("meta[name='citation_author']") %>%
+    html_attr("content")
+  
+  if (length(autores) == 0) {
+    autores <- pagina %>%
+      html_nodes("meta[name='dc.creator']") %>%
+      html_attr("content")
+  }
+  
+  if (length(autores) == 0) {
+    autores <- pagina %>%
+      html_nodes("div.art-authors a span") %>%
+      html_text(trim = TRUE)
+  }
+  
+  autores_str <- paste(autores, collapse = "; ")
+  
+  doi <- pagina %>%
+    html_node("meta[name='citation_doi']") %>%
+    html_attr("content")
+  
+  if (is.na(doi)) {
+    doi <- pagina %>%
+      html_node("meta[name='dc.identifier']") %>%
+      html_attr("content")
+  }
+  
+  if (is.na(doi)) {
+    doi <- pagina %>%
+      html_nodes("a") %>%
+      html_attr("href") %>%
+      str_subset("doi\\.org") %>%
+      first()
+  }
+  
+  fecha_pub <- pagina %>%
+    html_node("meta[name='citation_publication_date']") %>%
+    html_attr("content")
+  
+  if (is.na(fecha_pub)) {
+    fecha_pub <- pagina %>%
+      html_node("meta[name='dc.date']") %>%
+      html_attr("content")
+  }
+  
+  resumen <- pagina %>%
+    html_node("div.art-abstract") %>%
+    html_text(trim = TRUE)
+  
+  if (is.na(resumen) || resumen == "") {
+    resumen <- pagina %>%
+      html_node("meta[name='description']") %>%
+      html_attr("content")
+  }
+  
+  if (!is.na(resumen)) {
+    resumen <- str_remove(resumen, "^\\s*Abstract\\s*")
+  }
+  
+  num_citas <- NA_integer_
+  num_vistas <- NA_integer_
+  num_descargas <- NA_integer_
+  
+  cited_text <- pagina %>%
+    html_nodes("a") %>%
+    html_text(trim = TRUE) %>%
+    str_subset("Cited by")
+  
+  if (length(cited_text) > 0) {
+    num_citas <- cited_text[1] %>%
+      str_extract("\\d+") %>%
+      as.integer()
+  }
+  
+  viewed_text <- pagina %>%
+    html_nodes("span") %>%
+    html_text(trim = TRUE) %>%
+    str_subset("Viewed by")
+  
+  if (length(viewed_text) > 0) {
+    num_vistas <- viewed_text[1] %>%
+      str_extract("[\\d,]+") %>%
+      str_remove_all(",") %>%
+      as.integer()
+  }
+  
+  pagina_texto <- pagina %>% html_text()
+  
+  download_match <- str_extract(
+    pagina_texto,
+    "(?i)download[s]?[^\\d]{0,10}([\\d,]+)"
+  )
+  
+  if (!is.na(download_match)) {
+    num_descargas <- download_match %>%
+      str_extract("[\\d,]+$") %>%
+      str_remove_all(",") %>%
+      as.integer()
+  }
+  
+  referencias <- pagina %>%
+    html_nodes("div.html-back ol li") %>%
+    html_text(trim = TRUE)
+  
+  if (length(referencias) == 0) {
+    referencias <- pagina %>%
+      html_nodes("div#html-references_list .html-bib") %>%
+      html_text(trim = TRUE)
+  }
+  
+  if (length(referencias) == 0) {
+    referencias <- pagina %>%
+      html_nodes("section#references li, div.article-bibliography li") %>%
+      html_text(trim = TRUE)
+  }
+  
+  if (length(referencias) == 0) {
+    referencias <- pagina %>%
+      html_nodes("meta[name='citation_reference']") %>%
+      html_attr("content")
+  }
+  
+  referencias <- referencias %>%
+    str_squish() %>%
+    str_subset(".+")
+  
+  resultado <- list(
+    titulo = ifelse(is.null(titulo) || is.na(titulo), NA_character_, titulo),
+    autores = autores_str,
+    fecha_publicacion = ifelse(is.null(fecha_pub) || is.na(fecha_pub), NA_character_, fecha_pub),
+    doi = ifelse(is.null(doi) || is.na(doi), NA_character_, doi),
+    url = url_articulo,
+    resumen = ifelse(is.null(resumen) || is.na(resumen), NA_character_, resumen),
+    num_citas = num_citas,
+    num_vistas = num_vistas,
+    num_descargas = num_descargas,
+    num_referencias = length(referencias),
+    referencias = referencias
+  )
+  
+  return(resultado)
+}
+
+todas_urls <- character(0)
+
+for (issue in ISSUES_2025) {
+  urls_issue <- obtener_urls_articulos(VOLUMEN_2025, issue)
+  todas_urls <- c(todas_urls, urls_issue)
+  Sys.sleep(PAUSA_ENTRE_REQUESTS)
+}
+
+todas_urls <- unique(todas_urls)
+
+datos_articulos <- list()
+
+for (i in seq_along(todas_urls)) {
+  datos <- extraer_datos_articulo(todas_urls[i])
+  
+  if (!is.null(datos)) {
+    datos_articulos[[length(datos_articulos) + 1]] <- datos
+  }
+}
+
+if (length(datos_articulos) == 0) {
+  stop("No se pudieron extraer datos de ningún artículo.")
+}
+
+df_articulos <- bind_rows(lapply(datos_articulos, function(x) {
+  tibble(
+    journal_name = "Big Data and Cognitive Computing",
+    title = x$titulo,
+    authors_raw = x$autores,
+    publication_date = x$fecha_publicacion,
+    year = 2025,
+    doi = x$doi,
+    url = x$url,
+    abstract = x$resumen,
+    n_authors = ifelse(
+      is.na(x$autores) || x$autores == "",
+      NA_integer_,
+      length(str_split(x$autores, ";\\s*")[[1]])
+    ),
+    citations = x$num_citas,
+    views = x$num_vistas,
+    downloads = x$num_descargas,
+    n_references = x$num_referencias,
+    topic_label = clasificar_tema(x$titulo, x$resumen)
+  )
+}))
+
+df_referencias <- bind_rows(lapply(seq_along(datos_articulos), function(i) {
+  refs <- datos_articulos[[i]]$referencias
+  
+  if (length(refs) > 0 && any(refs != "")) {
+    tibble(
+      doi = datos_articulos[[i]]$doi,
+      title = datos_articulos[[i]]$titulo,
+      reference_order = seq_along(refs),
+      reference_text = refs
+    )
+  } else {
+    tibble(
+      doi = character(0),
+      title = character(0),
+      reference_order = integer(0),
+      reference_text = character(0)
+    )
+  }
+}))
+
+papers_df <- df_articulos %>%
+  distinct(url, .keep_all = TRUE) %>%
+  mutate(
+    title = str_squish(title),
+    abstract = str_squish(abstract),
+    authors_raw = str_squish(authors_raw),
+    n_references = ifelse(n_references == 0, NA_integer_, n_references)
+  )
+
+write_csv(papers_df, file.path(DIR_SALIDA, "bdcc_articulos_2025.csv"))
+write_csv(df_referencias, file.path(DIR_SALIDA, "bdcc_referencias_2025.csv"))
+
+write_json(
+  datos_articulos,
+  file.path(DIR_SALIDA, "bdcc_articulos_2025.json"),
+  pretty = TRUE,
+  auto_unbox = TRUE
+)
+
+DB_PATH <- file.path(DIR_SALIDA, "bdcc_2025.sqlite")
+
+if (file.exists(DB_PATH)) {
+  file.remove(DB_PATH)
+}
+
+con <- dbConnect(SQLite(), DB_PATH)
+dbExecute(con, "PRAGMA foreign_keys = ON;")
+
+sql_script <- "
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE papers (
+  paper_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  journal_name TEXT,
+  title TEXT NOT NULL,
+  authors_raw TEXT,
+  publication_date TEXT,
+  year INTEGER,
+  doi TEXT UNIQUE,
+  url TEXT,
+  abstract TEXT,
+  n_authors INTEGER,
+  citations INTEGER,
+  views INTEGER,
+  downloads INTEGER,
+  n_references INTEGER,
+  topic_label TEXT
+);
+
+CREATE TABLE authors (
+  author_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  author_name TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE paper_authors (
+  paper_id INTEGER,
+  author_id INTEGER,
+  author_order INTEGER,
+  FOREIGN KEY (paper_id) REFERENCES papers(paper_id),
+  FOREIGN KEY (author_id) REFERENCES authors(author_id)
+);
+
+CREATE TABLE references_table (
+  reference_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  reference_text_normalized TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE paper_references (
+  paper_id INTEGER,
+  reference_id INTEGER,
+  reference_order INTEGER,
+  FOREIGN KEY (paper_id) REFERENCES papers(paper_id),
+  FOREIGN KEY (reference_id) REFERENCES references_table(reference_id)
+);
+"
+
+dbExecute(con, "
+CREATE TABLE papers (
+  paper_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  journal_name TEXT,
+  title TEXT NOT NULL,
+  authors_raw TEXT,
+  publication_date TEXT,
+  year INTEGER,
+  doi TEXT UNIQUE,
+  url TEXT,
+  abstract TEXT,
+  n_authors INTEGER,
+  citations INTEGER,
+  views INTEGER,
+  downloads INTEGER,
+  n_references INTEGER,
+  topic_label TEXT
+);
+")
+
+dbExecute(con, "
+CREATE TABLE authors (
+  author_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  author_name TEXT NOT NULL UNIQUE
+);
+")
+
+dbExecute(con, "
+CREATE TABLE paper_authors (
+  paper_id INTEGER,
+  author_id INTEGER,
+  author_order INTEGER,
+  FOREIGN KEY (paper_id) REFERENCES papers(paper_id),
+  FOREIGN KEY (author_id) REFERENCES authors(author_id)
+);
+")
+
+dbExecute(con, "
+CREATE TABLE references_table (
+  reference_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  reference_text_normalized TEXT NOT NULL UNIQUE
+);
+")
+
+dbExecute(con, "
+CREATE TABLE paper_references (
+  paper_id INTEGER,
+  reference_id INTEGER,
+  reference_order INTEGER,
+  FOREIGN KEY (paper_id) REFERENCES papers(paper_id),
+  FOREIGN KEY (reference_id) REFERENCES references_table(reference_id)
+);
+")
+
+writeLines(sql_script, file.path(DIR_SALIDA, "bdcc_2025_schema.sql"))
+
+dbWriteTable(con, "papers", papers_df, append = TRUE, row.names = FALSE)
+
+papers_db <- dbGetQuery(con, "SELECT paper_id, doi, title FROM papers")
+
+df_autores <- papers_df %>%
+  select(doi, authors_raw) %>%
+  filter(!is.na(authors_raw), authors_raw != "") %>%
+  mutate(author_name = str_split(authors_raw, ";\\s*")) %>%
+  unnest(author_name) %>%
+  mutate(author_name = str_trim(author_name)) %>%
+  filter(author_name != "")
+
+authors_unique <- df_autores %>%
+  distinct(author_name)
+
+dbWriteTable(con, "authors", authors_unique, append = TRUE, row.names = FALSE)
+
+authors_db <- dbGetQuery(con, "SELECT author_id, author_name FROM authors")
+
+paper_authors_df <- df_autores %>%
+  group_by(doi) %>%
+  mutate(author_order = row_number()) %>%
+  ungroup() %>%
+  inner_join(papers_db, by = "doi") %>%
+  inner_join(authors_db, by = "author_name") %>%
+  select(paper_id, author_id, author_order)
+
+dbWriteTable(con, "paper_authors", paper_authors_df, append = TRUE, row.names = FALSE)
+
+if (nrow(df_referencias) > 0) {
+  
+  refs_unique <- df_referencias %>%
+    mutate(reference_text_normalized = str_squish(reference_text)) %>%
+    filter(reference_text_normalized != "") %>%
+    distinct(reference_text_normalized)
+  
+  dbWriteTable(con, "references_table", refs_unique, append = TRUE, row.names = FALSE)
+  
+  refs_db <- dbGetQuery(con, "SELECT reference_id, reference_text_normalized FROM references_table")
+  
+  paper_refs_df <- df_referencias %>%
+    mutate(reference_text_normalized = str_squish(reference_text)) %>%
+    inner_join(papers_db, by = "doi") %>%
+    inner_join(refs_db, by = "reference_text_normalized") %>%
+    select(paper_id, reference_id, reference_order)
+  
+  dbWriteTable(con, "paper_references", paper_refs_df, append = TRUE, row.names = FALSE)
+}
+
+resumen_bd <- tibble(
+  tabla = c(
+    "papers",
+    "authors",
+    "paper_authors",
+    "references_table",
+    "paper_references"
+  ),
+  registros = c(
+    dbGetQuery(con, "SELECT COUNT(*) AS n FROM papers")$n,
+    dbGetQuery(con, "SELECT COUNT(*) AS n FROM authors")$n,
+    dbGetQuery(con, "SELECT COUNT(*) AS n FROM paper_authors")$n,
+    dbGetQuery(con, "SELECT COUNT(*) AS n FROM references_table")$n,
+    dbGetQuery(con, "SELECT COUNT(*) AS n FROM paper_references")$n
+  )
+)
+
+dbDisconnect(con)
+
+resumen_extraccion <- tibble(
+  indicador = c(
+    "Artículos extraídos",
+    "Autores registrados en artículos",
+    "Referencias extraídas",
+    "Artículos sin citas",
+    "Artículos sin visualizaciones",
+    "Artículos sin descargas",
+    "Archivo SQLite",
+    "Archivo SQL"
+  ),
+  valor = c(
+    nrow(papers_df),
+    sum(papers_df$n_authors, na.rm = TRUE),
+    sum(papers_df$n_references, na.rm = TRUE),
+    sum(is.na(papers_df$citations)),
+    sum(is.na(papers_df$views)),
+    sum(is.na(papers_df$downloads)),
+    DB_PATH,
+    file.path(DIR_SALIDA, "bdcc_2025_schema.sql")
+  )
+)
+
+tabla_muestra <- head(
+  papers_df[, c(
+    "title",
+    "publication_date",
+    "doi",
+    "n_authors",
+    "downloads",
+    "n_references",
+    "topic_label"
+  )],
+  10
+)
+
+tabla_categorias <- papers_df %>%
+  count(topic_label, name = "cantidad_articulos") %>%
+  arrange(desc(cantidad_articulos))
+```
+
+## 2.2 Librerías utilizadas
+
+Para realizar el scraping y la construcción de la base de datos se usaron librerías de R orientadas a la lectura de páginas web, manipulación de datos y conexión con SQLite. Las principales fueron `rvest`, `httr`, `dplyr`, `stringr`, `tidyr`, `DBI` y `RSQLite`.
+
+`rvest` permitió leer y extraer elementos del HTML, mientras que `httr` se utilizó para hacer solicitudes HTTP más controladas. Las librerías `dplyr`, `tidyr` y `stringr` facilitaron la limpieza y transformación de datos. Finalmente, `DBI` y `RSQLite` permitieron crear la base de datos relacional.
+
+## 2.3 Estrategia de extracción
+
+La extracción se hizo de manera secuencial. Loq ue quiere decir que primero se construyeron las URL de los números de la revista correspondientes al año 2025. Luego desde cada número se extrajeron los enlaces individuales de los artículos y al fonal cada artículo fue "visitado" podriamos decir, para recolectar sus metadatos principales.
+
+Durante el proceso se utilizaron encabezados HTTP similares a los de un navegador. Esta decisión se tomó porque como se menciono en clase algunas páginas pueden rechazar solicitudes automáticas muy simples o demasiado rápidas. También se aplicaron pausas entre solicitudes para evitar sobrecargar el sitio web y reducir el riesgo de bloqueo temporal.
+
+Los datos extraídos fueron: título, autores, fecha de publicación, DOI, URL, resumen, número de citas, visualizaciones, descargas y lista de referencias.
+
+## 2.4 Clasificación temática
+
+Cada artículo fue clasificado en una categoría temática mediante un criterio reproducible basado en palabras clave presentes en el título y en el resumen. Las categorías utilizadas fueron:
+
+- **Machine Learning**
+- **IA Generativa**
+- **Estadística**
+- **Otros**
+
+La clasificación se realizó mediante reglas condicionales. Por ejemplo, si el título o resumen contenía expresiones como *machine learning*, *deep learning*, *neural network*, *classification* o *prediction*, el artículo se clasificó como **Machine Learning**. Si contenía palabras como *generative*, *LLM*, *ChatGPT*, *prompt*, *diffusion* o *GPT*, se clasificó como **IA Generativa**. Para **Estadística** se usaron términos como *regression*, *probability*, *bayesian*, *variance* o *correlation*. Los artículos que no coincidieron con estas reglas se ubicaron en **Otros**.
+
+```{r echo=FALSE}
+knitr::kable(
+  tabla_categorias,
+  caption = "Distribución de artículos según la clasificación temática"
+)
+```
+
+## 2.5 Manejo de valores faltantes
+
+Durante la extracción se encontraron algunos valores faltantes especialmente en las variables relacionadas con citas y visualizaciones. Esto ocurrió porque este tipo de métricas no siempre se encuentra disponible directamente en el HTML estático de cada artículo. En algunos casos estas métricas pueden cargarse por medio de servicios internos de la página o no estar publicadas de forma visible.
+
+Por esta razón lo que se decidió fue conservar esos valores como `NA`. Esto evita inventar datos o completar información sin un respaldo. En cambio permite diferenciar entre los datos que fueron extraídos directamente y aquellos que no estuvieron disponibles durante el scraping.
+
+En el caso de las referencias bibliográficas la extracción fue más completa ya que la mayoría de artículos presentaban esta información dentro de la página del artículo, por eso se decidió almacenar las referencias en una tabla independiente.
+
+```{r echo=FALSE}
+knitr::kable(
+  resumen_extraccion,
+  caption = "Resumen general de la extracción de datos"
+)
+```
+
+## 2.6 Vista parcial del dataset
+
+A continuación se presenta una vista parcial del conjunto de datos construido a partir del scraping. Esta tabla permite observar algunos de los campos principales que fueron almacenados para cada artículo.
+
+```{r echo=FALSE}
+knitr::kable(
+  tabla_muestra,
+  caption = "Vista parcial de los artículos extraídos"
+)
+```
+
+# 3. Construcción de la base de datos SQLite
+
+Después de obtener y limpiar los datos se construyó una base de datos SQLite. Se decidió utilizar una estructura relacional porque la información de los artículos, autores y referencias tiene relaciones de uno a muchos y muchos a muchos.
+
+Por ejemplo un artículo puede tener varios autores y un autor puede aparecer en varios artículos. De la misma forma un artículo puede tener muchas referencias bibliográficas por lo que no era conveniente almacenar toda la información en una única tabla.
+
+## 3.1 Tablas creadas
+
+La base de datos contiene las siguientes tablas:
+
+- `papers`: almacena la información principal de cada artículo.
+- `authors`: almacena los autores únicos.
+- `paper_authors`: relaciona artículos con autores.
+- `references_table`: almacena referencias únicas.
+- `paper_references`: relaciona artículos con sus referencias.
+
+
+## 3.1.1 Tabla principal: `papers`
+
+La tabla principal de la base de datos corresponde a `papers` esto se adopto por sugerencia del taller. Esta tabla almacena la información general de cada artículo científico extraído desde la revista *Big Data and Cognitive Computing*.
+
+Cada registro representa un artículo individual y contiene tanto metadatos bibliográficos como variables derivadas durante el proceso de análisis y clasificación por temática.
+
+Las columnas almacenadas fueron las siguientes:
+
+| Columna | Descripción |
+|---|---|
+| `paper_id` | Identificador único del artículo |
+| `journal_name` | Nombre de la revista |
+| `title` | Título del artículo |
+| `publication_date` | Fecha de publicación |
+| `year` | Año de publicación |
+| `doi` | DOI del artículo |
+| `url` | Enlace del artículo |
+| `abstract` | Resumen del artículo |
+| `authors_raw` | Lista de autores en formato texto |
+| `n_authors` | Número de autores |
+| `citations` | Número de citas extraídas |
+| `downloads` | Número de descargas |
+| `n_references` | Cantidad de referencias bibliográficas |
+| `topic_label` | Clasificación temática del artículo |
+
+A continuación se muestra una vista parcial de la tabla `papers` obtenida directamente desde SQLite.
+
+```{r echo=FALSE}
+
+con <- dbConnect(SQLite(), "output/bdcc_2025.sqlite")
+
+papers_preview <- dbGetQuery(con, "
+
+SELECT
+    paper_id,
+    journal_name,
+    title,
+    publication_date,
+    year,
+    doi,
+    n_authors,
+    downloads,
+    n_references,
+    topic_label
+FROM papers
+LIMIT 10;
+
+")
+
+knitr::kable(
+  papers_preview,
+  caption = "Vista parcial de la tabla papers"
+)
+
+dbDisconnect(con)
+
+```
+```{r echo=FALSE}
+knitr::kable(
+  resumen_bd,
+  caption = "Cantidad de registros por tabla en la base SQLite"
+)
+```
+
+## 3.2 Justificación del modelo relacional
+
+La tabla `papers` contiene los metadatos generales de cada artículo, como título, fecha, DOI, URL, resumen, número de autores, referencias y categoría temática. La tabla `authors` permite evitar la repetición de nombres de autores, mientras que `paper_authors` conserva la relación entre artículos y autores incluyendo el orden de aparición.
+
+Las referencias se almacenaron en `references_table` y se relacionaron con los artículos mediante `paper_references`. Esta separación permite consultar posteriormente qué referencias pertenecen a cada artículo y evita almacenar listas largas dentro de una sola celda.
+
+
+# 4. Archivos generados
+
+Como resultado del proceso se generaron varios archivos de salida en la carpeta `output`:
+
+- `bdcc_articulos_2025.csv`
+- `bdcc_referencias_2025.csv`
+- `bdcc_articulos_2025.json`
+- `bdcc_2025.sqlite`
+- `bdcc_2025_schema.sql`
+
+El archivo `.csv` contiene los artículos en formato tabular, el archivo `.json` conserva la estructura completa de los datos extraídos y el archivo `.sqlite` contiene la base de datos relacional. También se generó un archivo `.sql` con la estructura de creación de tablas.
+
+# 5. Preguntas a responder con SQL
+
+En esta sección se ejecutan consultas SQL sobre la base de datos `bdcc_2025.sqlite`. Cada consulta corresponde a responder una pregunta del taller a partir de la información almacenada en las tablas que se contruyeron previamente.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+con <- dbConnect(SQLite(), "output/bdcc_2025.sqlite")
+```
+
+## 5.1 ¿Cuál es el número promedio de autores por paper?
+
+```{r echo=TRUE}
+consulta_1 <- dbGetQuery(con, "
+SELECT 
+    ROUND(AVG(n_authors), 2) AS promedio_autores_por_paper
+FROM papers;
+")
+
+knitr::kable(consulta_1, caption = "Promedio de autores por artículo")
+```
+
+El resultado muestra el número promedio de autores por artículo dentro de la revista analizada.
+
+## 5.2 ¿Cuántos artículos están relacionados con Machine Learning?
+
+```{r echo=TRUE}
+consulta_2 <- dbGetQuery(con, "
+SELECT 
+    COUNT(*) AS articulos_machine_learning
+FROM papers
+WHERE topic_label = 'Machine Learning';
+")
+
+knitr::kable(consulta_2, caption = "Cantidad de artículos relacionados con Machine Learning")
+```
+
+Esta consulta permite identificar cuántos artículos fueron clasificados automáticamente dentro de la categoría Machine Learning.
+
+## 5.3 ¿Cuántos artículos están relacionados con IA Generativa?
+
+```{r echo=TRUE}
+consulta_3 <- dbGetQuery(con, "
+SELECT 
+    COUNT(*) AS articulos_ia_generativa
+FROM papers
+WHERE topic_label = 'IA Generativa';
+")
+
+knitr::kable(consulta_3, caption = "Cantidad de artículos relacionados con IA Generativa")
+```
+
+El resultado indica cuántos artículos contienen términos asociados con IA generativa, modelos de lenguaje, GPT, difusión o generación automática.
+
+## 5.4 ¿Cuántos artículos están relacionados con otros temas estadísticos?
+
+```{r echo=TRUE}
+consulta_4 <- dbGetQuery(con, "
+SELECT 
+    COUNT(*) AS articulos_estadistica
+FROM papers
+WHERE topic_label = 'Estadística';
+")
+
+knitr::kable(consulta_4, caption = "Cantidad de artículos relacionados con Estadística")
+```
+
+Esta consulta muestra cuántos artículos fueron clasificados dentro de la categoría Estadística.
+
+## 5.5 ¿Cuál es el número total de descargas de los artículos publicados en 2025?
+
+```{r echo=TRUE}
+consulta_5 <- dbGetQuery(con, "
+SELECT 
+    SUM(downloads) AS total_descargas_2025
+FROM papers
+WHERE year = 2025;
+")
+
+knitr::kable(consulta_5, caption = "Total de descargas de artículos publicados en 2025")
+```
+
+El resultado resume la cantidad total de descargas registradas para los artículos del año 2025. En los casos donde no se pudo extraer la métrica, SQLite ignora los valores `NULL` al aplicar `SUM`.
+
+## 5.6 ¿Cuál es el número promedio de referencias por artículo?
+
+```{r echo=TRUE}
+consulta_6 <- dbGetQuery(con, "
+SELECT 
+    ROUND(AVG(n_references), 2) AS promedio_referencias_por_articulo
+FROM papers;
+")
+
+knitr::kable(consulta_6, caption = "Promedio de referencias por artículo")
+```
+
+Esta consulta permite observar, en promedio, cuántas referencias bibliográficas tiene cada artículo de la revista.
+
+## 5.7 ¿Cuál es la referencia que más se repite entre todos los artículos?
+
+```{r echo=TRUE}
+consulta_7 <- dbGetQuery(con, "
+SELECT 
+    rt.reference_text_normalized AS referencia,
+    COUNT(pr.paper_id) AS veces_repetida
+FROM references_table rt
+JOIN paper_references pr 
+    ON rt.reference_id = pr.reference_id
+GROUP BY rt.reference_id, rt.reference_text_normalized
+ORDER BY veces_repetida DESC
+LIMIT 1;
+")
+
+knitr::kable(consulta_7, caption = "Referencia más repetida entre todos los artículos")
+```
+
+Esta consulta utiliza las tablas de referencias y la tabla intermedia `paper_references` para identificar cuál referencia aparece con mayor frecuencia en los artículos analizados.
+
+## 5.8 ¿Cuál es el promedio de citas por artículo?
+
+```{r echo=TRUE}
+consulta_8 <- dbGetQuery(con, "
+SELECT 
+    ROUND(AVG(citations), 2) AS promedio_citas_por_articulo
+FROM papers;
+")
+
+knitr::kable(consulta_8, caption = "Promedio de citas por artículo")
+```
+
+En esta consulta se calcula el promedio de citas registradas. Si los valores aparecen como `NA` o `NULL`, se debe a que esta métrica no estaba disponible directamente en el HTML estático de los artículos.
+
+## 5.9 ¿Cuál es el paper con más citas?
+
+```{r echo=TRUE}
+consulta_9 <- dbGetQuery(con, "
+SELECT 
+    title,
+    doi,
+    citations,
+    topic_label
+FROM papers
+WHERE citations IS NOT NULL
+ORDER BY citations DESC
+LIMIT 1;
+")
+
+knitr::kable(consulta_9, caption = "Artículo con mayor número de citas")
+```
+
+Esta consulta busca el artículo con mayor cantidad de citas. Si la tabla no muestra registros significa que no fue posible extraer citas directamente desde la página web.
+
+## 5.10 ¿Cuál es el paper relacionado con Machine Learning, IA Generativa o Estadística con más citas?
+
+```{r echo=TRUE}
+consulta_10 <- dbGetQuery(con, "
+SELECT 
+    title,
+    doi,
+    citations,
+    topic_label
+FROM papers
+WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+  AND citations IS NOT NULL
+ORDER BY citations DESC
+LIMIT 1;
+")
+
+knitr::kable(consulta_10, caption = "Artículo de Machine Learning, IA Generativa o Estadística con más citas")
+```
+
+Esta consulta filtra únicamente los artículos clasificados en las categorías principales del taller y busca el que tiene más citas registradas.
+
+## 5.11 ¿Cuál es el paper relacionado con Machine Learning, IA Generativa o Estadística con más descargas?
+
+```{r echo=TRUE}
+consulta_11 <- dbGetQuery(con, "
+SELECT 
+    title,
+    doi,
+    downloads,
+    topic_label
+FROM papers
+WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+  AND downloads IS NOT NULL
+ORDER BY downloads DESC
+LIMIT 1;
+")
+
+knitr::kable(consulta_11, caption = "Artículo de Machine Learning, IA Generativa o Estadística con más descargas")
+```
+
+Esta consulta permite identificar cuál de los artículos clasificados en las categorías principales presenta el mayor número de descargas registradas.
+
+```{r echo=FALSE}
+dbDisconnect(con)
+```
+
+## 5.12 Archivo SQL consolidado
+
+Además de ejecutar las consultas dentro del informe, se generó un archivo `.sql` independiente con las once consultas solicitadas.
+
+```{r echo=FALSE}
+consultas_sql <- "
+-- 1. Número promedio de autores por paper
+SELECT 
+    ROUND(AVG(n_authors), 2) AS promedio_autores_por_paper
+FROM papers;
+
+-- 2. Cantidad de artículos relacionados con Machine Learning
+SELECT 
+    COUNT(*) AS articulos_machine_learning
+FROM papers
+WHERE topic_label = 'Machine Learning';
+
+-- 3. Cantidad de artículos relacionados con IA Generativa
+SELECT 
+    COUNT(*) AS articulos_ia_generativa
+FROM papers
+WHERE topic_label = 'IA Generativa';
+
+-- 4. Cantidad de artículos relacionados con Estadística
+SELECT 
+    COUNT(*) AS articulos_estadistica
+FROM papers
+WHERE topic_label = 'Estadística';
+
+-- 5. Número total de descargas de artículos publicados en 2025
+SELECT 
+    SUM(downloads) AS total_descargas_2025
+FROM papers
+WHERE year = 2025;
+
+-- 6. Número promedio de referencias por artículo
+SELECT 
+    ROUND(AVG(n_references), 2) AS promedio_referencias_por_articulo
+FROM papers;
+
+-- 7. Referencia que más se repite entre todos los artículos
+SELECT 
+    rt.reference_text_normalized AS referencia,
+    COUNT(pr.paper_id) AS veces_repetida
+FROM references_table rt
+JOIN paper_references pr 
+    ON rt.reference_id = pr.reference_id
+GROUP BY rt.reference_id, rt.reference_text_normalized
+ORDER BY veces_repetida DESC
+LIMIT 1;
+
+-- 8. Promedio de citas por artículo
+SELECT 
+    ROUND(AVG(citations), 2) AS promedio_citas_por_articulo
+FROM papers;
+
+-- 9. Paper con más citas
+SELECT 
+    title,
+    doi,
+    citations,
+    topic_label
+FROM papers
+WHERE citations IS NOT NULL
+ORDER BY citations DESC
+LIMIT 1;
+
+-- 10. Paper relacionado con Machine Learning, IA Generativa o Estadística con más citas
+SELECT 
+    title,
+    doi,
+    citations,
+    topic_label
+FROM papers
+WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+  AND citations IS NOT NULL
+ORDER BY citations DESC
+LIMIT 1;
+
+-- 11. Paper relacionado con Machine Learning, IA Generativa o Estadística con más descargas
+SELECT 
+    title,
+    doi,
+    downloads,
+    topic_label
+FROM papers
+WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+  AND downloads IS NOT NULL
+ORDER BY downloads DESC
+LIMIT 1;
+"
+
+writeLines(consultas_sql, "output/bdcc_2025_consultas.sql")
+```
+
+El archivo generado se llama:
+
+```text
+output/bdcc_2025_consultas.sql
+```
+
+# 6. Hallazgos
+
+Uno de los hallazgos principales fue que la mayor parte de los artículos publicados durante 2025 se relacionan con temas de **Machine Learning** e **IA Generativa**. Esto evidencia la fuerte presencia actual de investigaciones enfocadas en inteligencia artificial, aprendizaje profundo y modelos generativos dentro de la producción científica de la revista.
+
+También se observó que muchos artículos presentan una cantidad considerable de referencias bibliográficas, lo que sugiere que estas áreas poseen una producción científica amplia y en constante crecimiento.
+
+En relación con la estructura de autoría, se encontró que la mayoría de artículos fueron desarrollados por múltiples autores lo que refleja que es un campo colaborativo.
+
+Otro hallazgo importante fue la existencia de referencias bibliográficas repetidas entre artículos diferentes, lo cual indica la presencia de trabajos base o investigaciones utilizadas como fundamento teórico dentro de la revista.
+
+# 7. Limitaciones
+
+Durante el desarrollo del scraping se encontraron varias limitaciones relacionadas con la disponibilidad y estructura de los datos publicados en el sitio web de MDPI.
+
+Una de las principales limitaciones fue la extracción de métricas dinámicas como citas y visualizaciones. En muchos artículos esta información no se encontraba disponible directamente dentro del HTML estático, sino que aparentemente se cargaba mediante componentes dinámicos o servicios externos. Debido a esto varios registros quedaron almacenados con valores `NA`.
+
+Otra limitación importante estuvo relacionada con las restricciones propias del sitio web frente a solicitudes automatizadas. Para reducir el riesgo de bloqueo fue necesario utilizar encabezados HTTP similares a los de un navegador real y aplicar pausas entre solicitudes.
+
+
+También debe considerarse que la clasificación temática realizada fue basada en reglas simples de palabras clave. Aunque esto es reproducible para el propósito del taller no reemplaza métodos avanzados de clasificación semántica o procesamiento de lenguaje natural.
+
+
+# 8. Conclusiones
+
+Durante el desarrollo del taller se logró construir un proceso completo de abstracción, transformación y almacenamiento de información académica utilizando técnicas de web scraping y bases de datos relacionales.
+
+A partir de la revista *Big Data and Cognitive Computing* se extrajeron artículos científicos publicados durante el año 2025 junto con información relacionada con autores, referencias bibliográficas y métricas disponibles.
+
+Uno de los principales retos encontrados fue la extracción de métricas dinámicas como citas y visualizaciones, ya que parte de esta información no se encontraba directamente disponible dentro del HTML estático de las páginas. Por esta razón algunos valores permanecieron como `NA, priorizando mantener la integridad y trazabilidad de los datos extraídos.
+
+También se implementó una clasificación temática  utilizando reglas basadas en palabras clave, lo que permitió agrupar los artículos en categorías relacionadas con Machine Learning, IA Generativa, Estadística y Otros.
+
+Finalmente la información fue organizada en una base de datos SQLite utilizando un modelo relacional compuesto por tablas para artículos, autores y referencias. Esto permitió ejecutar consultas SQL para analizar el contenido extraído y responder las preguntas planteadas en el taller.
