@@ -1,0 +1,11 @@
+ID_Empleado,Edad,Salario_USD,Departamento,Puntaje_Desempeno
+1,28,45000,Ventas,85
+2,,52000,IT,90
+3,35,,Finanzas,
+4,41,75000,IT,78
+5,29,,Ventas,88
+6,,48000,,92
+7,50,90000,Finanzas,
+8,33,60000,IT,85
+9,26,42000,,75
+10,45,,Ventas,80
