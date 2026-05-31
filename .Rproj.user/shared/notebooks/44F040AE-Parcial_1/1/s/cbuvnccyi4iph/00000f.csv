@@ -1,0 +1,35 @@
+"0","# ---- 6. GUARDAR EN SQLITE ----"
+"0","con <- dbConnect(SQLite(), ""make_q1_2025.sqlite"")"
+"0",""
+"0","# Tablas principales"
+"0","dbWriteTable(con, ""papers"",           papers,           overwrite = TRUE)"
+"0","dbWriteTable(con, ""references"",       all_references,   overwrite = TRUE)"
+"0",""
+"0","# Validación"
+"0","cat(""\n=== VALIDACIÓN FINAL ===\n"")"
+"1","
+=== VALIDACIÓN FINAL ===
+"
+"0","cat(""Total artículos:      "", dbGetQuery(con, ""SELECT COUNT(*) FROM papers"")[[1]], ""\n"")"
+"1","Total artículos:       61 
+"
+"0","cat(""Con abstract:         "", dbGetQuery(con, ""SELECT COUNT(*) FROM papers WHERE abstract IS NOT NULL"")[[1]], ""\n"")"
+"1","Con abstract:          61 
+"
+"0","cat(""Con visualizaciones:  "", dbGetQuery(con, ""SELECT COUNT(*) FROM papers WHERE views IS NOT NULL"")[[1]], ""\n"")"
+"1","Con visualizaciones:   61 
+"
+"0","cat(""Con citas:            "", dbGetQuery(con, ""SELECT COUNT(*) FROM papers WHERE citations IS NOT NULL"")[[1]], ""\n"")"
+"1","Con citas:             60 
+"
+"0","cat(""Con referencias:      "", dbGetQuery(con, ""SELECT COUNT(*) FROM papers WHERE n_references IS NOT NULL"")[[1]], ""\n"")"
+"1","Con referencias:       60 
+"
+"0","cat(""Total referencias:    "", dbGetQuery(con, ""SELECT COUNT(*) FROM 'references'"")[[1]], ""\n"")"
+"1","Total referencias:     3424 
+"
+"0","dbDisconnect(con)"
+"0","cat(""\nBase de datos guardada: make_q1_2025.sqlite ✅\n"")"
+"1","
+Base de datos guardada: make_q1_2025.sqlite ✅
+"

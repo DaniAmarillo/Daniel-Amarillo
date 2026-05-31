@@ -43,6 +43,7 @@ nodo <- respuesta |>
   resp_body_html()
 nodo
 }
+
 extraer_general <- function(nodo) {
   # Extraemos el títulos de los articulos
   titulo <- nodo |>
@@ -171,6 +172,7 @@ autores <- paste(autores_ex,collapse = ",")
 
  return(list(paper_row,abstract_row,autores_row,ref_row))
 }
+
 #INICIALIZACIÓN DE TABLAS DE EXTRACCIÓN 
 abstract <- tibble()
 autores <- tibble()
@@ -181,15 +183,15 @@ comp_papers <- tibble()
  it  = 0
  
  #PRECAUCIÓN TIEMPO APROXIMADO DE EJECUCIÓN 40 mins a 1 hora 
-  for (i in papers$doi){
-    tibbles <- extraer_paper(i)
-    comp_papers <- comp_papers |> bind_rows(tibbles[1])  
-    abstract <- abstract |> bind_rows(tibbles[2]) 
-    autores <- autores |> bind_rows(tibbles[3]) 
-    referencias <- referencias |> bind_rows(tibbles[4]) 
-    it= it +1 
-    setTxtProgressBar(pb, it)
-  }
+for (i in papers$doi[1:5]){
+  tibbles <- extraer_paper(i)
+  comp_papers <- comp_papers |> bind_rows(tibbles[1])  
+  abstract <- abstract |> bind_rows(tibbles[2]) 
+  autores <- autores |> bind_rows(tibbles[3]) 
+  referencias <- referencias |> bind_rows(tibbles[4]) 
+  it= it +1 
+  setTxtProgressBar(pb, it)
+}
 
 
  

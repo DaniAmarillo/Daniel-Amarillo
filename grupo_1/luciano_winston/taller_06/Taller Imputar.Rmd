@@ -1,0 +1,430 @@
+---
+title: "Taller Imputar"
+subtitle: "Minería de Datos"
+author: "Winston Obeymar Lucano V."
+date: "Mayo 2026"
+output:
+  html_document:
+    theme: paper
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    number_sections: false
+    highlight: kate
+    df_print: paged
+---
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght=400;500&family=Poppins:ital,wght=0,400;0,600;0,700;1,500&display=swap" rel="stylesheet">
+
+```{=html}
+<style>
+
+  :root {
+    --primary: #0A7E57;       /* Verde Esmeralda Profundo */
+    --accent: #10B981;        /* Verde Menta Vibrante */
+    --accent-light: #D1FAE5;  /* Verde Pastel Suave */
+    --text-dark: #2C3E50;     /* Gris Oscuro Azulado */
+    --bg-main: #FDFDFD;     
+    --shadow-sm: 0 4px 12px rgba(10, 126, 87, 0.06);
+    --shadow-lg: 0 10px 25px rgba(10, 126, 87, 0.12);
+  }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    color: var(--text-dark);
+    background-color: var(--bg-main);
+    font-size: 16px;
+    line-height: 1.7;
+  }
+
+  h1.title {
+    font-family: 'Poppins', sans-serif;
+    color: var(--primary);
+    font-weight: 700;
+    font-size: 42px;
+    margin-top: 30px;
+    letter-spacing: -0.5px;
+  }
+  
+  h3.subtitle {
+    font-family: 'Poppins', sans-serif;
+    color: var(--accent);
+    font-style: italic;
+    font-weight: 500;
+    font-size: 24px;
+    margin-bottom: 30px;
+  }
+
+  h1 { 
+    font-family: 'Poppins', sans-serif;
+    color: var(--primary);
+    border-bottom: 3px solid var(--accent-light);
+    padding-bottom: 10px;
+    margin-top: 50px;
+    font-weight: 600;
+    position: relative;
+  }
+
+  h1::after {
+    content: "";
+    position: absolute;
+    bottom: -3px;
+    left: 0;
+    width: 60px;
+    height: 3px;
+    background-color: var(--accent);
+  }
+
+  h2 { 
+    font-family: 'Poppins', sans-serif;
+    color: var(--accent);
+    margin-top: 35px;
+    font-size: 20px;       
+    font-weight: 400;      
+    line-height: 1.4;      
+  }
+
+  .list-group-item.active, .list-group-item.active:focus, .list-group-item.active:hover {
+    background-color: var(--primary);
+    border-color: var(--primary);
+    font-weight: 600;
+  }
+  
+  .tocify {
+    border-radius: 12px;
+    box-shadow: var(--shadow-sm);
+    border: none;
+    background-color: #ffffff;
+  }
+
+  .infobox {
+    background-color: #ffffff;
+    border-left: 5px solid var(--accent);
+    border-radius: 8px;
+    padding: 20px 25px;
+    margin: 30px 0;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.2s ease;
+  }
+
+  .infobox:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+  }
+  
+  .infobox-title {
+    color: var(--primary);
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    font-size: 15px;
+    letter-spacing: 1.5px;
+  }
+
+  .cover-page {
+    /* Degradado verde moderno */
+    background: linear-gradient(135deg, var(--primary) 0%, #059669 50%, var(--accent) 100%);
+    color: white;
+    padding: 70px 50px;
+    border-radius: 16px;
+    margin-bottom: 50px;
+    box-shadow: var(--shadow-lg);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .cover-page::before {
+    content: "";
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(255,255,255,0.1) 10%, transparent 10%), radial-gradient(circle, rgba(255,255,255,0.1) 10%, transparent 10%);
+    background-size: 30px 30px;
+    background-position: 0 0, 15px 15px;
+    opacity: 0.2;
+    pointer-events: none;
+  }
+  
+  .cover-page h1 {
+    color: #ffffff;
+    border-bottom: none;
+    font-size: 48px;
+    padding-bottom: 0;
+    margin-top: 10px;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.15);
+  }
+
+  .cover-page h1::after {
+    display: none;
+  }
+  
+  .cover-page .meta-info {
+    margin-top: 40px;
+    font-size: 18px;
+    color: rgba(255, 255, 255, 0.9);
+    line-height: 1.8;
+    background: rgba(255, 255, 255, 0.15);
+    padding: 20px;
+    border-radius: 8px;
+    backdrop-filter: blur(5px);
+    display: inline-block;
+  }
+</style>
+```
+
+Primero llamamos las librerias que vamos a necesitar para el taller.
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyr)
+library(kableExtra)
+library(dplyr)
+library(knitr)
+library(highcharter)
+library(naniar)
+library(tidymodels)
+```
+
+# Ejercicio 1: Diagnóstico de valores faltantes
+
+Para el presente ejercicio vamos a trabajar con el siguiente conjunto de datos simulado.
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(42)
+n <- 200
+datos <- data.frame(
+  edad    = c(sample(18:65, 160, replace = TRUE), rep(NA, 40)),
+  ingreso = c(rnorm(100, 3e6, 5e5), rep(NA, 100)),
+  ciudad  = sample(c("Bogotá","Medellín","Cali", NA), n, replace = TRUE,
+                   prob = c(0.4, 0.3, 0.2, 0.1)),
+  compra  = rbinom(n, 1, 0.5)
+)
+```
+
+## Calcula el porcentaje de faltantes por variable con colMeans(is.na(datos)).
+
+```{r, message=FALSE, warning=FALSE}
+null_datos <- colMeans(is.na(datos))
+
+kable(null_datos, booktabs = T,
+      caption = "NA por variables", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+
+## ¿Cuántas filas tienen al menos un NA? Usa sum(!complete.cases(datos)).
+
+```{r, message=FALSE, warning=FALSE}
+un_na <- sum(!complete.cases(datos)) 
+kable(un_na, 
+      col.names = c("Frecuencia"),
+      caption = "NA por filas", 
+      label = "vprankis") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), 
+                full_width = FALSE)
+```
+
+## Visualiza el patrón con naniar::gg_miss_var(datos) y visdat::vis_miss(datos).
+
+### Patron con naniar
+
+```{r, message=FALSE, warning=FALSE}
+pattern <- naniar::gg_miss_var(datos)
+pattern
+```
+
+### Patron con visdat
+
+```{r, message=FALSE, warning=FALSE}
+pattern_o <- visdat::vis_miss(datos)
+pattern_o
+```
+
+## Clasifica el mecanismo probable (MCAR, MAR o MNAR) para ingreso y edad. Justifica tu respuesta.
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+gg_miss_upset(datos)
+
+datos$ingreso_fata <- is.na(datos$ingreso)
+
+t_test_ingreso <- t.test(edad ~ ingreso_fata, data = datos)
+
+# H0: Los datos son perdidos completamente al azar (MCAR)
+# Ha: Los datos NO son MCAR (Son MAR o MNAR)
+prueba_little <- mcar_test(datos[, c("edad", "ingreso")])
+
+kable(prueba_little[, 1:3], 
+      caption = "Prueba de MCAR de Little", 
+      col.names = c("Estadístico Chi-sq", "Grados de Libertad", "P-Valor")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+> **`Edad`:** El test de Little evalúa si los patrones de datos faltantes son independientes de los valores observados. Dado que nuestro $p-valor > 0.05$, no podemos rechazar la hipótesis nula, lo que confirma estadísticamente que la falta de datos en edad es MCAR.
+
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+
+tabla_t <- data.frame(
+  "Media_Con_Ingreso" = round(t_test_ingreso$estimate[1], 1), 
+  "Media_Sin_Ingreso" = round(t_test_ingreso$estimate[2], 1),
+  "Estadistico_t"     = round(t_test_ingreso$statistic, 3),
+  "Grados_Libertad"   = round(t_test_ingreso$parameter, 2),
+  "P_Valor"           = format.pval(t_test_ingreso$p.value, digits = 3, eps = 0.001)
+)
+
+# Quitamos los nombres de las filas por defecto para que se vea limpio
+rownames(tabla_t) <- NULL
+
+# Imprimimos la tabla con el estilo de la plantilla
+kable(tabla_t, 
+      caption = "Prueba T: Relación entre edad y datos faltantes en ingreso",
+      col.names = c("Media Edad (Reportó Ingreso)", "Media Edad (NO Reportó Ingreso)", 
+                    "Estadístico t", "Grados de Libertad", "P-Valor")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+> **`Ingreso` :** Para determinar si los datos faltantes en la variable `ingreso` siguen un mecanismo MAR, se evaluó si la ausencia de esta información está relacionada con la `edad` de los individuos mediante una prueba T de Student para muestras independientes.
+> Dado que el $p-valor > 0.05$ no existe una diferencia significativa en la edad promedio entre quienes reportaron su ingreso y quienes no. Por lo tanto, la falta de datos en el ingreso no se explica por la edad del encuestado, así podemos asegurar que en este caso es MCAR.
+
+> **¿Podría ser MNAR?** Si sospechamos que las personas con ingresos más altos omitieron sistemáticamente el dato (lo cual no podemos comprobar directamente solo con los datos observados), estaríamos ante un mecanismo **MNAR**. En este dataset simulado, dado que se generó de forma secuencial fija, se comporta técnicamente como MCAR por ser artificial.
+
+
+## Imputa edad con la mediana e ingreso con la media. ¿Cambia la distribución? Compara con summary() antes y después.
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+datos_imputados <- datos
+
+mediana_edad <- median(datos$edad, na.rm = TRUE)
+datos_imputados$edad[is.na(datos_imputados$edad)] <- mediana_edad
+
+
+media_ingreso <- mean(datos$ingreso, na.rm = TRUE)
+datos_imputados$ingreso[is.na(datos_imputados$ingreso)] <- media_ingreso
+
+obtener_metricas <- function(vector, nombre_var, estado) {
+  data.frame(
+    Variable = nombre_var,
+    Estado   = estado,
+    Minimo   = min(vector, na.rm = TRUE),
+    Q1       = quantile(vector, 0.25, na.rm = TRUE),
+    Mediana  = median(vector, na.rm = TRUE),
+    Media    = mean(vector, na.rm = TRUE),
+    Q3       = quantile(vector, 0.75, na.rm = TRUE),
+    Maximo   = max(vector, na.rm = TRUE),
+    NAs      = sum(is.na(vector))
+  )
+}
+
+
+tabla_comp <- rbind(
+  obtener_metricas(datos$edad, "Edad", "Antes"),
+  obtener_metricas(datos_imputados$edad, "Edad", "Después"),
+  obtener_metricas(datos$ingreso, "Ingreso ", "Antes"),
+  obtener_metricas(datos_imputados$ingreso, "Ingreso ", "Después")
+)
+
+tabla_comp[3:4, 3:8] <- round(tabla_comp[3:4, 3:8] / 1e6, 2)
+
+
+kable(tabla_comp, 
+      digits = 1, 
+      row.names = FALSE,
+      caption = "Comparativa de Estadísticos Descriptivos Antes y Después de la Imputación Simple") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE) %>%
+  collapse_rows(columns = 1, valign = "middle")
+```
+### ¿Cambia la distribución de los datos?
+
+> **Sí, la distribución cambia de forma crítica**, aunque de manera diferente para cada métrica estadística. A continuación, se detallan los tres impactos principales de la imputación por media/mediana observados en la tabla:
+
+> 1. **Preservación de la Tendencia Central:**    Tanto la **Media** como la **Mediana** se mantienen prácticamente idénticas antes y después de la imputación. Esto es matemáticamente lógico, ya que si a un conjunto de números le agregamos valores que son exactamente iguales a su promedio o a su centro, el centro posicional no se moverá.
+
+> 2. **Reducción de la variabilidad:**    Al observar los cuartiles ($Q1$ y $Q3$), notaramos cómo se comprimen y se acercan al centro. Al reemplazar los valores faltantes por una constante única (un solo número), estamos asumiendo falsamente que el 20% de las personas en `edad` y el **50%** de las personas en `ingreso` tienen exactamente el mismo valor. Esto reduce artificialmente la desviación estándar y conjuntamente la varianza del dataset.
+
+> 3. **Alteración de la Forma:**  Si graficáramos la densidad o un histograma de las variables tras la imputación, la forma original (uniforme en edad y normal en ingreso) se distorsionaría por completo. Aparecerá una "aguja" en el centro de la distribución debido a la alta concentración de frecuencias repetidas en un solo punto.
+
+# Ejercicio 2. Pipeline reproducible con recipes
+
+Construye un pipeline de imputación correcto que evite fuga de información.
+
+```{r, message=FALSE, warning=FALSE}
+# Separa datos
+set.seed(123)
+split <- initial_split(datos, prop = 0.75)
+train <- training(split)
+test  <- testing(split)
+
+# Tu tarea: completa el pipeline
+receta <- recipe(compra ~ ., data = train) |>
+  step_impute_median(all_numeric_predictors()) |>   # imputa numéricas
+  step_impute_mode(all_nominal_predictors())  |>    # imputa categóricas
+  prep()
+
+train_proc <- bake(receta, new_data = train)
+test_proc  <- bake(receta, new_data = test)
+
+null_train <- colMeans(is.na(train_proc))
+null_test <- colMeans(is.na(test_proc))
+```
+
+## Comprobación de NA en Train
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+kable(null_train, booktabs = T,
+      caption = "NA en Train", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+
+> Efectivamente vemos que no hay existencia de NA en train
+
+## Comprobación de NA en Test
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+kable(null_test, booktabs = T,
+      caption = "NA en Test", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+
+> Efectivamente vemos que no hay existencia de NA en test
+
+## ¿Por qué es incorrecto hacer prep() sobre el dataset completo antes del split?
+
+Cuando ejecutamos la función prep(), le estamos pidiendo a la receta que calcule y "memorice" las estadísticas necesarias para las transformaciones (por ejemplo, calcular que la mediana de la edad es 35 o que la ciudad más frecuente es "Bogotá").
+
+Así pues el conjunto de prueba tiene un único propósito: simular datos nuevos del mundo real, es decir, el "futuro". Si hacemos prep() sobre el dataset completo antes de separarlo, las estadísticas (mediana, moda, etc.) se calcularán incluyendo la información del conjunto de prueba. En la práctica, le estamos dando al modelo un "pico" a las respuestas del examen antes de tomarlo.
+
+Entonces, bajo lo anterior, tendriamos un rendimiento ilusorio, puesto que al evaluar el modelo en el conjunto de prueba, las métricas de precisión serán artificialmente altas porque el proceso de imputación ya contenía información de esos mismos datos.
+
+Esto nos dará un fracaso en producción, cuando el modelo se despliegue en la vida real y lleguen datos verdaderamente nuevos, el rendimiento caerá drásticamente porque fue entrenado bajo premisas falsas.
+
+# Ejercicio 3: Razonamiento conceptual
+
+## En una encuesta de salud, las personas con peor estado de salud tienden a no responder la pregunta sobre su propia salud. ¿Qué mecanismo de ausencia aplica (MCAR, MAR o MNAR)? ¿Cómo afecta esto a un modelo predictivo?
+
+En este caso aplica un mecanismo MNAR, dado que la probabilidad de que falte el dato está intrínsecamente ligada al valor real no observado, es decir, al propio estado de salud deteriorado del encuestado. 
+
+Si entrenamos un modelo predictivo bajo estas condiciones sin corregir el mecanismo, introduciremos un sesgo de selección severo en el algoritmo, ya que este aprenderá casi exclusivamente de los patrones de la población sana. En consecuencia, el modelo subestimará drásticamente los factores de riesgo clínico en la vida real y sus predicciones fallarán de forma crítica en los pacientes más graves, puesto que el sistema nunca aprendió a identificar las características de aquellos que decidieron no responder.
+
+
+## Un pipeline imputa la media de ingreso usando el dataset completo y luego separa train/test. ¿Cuál es el error? ¿Cómo lo corregirías?
+
+El error fundamental en este procedimiento estadístico es la introducción de fuga de datos, puesto que al calcular la media del ingreso con el dataset completo, la información del conjunto de prueba se está filtrando prematuramente en el conjunto de entrenamiento. 
+
+Para corregir este sesgo metodológico y garantizar que el modelo sea evaluado de forma realista frente a datos futuros desconocidos, el flujo debe reordenarse: primero se debe realizar la partición de los datos y, posteriormente, calcular las métricas de imputación utilizando única y exclusivamente el conjunto de entrenamiento, aplicando finalmente ese mismo valor constante calculado a los vacíos tanto del conjunto de entrenamiento como del de prueba.
+
+## Una variable tiene 65% de valores faltantes. ¿La eliminarías directamente? ¿Qué considerarías antes de decidir?
+
+No es adecuado eliminar la variable de manera directa basándose únicamente en el alto porcentaje de valores faltantes sin antes realizar un diagnóstico de su contexto en el problema a resolver. Antes de tomar la decisión de descartarla, tenemos que considerar si la ausencia del dato representa información valiosa por sí misma (por ejemplo, dejar en blanco un historial de multas puede significar cero multas), evaluar la relevancia teórica de la variable para el objetivo predictivo del modelo y, finalmente, contemplar alternativas de ingeniería de características, como transformar la columna original en una variable categórica binaria que simplemente indique si el usuario proporcionó o no la información.
+
+## ¿Cuándo conviene agregar un indicador binario de ausencia (ingreso_faltante = 1) además de imputar el valor? Da un ejemplo concreto.
+
+La creación de un indicador binario o variable sombra es altamente recomendable cuando existe la sospecha de que el hecho mismo de omitir la respuesta constituye un patrón de comportamiento predictivo, situación muy común en mecanismos MAR o MNAR. Por ejemplo, en la construcción de un modelo de riesgo crediticio, si un solicitante omite reportar su ingreso mensual y simplemente imputamos la mediana, el algoritmo lo clasificará erróneamente como un cliente de riesgo promedio, sin embargo, al incluir un indicador binario de la omisión (ingreso_faltante = 1), le permitimos al modelo matemático funcionar con el dato numérico imputado, mientras simultáneamente aprende la regla de negocio de que la ocultación de información financiera eleva drásticamente la probabilidad de impago.
+
+## ¿En qué situación preferirías imputación múltiple con mice sobre imputación simple con la mediana?
+
+Preferiría utilizar la imputación múltiple mediante algoritmos como MICE en escenarios donde es críticamente necesario preservar tanto la varianza original como las relaciones multidimensionales entre las variables del conjunto de datos. Mientras que la imputación simple con la mediana introduce un sesgo severo al crear concentraciones artificiales en el centro de la distribución y subestimar el error estándar, la imputación múltiple modela cada valor faltante a través de regresiones iterativas basadas en el resto de la información disponible, generando y promediando varios escenarios plausibles. Por consiguiente, el uso de MICE resulta metodológicamente superior e indispensable cuando el porcentaje de datos faltantes es estadísticamente significativo, existe una fuerte correlación entre las características observadas y el objetivo analítico exige construir modelos predictivos robustos o realizar inferencias estadísticas precisas que incorporen de manera honesta la incertidumbre real de la pérdida de información.

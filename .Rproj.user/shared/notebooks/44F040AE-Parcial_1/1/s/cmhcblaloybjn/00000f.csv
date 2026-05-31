@@ -1,0 +1,5 @@
+"0","dbGetQuery(con, """
+"0","  SELECT COUNT(*) AS n_ia_generativa"
+"0","  FROM papers"
+"0","  WHERE topic_label = 'IA Generativa'"
+"0",""")"
