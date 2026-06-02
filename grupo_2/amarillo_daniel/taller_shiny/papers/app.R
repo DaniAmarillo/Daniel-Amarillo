@@ -33,7 +33,7 @@ library(shiny)
 ui <- fluidPage(page_navbar( 
   sidebar = sidebar(
     title = "Controles Generales",
-    sliderInput("year", "Número de barras:", min = min(papers$year), max = max(papers$year), value = 30),
+    sliderInput("year", "Año:", min = min(papers$year), max = max(papers$year), value = c(2024,2026)),
   ),
 ###### pestaña general #####
     nav_panel(
@@ -42,7 +42,25 @@ ui <- fluidPage(page_navbar(
                 col_widths = c(7,5),
                 card(
                   highchartOutput("issues_gen"),
-                    ), 
+                    ),
+                column(
+                  width = 5,
+                fluidRow(
+                  wellPanel(value_box(
+                    title = "Papers publicados",
+                    value =  h3(textOutput(outputId = "n_papers")),
+                    showcase = NULL, # Puedes añadir un icono aquí
+                    p("tasks completed"),
+                    styles = list(header = "font-size: 0.9rem; font-weight: bold;")
+                  ))
+                ), 
+                fluidRow(wellPanel(value_box(
+                  title = "Citas Promedio",
+                  value =  h3(textOutput(outputId = "mean_citas")),
+                  showcase = NULL, # Puedes añadir un icono aquí
+                  p("tasks completed"),
+                  styles = list(header = "font-size: 0.9rem; font-weight: bold;")
+                ))))
                             ),
               layout_columns( 
                 col_widths = c(6,6),
@@ -72,18 +90,30 @@ ui <- fluidPage(page_navbar(
 #### server ####
 # Define server logic required to draw a histogram
 server <- function(input, output) {
-
+####  filtro años ####
 papers_year_gen <- reactive({
   req(input$year)
   
-  filter(papers,year == input$year)
+  filter(papers,between(year,input$year[1],input$year[2]))
   })
 
-q1 <- reactive({papers_year_gen() |> 
-    group_by(topic_label,issue, .drop = FALSE)|>
-    summarize(temas = n())})
+#### numero de papers en general ####
+     output$n_papers <- renderText({
+       papers_n <- papers_year_gen()
+       
+       print(nrow(papers_n))
+       
+       
+     })
+####numero promedio de citas ####     
+     output$mean_citas <- renderText({
+       papers_n <- papers_year_gen()
+       
+       print(round(mean(replace_na(papers_n$nro_de_citas, 0)),2))
+       
+       
+     })
 
-levels(papers$issue)
 #### temas por issue ####
     output$issues_gen <- renderHighchart({
       
@@ -91,7 +121,7 @@ levels(papers$issue)
       papers_q1 <- papers_year_gen()
       
       q1 <- papers_q1 |>
-            group_by(topic_label,issue, .drop = FALSE)|>
+            group_by(topic_label,issue)|>
             summarize(temas = n())
       
       q1 |> hchart(type="column",
