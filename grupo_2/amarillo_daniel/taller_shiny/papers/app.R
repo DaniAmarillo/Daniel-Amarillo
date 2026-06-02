@@ -63,9 +63,7 @@ ui <- fluidPage(page_navbar(
                 ))))
                             ),
               layout_columns( 
-                col_widths = c(6,6),
                 card(card_header("HOLA1")),
-                card(card_header("HOLA2"))
                 )
               ), 
 ###### Papers ######
