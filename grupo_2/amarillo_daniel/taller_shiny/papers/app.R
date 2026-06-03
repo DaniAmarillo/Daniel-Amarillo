@@ -1,6 +1,6 @@
 
 paquetes <- c( 
-  "RSQLite","knitr","tidyverse","knitr","highcharter","bslib","tidyverse"
+  "RSQLite","knitr","tidyverse","knitr","highcharter","bslib","tidyverse","lubridate"
 
 )
 
@@ -15,7 +15,7 @@ if (length(pendientes) > 0) {
 # Cargamos los paquetes sin mostrar mensajes
 lapply(paquetes, library, character.only = TRUE)
 
-
+#### carga de datos y normalización ####
 con <- dbConnect(RSQLite::SQLite(), "JBA_25_26.sqlite")
 
 for( i in dbListTables(con)){
@@ -24,20 +24,23 @@ for( i in dbListTables(con)){
 papers <- papers |> mutate(issue = str_remove(issue,".*:"))
 
 papers$year <- as.numeric(papers$year)
+papers$fecha_publicacion <- dmy(papers$fecha_publicacion)
 papers$issue <- factor(papers$issue,c(" Issue 1 (Mar 2025)"," Issue 2 (Jun 2025)",
                                       " Issue 3 (Sep 2025)"," Issue 4 (Dec 2025)", 
                                       " Issue 1 (Mar 2026)"),ordered = TRUE)
 
 library(shiny)
-
+#### UI ####
 ui <- fluidPage(page_navbar( 
+  theme = bs_theme(version = 5),
+  input_dark_mode(id = "dark_mode_trigger"),
   sidebar = sidebar(
     title = "Controles Generales",
     sliderInput("year", "Año:", min = min(papers$year), max = max(papers$year), value = c(2024,2026)),
   ),
 ###### pestaña general #####
     nav_panel(
-              "general",
+              "General",
               layout_columns( 
                 col_widths = c(7,5),
                 card(
@@ -63,7 +66,8 @@ ui <- fluidPage(page_navbar(
                 ))))
                             ),
               layout_columns( 
-                card(card_header("HOLA1")),
+                card(highchartOutput("fcwi_issue")
+                     ),
                 )
               ), 
 ###### Papers ######
@@ -125,8 +129,34 @@ papers_year_gen <- reactive({
       q1 |> hchart(type="column",
                    hcaes(x = issue, y = temas, group = topic_label),
                    stacking = list(enabled = TRUE))|>
-        hc_title(text = "<b>Gráfico de temas por issue</b>") 
+        hc_title(text = "<b>Gráfico de temas por issue</b>") |>
+        hc_add_theme(hc_theme_darkunica())
+    
         
+    })
+    output$fcwi_issue <- renderHighchart({
+      
+      papers_q2 <- papers_year_gen()
+      
+      q2 <- papers_q2[c("fwci","n_referencia","n_autores","topic_label")]
+      
+      
+      hchart(q2,type="bubble",hcaes(x= n_autores, y = n_referencia,z = fwci, group = topic_label)) |> 
+        hc_tooltip(
+          pointFormat = "
+    <b>Número de autores: </b>{point.x:,.2f}<br>
+    <b>Número de Referencias: </b>{point.y:,.2f}<br>
+    <b>Relevancia: </b>{point.z:,.2f}"
+        ) |>
+        hc_title(text = paste("<b>Relevancia de papers publicados",min(papers$year),"-",max(papers$year),"</b>")) |>
+        hc_add_theme(hc_theme_darkunica())
+      
+      
+      
+      
+      
+      
+      
     })
 }
 
