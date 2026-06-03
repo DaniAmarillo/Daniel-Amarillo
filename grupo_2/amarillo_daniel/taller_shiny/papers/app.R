@@ -1,6 +1,7 @@
 
 paquetes <- c( 
-  "RSQLite","knitr","tidyverse","knitr","highcharter","bslib","tidyverse","lubridate"
+  "RSQLite","knitr","tidyverse","knitr","highcharter"
+  ,"bslib","tidyverse","lubridate","DT","bsicons"
 
 )
 
@@ -24,6 +25,7 @@ for( i in dbListTables(con)){
 papers <- papers |> mutate(issue = str_remove(issue,".*:"))
 
 papers$year <- as.numeric(papers$year)
+papers$topic_label <- as.factor(papers$topic_label)
 papers$fecha_publicacion <- dmy(papers$fecha_publicacion)
 papers$issue <- factor(papers$issue,c(" Issue 1 (Mar 2025)"," Issue 2 (Jun 2025)",
                                       " Issue 3 (Sep 2025)"," Issue 4 (Dec 2025)", 
@@ -32,43 +34,61 @@ papers$issue <- factor(papers$issue,c(" Issue 1 (Mar 2025)"," Issue 2 (Jun 2025)
 library(shiny)
 #### UI ####
 ui <- fluidPage(page_navbar( 
-  theme = bs_theme(version = 5),
-  input_dark_mode(id = "dark_mode_trigger"),
   sidebar = sidebar(
     title = "Controles Generales",
-    sliderInput("year", "Año:", min = min(papers$year), max = max(papers$year), value = c(2024,2026)),
-  ),
+    sliderInput("year", "Año:", min = min(papers$year), max = max(papers$year), value = c(2024,2026))
+    ),
 ###### pestaña general #####
     nav_panel(
-              "General",
-              layout_columns( 
-                col_widths = c(7,5),
+              "Resumen",
+              h3("Resumen"),
+              layout_columns(
+                col_widths = c(6,3,3),
                 card(
                   highchartOutput("issues_gen"),
                     ),
                 column(
-                  width = 5,
+                  width = 12,
                 fluidRow(
                   wellPanel(value_box(
-                    title = "Papers publicados",
-                    value =  h3(textOutput(outputId = "n_papers")),
-                    showcase = NULL, # Puedes añadir un icono aquí
-                    p("tasks completed"),
+                    title = "referencias promedio",
+                    value =  h3(textOutput(outputId = "mean_referencias")),
+                    showcase = bs_icon("book",fill = "rgb(119,152,191) !important"),
+                    p("por paper"),
                     styles = list(header = "font-size: 0.9rem; font-weight: bold;")
                   ))
                 ), 
                 fluidRow(wellPanel(value_box(
-                  title = "Citas Promedio",
+                  title = "# promedio de citas",
                   value =  h3(textOutput(outputId = "mean_citas")),
-                  showcase = NULL, # Puedes añadir un icono aquí
-                  p("tasks completed"),
+                  showcase = bs_icon("Flag",fill = "rgb(119,152,191) !important"),
+                  p("por paper"),
                   styles = list(header = "font-size: 0.9rem; font-weight: bold;")
-                ))))
+                )))),
+                column(
+                  width = 12,
+                  fluidRow(
+                    wellPanel(value_box(
+                      title = "# de papers",
+                      value =  h3(textOutput(outputId = "n_papers")),
+                      showcase = bs_icon("file-text",fill = "rgb(119,152,191) !important"), 
+                      p("publicados"),
+                      styles = list(header = "font-size: 0.9rem; font-weight: bold;")
+                    ))
+                  ), 
+                  fluidRow(wellPanel(value_box(
+                    title = "FCWI promedio",
+                    value =  h3(textOutput(outputId = "mean_fwci")),
+                    showcase = bs_icon("graph-up",fill = "rgb(119,152,191) !important"),
+                    p("impacto"),
+                    styles = list(header = "font-size: 0.9rem; font-weight: bold;")
+                  ))))
                             ),
               layout_columns( 
                 card(highchartOutput("fcwi_issue")
                      ),
-                )
+                ),
+              DTOutput("top_5_citas")
               ), 
 ###### Papers ######
     nav_panel(title="Papers", "Page B content"), 
@@ -89,6 +109,8 @@ ui <- fluidPage(page_navbar(
   id = "tab" 
 
 )
+
+
 #### server ####
 # Define server logic required to draw a histogram
 server <- function(input, output) {
@@ -102,10 +124,19 @@ papers_year_gen <- reactive({
 #### numero de papers en general ####
      output$n_papers <- renderText({
        papers_n <- papers_year_gen()
-       
        print(nrow(papers_n))
        
+     })
+#### promedio referencias ####
+     output$mean_referencias <- renderText({
+       papers_n <- papers_year_gen()
        
+       print(round(mean(papers_n$n_referencia),2))
+     })
+#### promedio fwci ####
+     output$mean_fwci <- renderText({
+       papers_n <- papers_year_gen()
+       print(round(mean(papers_n$fwci),2))
      })
 ####numero promedio de citas ####     
      output$mean_citas <- renderText({
@@ -130,10 +161,11 @@ papers_year_gen <- reactive({
                    hcaes(x = issue, y = temas, group = topic_label),
                    stacking = list(enabled = TRUE))|>
         hc_title(text = "<b>Gráfico de temas por issue</b>") |>
-        hc_add_theme(hc_theme_darkunica())
+        hc_add_theme(hc_theme_538())
     
         
     })
+#### Grafica scatter ####
     output$fcwi_issue <- renderHighchart({
       
       papers_q2 <- papers_year_gen()
@@ -144,12 +176,12 @@ papers_year_gen <- reactive({
       hchart(q2,type="bubble",hcaes(x= n_autores, y = n_referencia,z = fwci, group = topic_label)) |> 
         hc_tooltip(
           pointFormat = "
-    <b>Número de autores: </b>{point.x:,.2f}<br>
-    <b>Número de Referencias: </b>{point.y:,.2f}<br>
+    <b>Número de autores: </b>{point.x}<br>
+    <b>Número de Referencias: </b>{point.y}<br>
     <b>Relevancia: </b>{point.z:,.2f}"
         ) |>
         hc_title(text = paste("<b>Relevancia de papers publicados",min(papers$year),"-",max(papers$year),"</b>")) |>
-        hc_add_theme(hc_theme_darkunica())
+        hc_add_theme(hc_theme_538())
       
       
       
@@ -157,6 +189,18 @@ papers_year_gen <- reactive({
       
       
       
+    })
+#### Tabla Dinámica ####
+    output$top_5_citas <- renderDT({
+      tbl_1 <-papers_year_gen()
+      datatable(
+        tbl_1[,-c(2,4,5,12)],
+        options = list(pageLength = 5, searchHighlight = TRUE,
+                       list(className = 'dt-center', targets = c(2,3,4,5,6))),
+        filter = "top", # Adds column-specific search boxes
+        rownames = FALSE,
+        class = 'cell-border stripe compact'
+      )
     })
 }
 
