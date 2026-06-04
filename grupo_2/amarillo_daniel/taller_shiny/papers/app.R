@@ -91,7 +91,24 @@ ui <- fluidPage(page_navbar(
               DTOutput("top_5_citas")
               ), 
 ###### Papers ######
-    nav_panel(title="Papers", "Page B content"), 
+    nav_panel(title="Papers", 
+              h3("Información de papers"),
+              selectInput("paper_title","Paper:",papers$titulo),
+              layout_columns(
+                col_widths = c(4,4,4),
+                column(
+                  width = 12,
+                  fluidRow(
+                    wellPanel(value_box(
+                      title = "referencias promedio",
+                      value =  h3(textOutput(outputId = "mean_referencias")),
+                      showcase = bs_icon("book",fill = "rgb(119,152,191) !important"),
+                      p("por paper"),
+                      styles = list(header = "font-size: 0.9rem; font-weight: bold;")
+                    ))
+                  )
+              )
+              )), 
 ###### Autores #####
     nav_panel("Autores", "Page C content"), 
 ###### Referencias #####
@@ -120,6 +137,12 @@ papers_year_gen <- reactive({
   
   filter(papers,between(year,input$year[1],input$year[2]))
   })
+
+papers_paper_info <- reactive({
+  req(input$paper_title)
+  
+  papers|> filter(titulo == input$paper_title)
+})
 
 #### numero de papers en general ####
      output$n_papers <- renderText({
@@ -202,6 +225,7 @@ papers_year_gen <- reactive({
         class = 'cell-border stripe compact'
       )
     })
+####  ####
 }
 
 # Run the application 
