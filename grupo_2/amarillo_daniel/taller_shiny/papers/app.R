@@ -4,7 +4,6 @@ paquetes <- c(
   ,"bslib","tidyverse","lubridate","DT","bsicons","plotly"
 
 )
-
 # Verificamos qué paquetes faltan
 instalados <- rownames(installed.packages())
 pendientes <- setdiff(paquetes, instalados)
@@ -37,6 +36,7 @@ ui <- fluidPage(page_navbar(
   sidebar = sidebar(
     title = "Controles Generales",
     sliderInput("year", "Año:", min = min(papers$year), max = max(papers$year), value = c(2024,2026)),
+    actionButton(inputId = "mi_boton", label = "¡Haz clic aquí!")
     ),
 ###### pestaña general #####
     nav_panel(
@@ -339,7 +339,6 @@ output$gauge_papers_reff <- renderHighchart({
                   tooltip = list(valueSuffix = " referencias"))
 })
 #### valocimetro papers (citaciones) ####
-
 output$gauge_papers_citas <- renderHighchart({
   
   papersg_reff <- papers_year_gen()
@@ -365,6 +364,11 @@ output$gauge_papers_citas <- renderHighchart({
              )) %>%
     hc_add_series(name = "Valor", data = list(round(df_gauge$nro_de_citas,2)),
                   tooltip = list(valueSuffix = " citaciones"))
+})
+#### Botón de refrescar ####
+observeEvent(input$mi_boton, {
+  # Aquí escribes la acción que deseas ejecutar al pulsar el botón
+  print("El usuario ha presionado el botón.")
 })
 }
 
