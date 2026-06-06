@@ -1,18 +1,16 @@
-paquetes <- c(
-  "rvest", "xml2", "httr2", "dplyr", "stringr","openalexR",
-  "purrr", "tibble", "janitor", "readr", "knitr", "tidyr","RSQLite"
-)
-
-# Verificamos qué paquetes faltan
-instalados <- rownames(installed.packages())
-pendientes <- setdiff(paquetes, instalados)
-
-if (length(pendientes) > 0) {
-  install.packages(pendientes)
-}
-
-# Cargamos los paquetes sin mostrar mensajes
-lapply(paquetes, library, character.only = TRUE)
+library(rvest)
+library(xml2)
+library(httr2)
+library(dplyr)
+library(stringr)
+library(openalexR)
+library(purrr)
+library(tibble)
+library(janitor)
+library(readr)
+library(knitr)
+library(tidyr)
+library(RSQLite)
 
 actualizar_tabla <- function(fecha = "2026-06-01", authors, paper_authors,
                              references, paper_references) {

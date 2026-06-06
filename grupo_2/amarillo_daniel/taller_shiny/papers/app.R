@@ -1,19 +1,35 @@
 
 paquetes <- c( 
   "RSQLite","knitr","tidyverse","knitr","highcharter"
-  ,"bslib","tidyverse","lubridate","DT","bsicons","plotly"
-
+  ,"bslib","lubridate","DT","bsicons","plotly","shiny"
 )
-# Verificamos qué paquetes faltan
-instalados <- rownames(installed.packages())
-pendientes <- setdiff(paquetes, instalados)
 
-if (length(pendientes) > 0) {
-  install.packages(pendientes)
-}
-source("actualizar_bd.r")
+library(rvest)
+library(bsicons)
+library(DT)
+library(lubridate)
+library(shiny)
+library(plotly)
+library(bslib)
+library(highcharter)
+library(readr)
+library(knitr)
+library(tidyverse)
+library(RSQLite)
+library(openalexR)
+library(stringr)
+library(xml2)
+library(httr2)
+library(purrr)
+library(tibble)
+library(janitor)
+# Verificamos qué paquetes faltan
+
+# if (length(pendientes) > 0) {
+#   install.packages(pendientes)
+# }
+source("actualizar_bd.R")
 # Cargamos los paquetes sin mostrar mensajes
-lapply(paquetes, library, character.only = TRUE)
 
 #### carga de datos y normalización ####
 con <- dbConnect(RSQLite::SQLite(), "JBA_25_26.sqlite")
@@ -658,5 +674,3 @@ output$tarjeta_paper <- renderUI({
 
 # Run the application 
 shinyApp(ui = ui, server = server)
-
-
