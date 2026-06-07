@@ -1,0 +1,33 @@
+---
+title: "READ ME / LEAME"
+output: html_notebook
+---
+
+- Esta es la carpeta de tallerres en clase realizados por **Mateo Venegas Clavijo**, C.C. **1075878496**
+
+- En el interior de cada carpeta se encontraran los archivos **"Notebook Markdown"** correspondientes a cada taller, en donde el elemento principal es el archivo **".RMD"** #De manera adicional se encontraran los **".HTML"**, salida de cada taller.
+
+- Dentro de cada carpeta se encuentran los archivos insumo o bases de datos usadas para cada analisis realizado en el taller
+
+- La estructura del repositorio es la siguiente:
+
+```text
+dm_2016325/ #Repositorio Principal
+├── README.md/ #Archivo Explicativo del Curso
+├── grupo_1/ #Carpeta Principal del Grupo 1
+├── grupo_2/ #Carpeta Principal del Grupo 2
+│   ├── venegas_mateo/ #Repositorio Personal de Mateo Venegas
+|   |   ├── README_-_LEAME.rmd #Archivo Explicativo del Repositorio Personal
+|   |   ├── README_-_LEAME.HTML #Archivo HTML Explicativo del Repositorio Personal
+|   |   ├── taller_01/ #Clase 1 - Introducción al Curso
+|   |   ├── taller_02/ #Clase 2 - Taller 1 Web Scraping
+|   |   ├── taller_03/ #Clase 3 - Taller 2 Web Scraping Avanzado
+|   |   ├── taller_04/ #Clase 4 - Taller 1 SQL Basico
+|   |   ├── taller_05/ #Clase 5 - Taller 2 SQL Avanzado
+|   |   ├── taller_06/ #Clase 6 - Taller Tipos y Estructuras de Datos
+|   |   ├── taller_07/ #Clase 7 - Taller Limpieza, Transformación y Normalización de Datos 
+|   |   ├── taller_08/ #Clase 8 - Taller
+```
+
+
+

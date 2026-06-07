@@ -1,0 +1,494 @@
+---
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: false
+    toc_depth: 2
+    number_sections: true
+header-includes: |
+  \usepackage{geometry}
+  \geometry{tmargin=3cm,bmargin=3cm,lmargin=2.5cm,rmargin=2.5cm}
+  \usepackage{graphicx}
+  \usepackage{xcolor}
+  \usepackage{fancyhdr}
+  \usepackage{titlesec}
+  \usepackage[most]{tcolorbox}
+  \definecolor{primary}{RGB}{26,58,90}
+  \definecolor{accent}{RGB}{52,152,219}
+  \definecolor{bgbox}{RGB}{248,249,250}
+  \titleformat{\section}{\color{primary}\normalfont\Large\bfseries}{\thesection}{1em}{}
+  \titleformat{\subsection}{\color{accent}\normalfont\large\bfseries}{\thesubsection}{1em}{}
+  \pagestyle{fancy}
+  \fancyhf{}
+  \lhead{\textcolor{gray}{\small Taller 1: Mineria de Datos}}
+  \rhead{\textcolor{gray}{\small \thepage}}
+  \renewcommand{\headrulewidth}{0.4pt}
+  \newtcolorbox{infobox}{colback=bgbox, colframe=primary, arc=3pt, boxrule=1pt, left=10pt, right=10pt, top=10pt, bottom=10pt}
+---
+\newpage 
+
+\thispagestyle{empty}
+
+\begin{center}
+    \vspace*{2cm}
+    \includegraphics[width=5cm]{logo2.jpg} \\
+    \vspace{1.5cm}
+    {\Huge \textcolor{primary}{\textbf{TALLER 1: MINERÍA DE DATOS}}} \\
+    \vspace{0.5cm}
+    {\Large \textit{Minería en Artificial Intelligence Review}} \\
+    \vspace{1.5cm}
+    \rule{0.8\linewidth}{0.5mm} \\
+    \vspace{1.5cm}
+    {\Large \textbf{Winston Obeymar Lucano V.}} \\
+    \vspace{0.5cm}
+    {\large Facultad de Ciencias} \\
+    \vfill
+    {\large Mayo 2026}
+\end{center}
+\newpage
+\tableofcontents
+\newpage
+
+
+# INTRODUCCIÓN
+
+Para el desarrollo del presente proyecto de Minería de Datos, se ha seleccionado la revista científica **Artificial Intelligence Review** (ID: 10462), publicada por la editorial Springer y clasificada en el cuartil de impacto **Q1**.
+
+* **Enlace oficial de la revista:** https://link.springer.com/journal/10462
+
+## Justificación de la elección
+
+La elección de este journal surge debido al impacto y crecimiento que ha tenido la inteligencia artificial en los últimos años, tanto en la investigación científica como en aplicaciones de la vida cotidiana. Actualmente, la IA desempeña un papel fundamental en áreas como la medicina, la educación, la industria, la seguridad y el análisis de datos, consolidándose como una de las tecnologías más influyentes de la actualidad.
+
+Debido a la relevancia y proyección de esta tecnología en distintos sectores, resulta de gran interés analizar qué están investigando y publicando los expertos en el área. Analizar los artículos publicados en esta revista nos permite identificar tendencias actuales, los desafios que se están resolviendo, avances metodológicos y posibles direcciones futuras dentro del campo de la inteligencia artificial.
+
+# FUENTE DE DATOS Y SCRAPING
+
+Para llevar a cabo la recolección de los metadatos de la revista, se diseñó un proceso automatizado de web scraping enfocado en la estructura web de la editorial Springer.
+
+## Páginas Usadas
+La extracción se dividió en dos niveles de navegación dentro del portal de **Springer**:
+
+1. **Páginas de volúmenes y números (*Issues*):** Se utilizó el directorio de la revista para iterar sobre los fascículos publicados en los años de interés. De estas páginas se extrajeron los enlaces (URLs) individuales de cada artículo publicado.
+2. **Páginas individuales de los artículos:** Una vez obtenido el listado de enlaces, el scraper ingresó a la página específica de cada paper para recolectar la información detallada a nivel de documento.
+
+## Librerías Utilizadas en R
+Para garantizar una extracción eficiente, estructurada y capaz de lidiar con contenido dinámico, se implementaron las siguientes librerías:
+
+* **`chromote`:** Herramienta para la automatización del navegador web en segundo plano. Fue indispensable para renderizar páginas web dinámicas, permitiendo ejecutar JavaScript y extraer metadatos que no se encuentran disponibles en el código HTML estático inicial, además de ayudar a eludir bloqueos básicos por parte del servidor.
+
+* **`rvest`:** La herramienta principal para el análisis sintáctico. Permitió leer el código fuente de las páginas previamente renderizadas y extraer los datos específicos utilizando selectores CSS y XPath.
+
+* **`httr`:** Utilizada para gestionar peticiones web directas y verificar los códigos de estado HTTP, asegurando una conexión estable con los servidores de la revista.
+
+* **`dplyr` / `tidyverse`:** Fundamentales para la manipulación, limpieza y estructuración inmediata de los textos extraídos antes de consolidarlos en la base de datos final.
+
+## Estrategia de Extracción
+
+\begin{infobox}
+\textbf{Flujo del Web Scraping:}
+
+La estrategia se diseñó para ser iterativa con los servidores de Springer, siguiendo este flujo lógico:
+
+\begin{enumerate}
+    \item \textbf{Mapeo de URLs:} Se recolectaron todos los enlaces de los artículos correspondientes a los volúmenes seleccionados.
+    \item \textbf{Extracción de Metadatos:} Mediante un ciclo repetitivo, el algoritmo visitó cada enlace y capturó los nodos HTML correspondientes a: Título del artículo, Autores, Fecha de publicación, Abstract y Palabras clave.
+    \item \textbf{Control de Errores y Retardos:} Se implementó la función \texttt{Sys.sleep()} entre cada petición para simular el comportamiento humano y evitar el bloqueo por parte del servidor. Además, se usaron bloques de control estructurado para manejar artículos que pudieran tener información faltante (por ejemplo, papers sin palabras clave) sin detener la ejecución del código.
+\end{enumerate}
+\end{infobox}
+
+
+# CONSTRUCCIÓN DE LA BASE DE DATOS SQLITE
+
+Una vez extraídos los datos en crudo , el siguiente paso fué la limpieza, transformación y diseño de un repositorio robusto para su almacenamiento. Se utilizó SQLite debido a que es un motor relacional ligero, portable y altamente eficiente para el análisis de datos estructurados.
+
+## Librerías para la Gestión y Transformación
+Para la interacción entre R y el motor de base de datos, así como para la normalización de los datos anidados, se utilizaron:
+
+* **`RSQLite` y `DBI`:** Proporcionan el motor de base de datos embebido y definen la interfaz para ejecutar operaciones SQL y administrar las conexiones.
+* **`jsonlite`:** Fundamental para serializar y deserializar las listas anidadas (como los múltiples autores y referencias por artículo) extraídas por JavaScript, permitiendo guardarlas temporalmente antes de su normalización.
+* **`tidyr` y `purrr`:** Se usaron funciones como `unnest()` y `map()` para "desempaquetar" las listas de autores y referencias, transformándolas en un formato tabular compatible con el modelo relacional.
+
+## Diseño del Modelo Relacional
+
+Para evitar la redundancia de información y garantizar la integridad referencial, se aplicó un proceso de normalización que derivó en la creación de cinco tablas definitivas.
+
+\begin{infobox}
+\textbf{Arquitectura Definitiva de la Base de Datos:}
+
+\begin{itemize}
+    \item \textbf{\texttt{papers}:} La tabla principal. Almacena metadatos como el DOI, título, resumen (\textit{abstract}), métricas cuantitativas (citas y descargas) y conteos agregados. Adicionalmente, incluye la columna \texttt{topic\_label}, la cual se generó mediante un algoritmo de expresiones regulares (Regex) para clasificar automáticamente cada artículo en categorías como "IA Generativa", "Machine Learning" o "Estadística" según su contenido textual.
+    \item \textbf{\texttt{authors}:} Entidad que almacena el identificador único (\texttt{author\_id}) y el nombre limpio de cada investigador, evitando duplicados en la base de datos.
+    \item \textbf{\texttt{references}:} Entidad que guarda los textos normalizados de las referencias bibliográficas citadas por los artículos (\texttt{reference\_id}).
+    \item \textbf{Tablas Puente (N:M):} Para resolver las relaciones de "muchos a muchos", se implementaron dos tablas intermedias:
+    \begin{itemize}
+        \item \textbf{\texttt{paper\_authors}:} Vincula qué autores escribieron qué artículos, conservando además el orden de autoría (\texttt{author\_order}).
+        \item \textbf{\texttt{paper\_references}:} Vincula los artículos con la literatura exacta que citaron en su bibliografía.
+    \end{itemize}
+\end{itemize}
+\end{infobox}
+
+## Limpieza y Validación de Datos
+El proceso de carga no fue una simple inserción, sino que incluyó una fase intensiva de transformación. Las métricas de citas y visualizaciones se limpiaron de caracteres de texto para convertirse en variables numéricas enteras. Finalmente, se implementó un módulo de validación en R para verificar la ausencia de valores nulos (NA), asegurar el conteo correcto de registros entre las tablas puente y evaluar la distribución de la clasificación temática.
+
+# CLASIFICACIÓN TEMÁTICA Y FEATURE ENGINEERING
+
+Con el objetivo de generar variables categóricas útiles para el análisis exploratorio y un posterior modelado, se implementó una estrategia de *feature engineering* (ingeniería de características) basada en diccionarios de palabras clave mediante expresiones regulares.
+
+Se analizaron de forma combinada los campos de texto correspondientes al título y al resumen (*abstract*) de cada artículo, buscando coincidencias directas con tres grandes áreas temáticas recurrentes dentro del *journal*:
+
+* **IA Generativa:** Términos relacionados con modelos generativos y modelos de lenguaje de gran escala.
+* **Machine Learning:** Conceptos asociados al aprendizaje automático, redes neuronales y modelos predictivos.
+* **Estadística:** Términos vinculados con métodos estadísticos clásicos, probabilísticos y de inferencia.
+
+El código base para la definición de estos diccionarios en R fue el siguiente:
+
+```{r eval=FALSE}
+# Diccionarios Regex para categorización de papers
+kw_ia_gen <- "generative|llm|chatgpt|large language model|diffusion model|gan"
+kw_ml <- "machine learning|deep learning|neural network|predictive|classification"
+kw_stat <- "statistics|statistical|bayesian|regression|anova|probability"
+```
+
+\begin{infobox}
+\textbf{Gestión de la Categoría Residual ("Otros"):}
+Todos los artículos que no presentaron coincidencias explícitas con los diccionarios anteriores fueron asignados a la categoría "Otros". Metodológicamente, resulta mucho más riguroso contar con una categoría residual robusta que inventar etiquetas débiles o caer en el error de sobreclasificar papers cuyos enfoques pueden ser de nichos altamente especializados o transversales.
+\end{infobox}
+
+# CONSULTAS SQL Y RESULTADOS
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+require(kableExtra)
+require(DBI)
+require(RSQLite)
+con <- dbConnect(RSQLite::SQLite(), "Springer_Visual_Miner.sqlite")
+
+query_volumen <- dbGetQuery(con, "
+  SELECT 'papers' AS Tabla, COUNT(*) AS Total_Registros FROM papers
+  UNION ALL
+  SELECT 'authors', COUNT(*) FROM authors
+  UNION ALL
+  SELECT 'paper_authors', COUNT(*) FROM paper_authors
+  UNION ALL
+  SELECT 'references', COUNT(*) FROM `references`
+  UNION ALL
+  SELECT 'paper_references', COUNT(*) FROM paper_references;
+")
+
+kable(query_volumen, booktabs = T,
+      caption = "Resultados Validación", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+query_nulos <- dbGetQuery(con,"
+  SELECT 
+    SUM(CASE WHEN title IS NULL OR title = 'NA' THEN 1 ELSE 0 END) AS null_title,
+    SUM(CASE WHEN abstract IS NULL OR abstract = 'NA' THEN 1 ELSE 0 END) AS null_abstract,
+    SUM(CASE WHEN doi IS NULL OR doi = 'NA' THEN 1 ELSE 0 END) AS null_doi
+  FROM papers;
+" )
+
+kable(query_nulos, booktabs = T,
+      caption = "Resultados Validación", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+
+Revisando los anteriores resultados, nos damos cuenta que el scraping fué un éxito, dado que ninguno de los items como tittle, abstract o DOI, tuvieron resultados nulos. 
+
+A partir de las consultas ejecutadas sobre la base de datos relacional, se extrajeron los siguientes resultados que permiten comprender la dinámica de publicación y el impacto de la revista *Artificial Intelligence Review*:
+
+## ¿Cúal es el número promedio de autores por paper?
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+promedio_autor <- dbGetQuery(con, "
+                             SELECT 'N_autores' AS Metrica,
+                                     avg(n_authors) as Promedio
+                             FROM papers")
+
+kable(promedio_autor, booktabs = T,
+      caption = "Promedio Autores Por Paper", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+> El promedio de 4.9 (5 dado que no podemos tener 0.9 autores) autores por artículo refleja una fuerte tendencia hacia la colaboración científica en este campo. La investigación en Inteligencia Artificial rara vez es un esfuerzo individual; por el contrario, requiere de equipos multidisciplinarios para abordar la complejidad técnica y metodológica de los modelos actuales.
+
+## ¿Cúantos artículos están relacionados con Machine Learning?
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+machine_l <- dbGetQuery(con, "
+                        SELECT topic_label AS Tema,
+                               COUNT(*) AS Cantidad
+                               FROM papers
+                               WHERE topic_label = 'Machine Learning'
+                               ")
+kable(machine_l, booktabs = T,
+      caption = "Papers de ML", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+
+## ¿Cúantos artículos están relacionados con IA Generativa?
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+IA <- dbGetQuery(con, "
+                        SELECT topic_label AS Tema,
+                               COUNT(*) AS Cantidad
+                               FROM papers
+                               WHERE topic_label = 'IA Generativa'
+                               ")
+kable(IA, booktabs = T,
+      caption = "Papers de IA", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+
+## ¿Cúantos artículos están relacionados con otros temas estadísticos?
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+otros <- dbGetQuery(con, "
+                       SELECT topic_label AS Tema,
+                               COUNT(*) AS Cantidad
+                               FROM papers
+                               WHERE topic_label = 'Otros'
+                               ")
+kable(otros, booktabs = T,
+      caption = "Papers de Otros temas", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+
+> De los artículos analizados, 228 se enfocan en Machine Learning, 136 en IA Generativa y 134 en estadistica. Esta distribución evidencia que, si bien el Machine Learning clásico sigue siendo el núcleo de investigación madura, la IA Generativa está capturando una porción significativa de la literatura, reflejando el auge tecnológico actual tras la popularización de los grandes modelos de lenguaje (LLMs).
+
+
+## ¿Cúal es el número total de descargas de los artículos publicados en 2025 y 2026?
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+downloads <- dbGetQuery(con, "
+                        SELECT 'Descargas' As Downloads,
+                               SUM(downloads) As Número,
+                               year as Año
+                        FROM papers
+                        GROUP BY year
+                        ")
+kable(downloads, booktabs = T,
+      caption = "Papers Descargados Por Años", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+> Dado que los papers fueron analizados del año 2025 y 2026, se muestran los dos años para hacer una comparación.
+El análisis agrupado por años revela que los artículos publicados en 2025 acumularon un volumen masivo de 1353936 descargas(accesos). En contraste, los papers de 2026 registran un número significativamente menor, representando aproximadamente un 14% del total del año anterior. Esta drástica diferencia no obedece a una caída en el interés científico, sino a un sesgo temporal natural: dado el momento en que se realizó la extracción, los artículos de 2026 llevan pocos meses de exposición al público en comparación con el ciclo completo de un año que ya vivieron los de 2025. 
+
+> Esta observación metodológica nos permite plantear una interrogante interesante para futuras investigaciones: **¿Cuánto tiempo tarda en promedio un artículo de Inteligencia Artificial en alcanzar su "pico" de descargas tras su publicación oficial?** 
+
+## ¿Cúal es el número promedio de referencias por artículo?
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+pr_ref <- dbGetQuery(con, "
+                     SELECT 'Cant. Refs' as N_refs , 
+                     ROUND(AVG(n_references), 2) as Promedio
+                     FROM papers
+                     ")
+kable(pr_ref, booktabs = T,
+      caption = "Promedio referencias por Paper", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+> Los papers revisados incluyen un promedio de **138** referencias bibliográficas. Un número robusto en esta métrica indica que los estudios publicados en este journal están fuertemente fundamentados en el estado del arte y realizan revisiones exhaustivas de la literatura previa antes de proponer nuevas innovaciones.
+
+## ¿Cúal es la referencia que más se repite entre todos los artículos?
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ref_rep <- dbGetQuery(con, "
+  SELECT r.reference_text_normalized AS Referencia,
+         COUNT(pr.paper_id) AS Cantidad_Apariciones
+  FROM paper_references pr
+  INNER JOIN `references` r ON pr.reference_id = r.reference_id
+  GROUP BY r.reference_id, r.reference_text_normalized
+  ORDER BY Cantidad_Apariciones DESC
+  LIMIT 5;
+")
+
+kable(ref_rep, booktabs = TRUE,
+      caption = "Referencia Más Repetida", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "hold_position")) %>%
+  column_spec(1, width = "13cm") %>% 
+  column_spec(2, width = "2cm")      
+```
+
+
+
+## ¿Cúal es el promedio de citas por artículo?
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+prom_citas <- dbGetQuery(con, "
+                         SELECT 'Promedio' as Citas_art,
+                                 AVG(citations) As Promedio
+                         FROM papers")
+kable(prom_citas, booktabs = T,
+      caption = "Promedio citas por Paper", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+> En promedio, cada artículo ha recibido **12,7** citas. A diferencia de las descargas (que reflejan curiosidad o interés a corto plazo), el promedio de citas es un indicador de impacto académico real a largo plazo, demostrando que los trabajos de esta revista son utilizados y validados por otros pares científicos.
+
+## ¿Cúal es el paper con más citas?
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+pap_cit <- dbGetQuery(con, "
+                      SELECT title as Titulo,
+                             citations as Citaciones
+                      FROM papers
+                      ORDER BY Citaciones DESC
+                      LIMIT 3
+                      ")
+kable(pap_cit, booktabs = TRUE,
+      caption = "Paper Más Citado", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "hold_position")) %>%
+  column_spec(1, width = "13cm") %>% 
+  column_spec(2, width = "2cm")
+```
+> El artículo líder en la muestra es *"Deep learning and computer vision in plant disease detection: a comprehensive review of techniques, models, and trends in precision agriculture"* con un total de **276** citas.
+
+## ¿Cúal es el paper relacionado con machine learning, IA generativa o Estadística con más citas?
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+paper_top_citado <- dbGetQuery(con, "
+                               SELECT title AS Titulo, 
+                               topic_label AS Categoria, 
+                               citations AS Citas, 
+                               year AS Año
+                               FROM papers
+                               WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+                               ORDER BY citations DESC
+                               LIMIT 3;
+")
+
+# Presentación en el documento
+kable(paper_top_citado, booktabs = TRUE,
+      caption = "Paper más citado en las categorías", 
+      label = "topcitado") %>%
+  kable_styling(latex_options = c("striped", "hold_position")) %>%
+  column_spec(1, width = "10cm") 
+```
+
+## ¿Cúal es el paper relacionado con machine learning, IA generativa o Estadística con más descargas?
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+paper_top_down <- dbGetQuery(con, "
+                               SELECT title AS Titulo, 
+                               topic_label AS Categoria, 
+                               downloads AS Accesos, 
+                               year AS Año
+                               FROM papers
+                               WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+                               ORDER BY citations DESC
+                               LIMIT 3;
+                               ")
+kable(paper_top_down, booktabs = TRUE,
+      caption = "Paper más descargado en las categorías", 
+      label = "topdescargado") %>%
+  kable_styling(latex_options = c("striped", "hold_position")) %>%
+  column_spec(1, width = "10cm")
+```
+> Al filtrar específicamente por nuestras áreas de interés (ML, IA Gen y Estadística):
+> * El artículo más **citado** es **"Deep learning and computer vision in plant disease detection: a comprehensive review of techniques, models, and trends in precision agriculture"** con **276** citas, que es el mismo mayor citado en general.
+
+> El trabajo que generó mayor interés inmediato (accesos) en estas categorías es **"Deep learning and computer vision in plant disease detection: a comprehensive review of techniques, models, and trends in precision agriculture"** con **60** descargas (accesos).
+
+
+# HALLAZGOS 
+
+Tras el procesamiento y análisis de la base de datos de Artificial Intelligence Review, se han identificado cuatro hallazgos críticos que describen el estado actual de la investigación en Inteligencia Artificial:
+
+## Hegemonía del Machine Learning y Madurez de la IA Generativa
+La clasificación temática revela una clara predominancia del Machine Learning (44.36%), consolidándose como el núcleo técnico de la revista. Sin embargo, resulta notable que la IA Generativa (26.07%) ya iguala en volumen a la categoría residual de "Otros", a pesar de ser un campo mucho más joven.
+
+Este dato sugiere que la IA Generativa ha dejado de ser un tema de nicho para convertirse en un pilar fundamental de la literatura científica contemporánea. Por el contrario, la Estadística (3.11%) aparece como una categoría minoritaria, lo que indica que el enfoque del journal es predominantemente algorítmico y computacional más que de teoría estadística pura.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+query_temas <- dbGetQuery(con, "
+  SELECT 
+    topic_label AS Tema, 
+    COUNT(*) AS Cantidad, 
+    ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM papers), 2) AS Porcentaje 
+  FROM papers 
+  GROUP BY topic_label 
+  ORDER BY Cantidad DESC;
+")
+kable(query_temas, booktabs = TRUE,
+      caption = "Categorias (Conteo y Porcentaje)", 
+      label = "Categorias") %>%
+  kable_styling(latex_options = c("striped", "hold_position")) %>%
+  column_spec(1, width = "10cm")
+```
+
+## El Fenómeno de la IA Aplicada: El Caso de la Agricultura de Precisión
+Un hallazgo excepcional es el rendimiento del artículo "Deep learning and computer vision in plant disease detection...". Este trabajo logra el "doble triunfo" bibliométrico:
+
+Impacto Académico: 276 citas (Líder absoluto).
+
+Interés de Consumo: 60 accesos (Líder en categorías principales).
+
+Este fenómeno indica que existe una alta demanda por revisiones integradoras  que traduzcan la complejidad del Deep Learning a soluciones de impacto mundial, como la seguridad alimentaria. Que este artículo sea el más descargado y citado simultáneamente sugiere que es la "puerta de entrada" para nuevos investigadores en el campo de la visión por computadora aplicada.
+
+## Dinámica de Consumo Temporal (2025-2026)
+Al analizar la distribución mensual de accesos, observamos la siguiente visualización:
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+data_grafico <- dbGetQuery(con, "
+  SELECT 
+    strftime('%Y', publication_date) AS Anio, 
+    strftime('%m', publication_date) AS Mes, 
+    SUM(downloads) AS Total_Descargas 
+  FROM papers 
+  WHERE Anio IN ('2025', '2026')
+  GROUP BY Anio, Mes
+  ORDER BY Anio, Mes;
+")
+
+data_grafico$Mes <- as.numeric(data_grafico$Mes)
+
+library(ggplot2)
+
+data_grafico$Mes_Nombre <- factor(month.abb[data_grafico$Mes], levels = month.abb)
+
+ggplot(data_grafico, aes(x = Mes_Nombre, y = Total_Descargas, fill = factor(Anio))) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.9) +
+  scale_fill_manual(values = c("#2E5984", "#D9534F")) + 
+  labs(title = "Dinámica de Consumo: 2025 vs 2026",
+       subtitle = "Comparativa mensual de descargas (accesos)",
+       x = "Mes",
+       y = "Total de Descargas",
+       fill = "Año de publicación") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        panel.grid.minor = element_blank())
+
+```
+
+* **Consolidación en 2025:** Durante el año 2025, la revista mantuvo una tracción constante, con picos de interés en Enero (170,330 accesos) y Octubre (137,766). Esta consistencia sugiere que el contenido de la revista tiene una "larga vida útil", permaneciendo relevante meses después de su publicación.
+
+* **Anomalía Identificada:** Se detectó un descenso atípico en Septiembre de 2025 (8,728 accesos). En minería de datos, esto sugiere un evento externo o una interrupción en la indexación de artículos durante ese periodo específico, lo cual contrasta con la recuperación inmediata en Octubre.
+
+* **El Sesgo del Presente (2026):** Los datos de 2026 muestran una degradación natural. Mientras que Enero de 2026 (116,811) compite en magnitud con los meses de 2025, la caída progresiva hasta llegar a los 39 accesos en Mayo es la prueba cuantitativa de que el presente estudio se realizó en tiempo real.
+
+La popularidad de un artículo en Artificial Intelligence Review no es instantánea; requiere una ventana de 3 a 4 meses para alcanzar su punto máximo de difusión y descarga.
+
+
+## Vigencia de los Cimientos
+
+Aunque la IA Generativa domina la conversación actual, el análisis de referencias muestra que el conocimiento se construye sobre bases sólidas de hace décadas. La presencia de LSTM (1997) y Deep Learning (2015) con 14 repeticiones cada uno en la bibliografía, demuestra que el avance de la IA no es una sustitución de tecnologías, sino una acumulación. Los investigadores siguen recurriendo a los principios de las redes recurrentes y redes neuronales profundas para validar sus propuestas más modernas.
+
+
+# Limitaciones de la Investigación
+
+A pesar de haber cumplido con los objetivos del proyecto, se identificaron diversas restricciones técnicas y de datos que deben ser consideradas al interpretar los resultados:
+
+* **Restricciones del Sitio y Scraping:** El portal de Springer Nature emplea medidas de seguridad y estructuras HTML dinámicas que, en ocasiones, dificultan la extracción masiva. Se detectaron variaciones en los selectores CSS para ciertos volúmenes antiguos, lo que requirió ajustes constantes en los algoritmos de limpieza para evitar la pérdida de información.
+
+* **Datos Faltantes:** No todos los registros contaban con la metadata completa. Algunos artículos carecían de información de citaciones o métricas de acceso actualizadas en el momento de la consulta, lo que genera pequeños sesgos en los promedios generales.
+
+* **Métricas no Disponibles y Uso de Proxies (Descargas vs. Accesos):** Durante la fase de recolección, se identificó que la métrica explícita de descargas (*downloads*) no estaba disponible públicamente en la metadata del sitio para los artículos evaluados. Para solucionar esto, se tomó la decisión metodológica de utilizar la métrica de accesos (accesses) como variable (equivalente) para medir el interés y consumo inmediato del público.
+
+* **Sesgo Temporal:** Como se mencionó en el análisis de hallazgos, los datos de los artículos publicados en 2026 son preliminares. Al ser un año en curso, estas métricas no son comparables directamente con años cerrados como 2025, representando una limitación intrínseca de los estudios en tiempo real.
+
+# Conclusión
+El presente ejercicio permitió ejecutar con éxito el ciclo completo de un proyecto de Minería de Datos, desde la extracción automatizada (Web Scraping) de una fuente científica de prestigio, hasta el análisis relacional mediante SQL y la visualización estadística.
+
+La síntesis de este trabajo arroja tres conclusiones clave:
+
+* **Tendencias de la IA:** La investigación actual en Artificial Intelligence Review muestra un equilibrio saludable entre los fundamentos teóricos (Machine Learning y Estadística) y la innovación aplicada (IA Generativa), con un interés sobresaliente en soluciones de impacto social como la agricultura de precisión.
+
+* **Valor del Análisis Bibliométrico:** Más allá de los números, el ejercicio evidencia que las métricas de impacto (citas y accesos) son indicadores confiables para identificar los "nodos de conocimiento" o artículos fundacionales que están guiando el futuro de la Inteligencia Artificial.
+
+Este ejercicio nos permite tener una base sólida para futuros sistemas de monitoreo automático de tendencias científicas, permitiendo a los investigadores identificar áreas de oportunidad y nichos de publicación con mayor rapidez y precisión.

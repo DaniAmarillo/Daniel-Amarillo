@@ -1,0 +1,7 @@
+"0","paquetes <- c(""rvest"", ""xml2"", ""dplyr"", ""stringr"", ""purrr"","
+"0","              ""janitor"", ""readr"", ""knitr"", ""DBI"", ""RSQLite"")"
+"0",""
+"0","instalados <- rownames(installed.packages())"
+"0","pendientes <- setdiff(paquetes, instalados)"
+"0","if (length(pendientes) > 0) install.packages(pendientes)"
+"0","invisible(lapply(paquetes, library, character.only = TRUE))"

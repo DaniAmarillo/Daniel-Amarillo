@@ -1,0 +1,358 @@
+---
+title: "Taller 1 — Minería de Datos"
+subtitle: "Web Scraping, Base de Datos y Consultas SQL"
+author: "Owen Deybis Ortiz Velásquez"
+date: "2026-05-03"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+    highlight: tango
+    df_print: kable
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+--- 
+
+# Introducción
+
+Este taller aplica el proceso de **Descubrimiento de Conocimiento en Bases de Datos (KDD)** sobre artículos científicos publicados en 2025 en la revista *Scientific Reports* de Nature. Se cubre el ciclo completo: adquisición mediante web scraping, almacenamiento en SQLite, clasificación temática y consultas SQL.
+
+La revista fue seleccionada por su accesibilidad técnica — a diferencia de otras publicaciones, no implementa mecanismos agresivos de protección contra bots, lo que facilita la extracción de datos de forma reproducible.
+
+---
+
+# Fuente de datos y estrategia de scraping
+
+**Fuente:** [Nature Scientific Reports — artículos 2025](https://www.nature.com/srep/articles?searchType=journalSearch&sort=PubDate&year=2025)
+
+Se extrajeron **60 artículos** (3 páginas × 20 artículos por página).
+
+La extracción se realizó en **dos fases**:
+
+- **Fase 1 — Listado:** se iteró sobre las páginas de resultados. De cada página se filtraron los enlaces `h3 > a` que apuntan a `/articles/s41598`, descartando elementos de navegación. Se obtuvo título, URL y autores.
+
+- **Fase 2 — Artículo individual:** para cada URL se visitó la página del artículo. La fecha se extrajo con regex buscando el patrón `Published: DD Month YYYY` en el texto. DOI, autores y resumen provienen de etiquetas `<meta>` de indexación académica. Las métricas (citas y descargas) se extrajeron de `p.c-article-metrics-bar__count`. Las referencias se contaron desde `ol.c-article-references li`.
+
+## Librerías utilizadas
+
+| Librería | Uso |
+|----------|-----|
+| `rvest`  | Parsear HTML y extraer elementos del DOM |
+| `httr2`  | Realizar peticiones HTTP con headers personalizados |
+| `xml2`   | Navegar el árbol DOM con `xml_parent()` |
+| `DBI` + `RSQLite` | Crear y poblar la base de datos SQLite |
+
+```{r librerias, include=FALSE}
+library(rvest)
+library(httr2)
+library(xml2)
+library(DBI)
+library(RSQLite)
+library(knitr)
+```
+
+## Funciones auxiliares
+
+```{r funciones}
+#función para hacer la petición a la URL y también para que no parezca un bot
+get_html <- function(url) {
+  Sys.sleep(2)
+  request(url) |>
+    req_headers(`User-Agent` = "Mozilla/5.0") |>
+    req_perform() |>
+    resp_body_html()
+}
+#navega el árbol HTML
+get_li <- function(nodo) {
+  for (i in 1:6) {
+    nodo <- xml_parent(nodo)
+    if (xml_name(nodo) == "li") return(nodo)
+  }
+  NULL
+}
+```
+
+```{r listado, eval=FALSE}
+#este bloque es la fase 1 - construye la tabla base con la información del listado.
+url_base <- "https://www.nature.com/srep/articles?searchType=journalSearch&sort=PubDate&year=2025&page="
+
+titulos <- urls <- fechas <- autores_lst <- c()
+
+for (p in 1:3) {
+  message("Página ", p)
+  html    <- get_html(paste0(url_base, p))
+  all_a   <- html |> html_elements("h3 a")
+  hrefs   <- all_a |> html_attr("href")
+  ok      <- grepl("^/articles/s41598", hrefs)
+  enlaces <- all_a[ok]
+
+  titulos     <- c(titulos,  enlaces |> html_text2())
+  urls        <- c(urls,     paste0("https://www.nature.com", hrefs[ok]))
+  fechas      <- c(fechas,   rep(NA_character_, sum(ok)))
+  autores_lst <- c(autores_lst, sapply(enlaces, function(a) {
+    li <- get_li(a)
+    if (is.null(li)) return(NA_character_)
+    paste(html_elements(li, "ul li") |> html_text2(), collapse = "; ")
+  }))
+}
+
+df <- data.frame(titulo=titulos, url=urls, fecha=fechas, autores=autores_lst,
+                 doi=NA, resumen=NA, citas=NA_integer_,
+                 accesos=NA_integer_, n_refs=NA_integer_,
+                 stringsAsFactors=FALSE)
+
+message("Artículos extraídos: ", nrow(df))
+```
+
+```{r detalle, eval=FALSE}
+#bloque fase 2 - visita cada artículo individualmente y llena las columnas que quedaron vacías.
+for (i in seq_len(nrow(df))) {
+  message(i, "/", nrow(df), " — ", substr(df$titulo[i], 1, 55))
+
+  html <- tryCatch(get_html(df$url[i]), error = function(e) NULL)
+  if (is.null(html)) next
+
+  meta <- function(n) html |> html_element(paste0("meta[name='",n,"']")) |> html_attr("content")
+
+  metricas <- html |> html_elements("p.c-article-metrics-bar__count") |> html_text2()
+  num <- function(p) {
+    m <- grep(p, metricas, value=TRUE, ignore.case=TRUE)
+    if (!length(m)) return(NA_integer_)
+    as.integer(gsub(",","", regmatches(m[1], regexpr("[0-9,]+", m[1]))))
+  }
+
+  texto_pagina <- html |> html_text2()
+  fecha_match  <- regmatches(texto_pagina, regexpr("Published:\\s*\\d{1,2}\\s+\\w+\\s+\\d{4}", texto_pagina))
+  df$fecha[i]  <- if (length(fecha_match)) gsub("Published:\\s*", "", fecha_match) else NA_character_
+  df$doi[i]    <- meta("citation_doi")
+  df$autores[i]<- paste(html |> html_elements("meta[name='citation_author']") |>
+                        html_attr("content"), collapse="; ")
+  df$resumen[i]<- meta("description")
+  df$citas[i]  <- num("itat")
+  df$accesos[i]<- num("ccess|ownload")
+  df$n_refs[i] <- html |> html_elements("ol.c-article-references li") |> length()
+}
+
+write.csv(df, "nature_srep_2025.csv", row.names=FALSE)
+message("CSV guardado.")
+```
+
+---
+
+# Clasificación temática
+
+Cada artículo se clasificó en una de cuatro categorías mediante búsqueda de palabras clave en el **título** y **resumen** (texto en minúsculas). El orden de prioridad es:
+
+1. **IA Generativa** — se evalúa primero
+2. **Machine Learning** — se evalúa segundo  
+3. **Estadística** — se evalúa tercero
+4. **Otros** — artículos que no coinciden con ninguna categoría
+
+Las palabras clave por categoría fueron:
+
+| Categoría | Palabras clave |
+|-----------|----------------|
+| IA Generativa | generative, llm, gpt, diffusion model, gan, variational autoencoder, text/image generation |
+| Machine Learning | machine learning, deep learning, neural network, random forest, transformer, supervised, reinforcement... |
+| Estadística | regression, bayesian, statistical, survival analysis, meta-analysis, time series, correlation... |
+
+```{r clasificacion, eval=FALSE}
+clasificar <- function(titulo, resumen) {
+  texto <- tolower(paste(titulo, resumen))
+  gen  <- c("generative", "large language model", "llm", "gpt", "diffusion model",
+            "gan ", "variational autoencoder", "text generation", "image generation")
+  ml   <- c("machine learning", "deep learning", "neural network", "classification",
+            "random forest", "gradient boosting", "convolutional", "transformer",
+            "prediction model", "supervised", "unsupervised", "reinforcement")
+  stat <- c("regression", "bayesian", "statistical", "survival analysis",
+            "meta-analysis", "hypothesis test", "probability", "multivariate",
+            "time series", "correlation", "variance")
+  if (any(sapply(gen,  grepl, x=texto))) return("IA Generativa")
+  if (any(sapply(ml,   grepl, x=texto))) return("Machine Learning")
+  if (any(sapply(stat, grepl, x=texto))) return("Estadística")
+  return("Otros")
+}
+
+df$categoria <- mapply(clasificar, df$titulo, ifelse(is.na(df$resumen), "", df$resumen))
+```
+
+---
+
+# Construcción de la base de datos SQLite
+
+Se creó la base de datos `nature_srep_2025.db` con dos tablas:
+
+- **`papers`**: tabla principal con todos los campos del artículo.
+- **`autores`**: tabla auxiliar normalizada, una fila por autor, vinculada a `papers` mediante `paper_id` como *foreign key*.
+
+```{r base_datos, eval=FALSE}
+con <- dbConnect(SQLite(), "nature_srep_2025.db")
+
+dbExecute(con, "CREATE TABLE IF NOT EXISTS papers (
+  paper_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  journal_name     TEXT DEFAULT 'Scientific Reports',
+  title            TEXT,
+  publication_date TEXT,
+  year             INTEGER,
+  doi              TEXT,
+  url              TEXT,
+  abstract         TEXT,
+  authors_raw      TEXT,
+  n_authors        INTEGER,
+  citations        INTEGER,
+  downloads        INTEGER,
+  n_references     INTEGER,
+  topic_label      TEXT
+)")
+
+dbExecute(con, "CREATE TABLE IF NOT EXISTS autores (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  paper_id  INTEGER,
+  autor     TEXT,
+  FOREIGN KEY (paper_id) REFERENCES papers(paper_id)
+)")
+
+for (i in seq_len(nrow(df))) {
+  autores_i <- strsplit(df$autores[i], "; ")[[1]]
+  yr        <- as.integer(regmatches(df$fecha[i], regexpr("\\d{4}", df$fecha[i])))
+
+  dbExecute(con,
+    "INSERT INTO papers (journal_name, title, publication_date, year, doi, url,
+     abstract, authors_raw, n_authors, citations, downloads, n_references, topic_label)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    list("Scientific Reports", df$titulo[i], df$fecha[i], yr, df$doi[i], df$url[i],
+         df$resumen[i], df$autores[i], length(autores_i),
+         df$citas[i], df$accesos[i], df$n_refs[i], df$categoria[i])
+  )
+
+  paper_id <- dbGetQuery(con, "SELECT last_insert_rowid()")[[1]]
+  for (autor in autores_i) {
+    if (nchar(trimws(autor)) > 0)
+      dbExecute(con, "INSERT INTO autores (paper_id, autor) VALUES (?, ?)",
+                list(paper_id, trimws(autor)))
+  }
+}
+
+dbDisconnect(con)
+message("Base de datos guardada.")
+```
+
+---
+
+# Consultas SQL y resultados
+
+```{r conexion_consultas}
+con <- dbConnect(SQLite(), "nature_srep_2025.db")
+```
+
+## ¿Cuál es el número promedio de autores por paper?
+
+```{r q1}
+dbGetQuery(con, "SELECT ROUND(AVG(n_authors), 2) AS promedio_autores FROM papers")
+```
+
+## ¿Cuántos artículos están relacionados con Machine Learning?
+
+```{r q2}
+dbGetQuery(con, "SELECT COUNT(*) AS n_machine_learning FROM papers WHERE topic_label = 'Machine Learning'")
+```
+
+## ¿Cuántos artículos están relacionados con IA Generativa?
+
+```{r q3}
+dbGetQuery(con, "SELECT COUNT(*) AS n_ia_generativa FROM papers WHERE topic_label = 'IA Generativa'")
+```
+
+## ¿Cuántos artículos están relacionados con Estadística?
+
+```{r q4}
+dbGetQuery(con, "SELECT COUNT(*) AS n_estadistica FROM papers WHERE topic_label = 'Estadística'")
+```
+
+## ¿Cuál es el número total de descargas de los artículos publicados en 2025?
+
+```{r q5}
+dbGetQuery(con, "SELECT SUM(downloads) AS total_descargas FROM papers WHERE year = 2025")
+```
+
+## ¿Cuál es el número promedio de referencias por artículo?
+
+```{r q6}
+dbGetQuery(con, "SELECT ROUND(AVG(n_references), 2) AS promedio_referencias FROM papers")
+```
+
+## ¿Cuál es el autor que más se repite entre todos los artículos?
+
+```{r q7}
+dbGetQuery(con, "SELECT autor, COUNT(*) AS frecuencia FROM autores
+                 GROUP BY autor ORDER BY frecuencia DESC LIMIT 1")
+```
+
+## ¿Cuál es el promedio de citas por artículo?
+
+```{r q8}
+dbGetQuery(con, "SELECT ROUND(AVG(citations), 2) AS promedio_citas FROM papers")
+```
+
+## ¿Cuál es el paper con más citas?
+
+```{r q9}
+dbGetQuery(con, "SELECT title, citations FROM papers ORDER BY citations DESC LIMIT 1")
+```
+
+## ¿Cuál es el paper de ML, IA Generativa o Estadística con más citas?
+
+```{r q10}
+dbGetQuery(con, "SELECT title, topic_label, citations FROM papers
+                 WHERE topic_label IN ('Machine Learning','IA Generativa','Estadística')
+                 ORDER BY citations DESC LIMIT 1")
+```
+
+## ¿Cuál es el paper de ML, IA Generativa o Estadística con más descargas?
+
+```{r q11}
+dbGetQuery(con, "SELECT title, topic_label, downloads FROM papers
+                 WHERE topic_label IN ('Machine Learning','IA Generativa','Estadística')
+                 ORDER BY downloads DESC LIMIT 1")
+```
+
+```{r desconectar, include=FALSE}
+dbDisconnect(con)
+```
+
+---
+
+# Hallazgos
+
+-Hay 60 artículos relacionados con ML, pero solo hay uno con más citas que son 2, lo que indica que a pesar de la utilidad
+del ML para diseñar u optimizar modelos no se tiene muy en cuenta.
+-La revista reporta citas en algunos artículos y en otros no, en aquellos que aparecen con citas na interpreto que tiene 0 citas
+-Dado que el número de descargas no estaba disponible, los accesos fueron tomados en el scraping como métrica de reemplazo
+
+---
+
+# Limitaciones
+
+- **Citas y descargas:** Nature renderiza algunas métricas mediante JavaScript, por lo que los valores pueden aparecer como `NULL` en artículos donde el conteo aún no está disponible en el HTML estático.
+- **Clasificación temática:** el criterio de palabras clave es simple y puede generar falsas asignaciones. Artículos interdisciplinares tienden a clasificarse según la primera categoría que matchee, no necesariamente la más representativa.
+- **Cobertura:** se extrajeron solo 60 artículos (3 páginas) de un total de más de 48.000 disponibles para 2025, por lo que los resultados no son representativos del universo completo de la revista.
+- **Resumen faltante:** artículos del tipo *Author Correction* no tienen abstract, por lo que el campo queda vacío.
+
+---
+
+# Conclusión
+
+El presente taller permitió aplicar de forma integral las primeras fases del proceso KDD sobre datos reales. A través del web scraping de Scientific Reports se logró construir una base de datos estructurada con 60 artículos publicados en 2025, demostrando que es posible adquirir y organizar información científica de forma automatizada y reproducible.
+
+---

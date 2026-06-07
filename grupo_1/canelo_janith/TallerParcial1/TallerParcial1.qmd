@@ -1,0 +1,1159 @@
+---
+title: "Scraping y Base de Datos: ACM Transactions on Graphics"
+subtitle: "Análisis de artículos Q1 2024–2025"
+author: "Johan Farith Canelo Gonzalez"
+date: today
+lang: es
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    theme: flatly
+    self-contained: true
+execute:
+  warning: false
+  message: false
+  eval: false
+jupyter: python3
+---
+
+## 1. Introducción
+
+Este documento presenta el proceso completo de recolección, almacenamiento y análisis
+de artículos publicados en **ACM Transactions on Graphics (TOG)**, una de las revistas
+más prestigiosas en computación gráfica, clasificada como **Q1** en Scimago.
+Los datos fueron obtenidos mediante scraping automatizado del portal
+[dl.acm.org](https://dl.acm.org) con Selenium y BeautifulSoup, y cubren publicaciones
+de los issues 44/1 a 44/6 (2024–2025).
+
+**Justificación de la revista:** TOG es el referente histórico de computación gráfica;
+publica trabajos de alto impacto en rendering, animación, geometría y, crecientemente,
+métodos de aprendizaje automático aplicados a gráficos. Todos sus metadatos
+(citas, descargas, referencias, CCS tags) son accesibles públicamente sin autenticación.
+
+---
+
+## 2. Dependencias y configuración
+
+```{python}
+#| label: setup
+#| eval: true
+
+import sqlite3
+import re
+import os
+import pandas as pd
+from IPython.display import display
+
+# ── Rutas ──────────────────────────────────────────────────────────────────────
+CSV_PATH = "tog_papers.csv"
+DB_PATH  = "tog_q1_2025.sqlite"
+
+print(f"  pandas  : {pd.__version__}")
+print(f"  sqlite3 : {sqlite3.sqlite_version}")
+print(f"  CSV     : {CSV_PATH}")
+print(f"  DB      : {DB_PATH}")
+```
+
+**Dependencias del scraper** (instalar una sola vez):
+Importante, Se debe setear un entorno de python con los paquetes e inicializarlo.
+
+```bash
+pip install undetected-chromedriver selenium beautifulsoup4 pandas jupyter
+```
+
+---
+
+## 3. Scraping de ACM Transactions on Graphics
+
+El scraper utiliza **Selenium con undetected-chromedriver** para evadir la detección
+de bots de Cloudflare que protege ACM Digital Library, se intentó que el bot entrara a la pagina directamente pero en la mayoría de los casos se debe hacer la verificación inicial, una vez dentro el scraper funciona correctamente.
+
+A su vez se utilizó **BeautifulSoup** para parsear el HTML. El proceso recorre los issues en cadena usando el botón "Next Issue", extrae los DOIs de cada número y luego visita cada paper individualmente.
+
+Los datos se guardan de forma **incremental** en un CSV para poder reanudar el proceso tras cualquier interrupción. (Gracias a esto se pudieron extraer los datos desde 1983 a lo largo de 8 horas de ejecución, este dataset existe y puede ser proporsionado)
+
+> **Nota de reproducibilidad:** Los chunks de esta sección tienen `eval: false`.
+> Para reproducir el scraping, ejecutarlos de forma interactiva o como script
+> separado; el resultado es `tog_papers.csv`. Una vez disponible ese archivo,
+> el resto del documento (secciones 4–9) se ejecuta automáticamente con `eval: true`.
+
+### 3.1 Configuración
+
+```{python}
+#| label: scraper-config
+#| eval: false
+
+import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
+from bs4 import BeautifulSoup
+import time
+import pandas as pd
+import random
+from pathlib import Path
+
+# ─── CONFIGURACIÓN GENERAL ────────────────────────────────────────────────────
+VERSION_CHROME = 147          # Cambiar a la versió de Chrome instalada
+ARCHIVO_CSV    = "tog_papers.csv"
+PAUSA_ISSUE    = random.uniform(5,6)         # segundos entre issues 
+PAUSA_PAPER    = random.uniform(2,3)            # segundos entre papers
+
+# ─── MODO PRUEBA ──────────────────────────────────────────────────────────────
+#   True  → procesa solo MAX_ISSUES_PRUEBA issues a partir de URL_PRUEBA_START
+#   False → modo completo con los controles de inicio/parada de abajo
+MODO_PRUEBA       = False
+URL_PRUEBA_START  = "https://dl.acm.org/toc/tog/2021/40/6"
+MAX_ISSUES_PRUEBA = 2
+
+# ─── CONTROLES DE INICIO Y PARADA (solo en modo completo) ────────────────────
+#   URL_INICIO = None   → detecta automáticamente el último issue del CSV
+#   URL_INICIO = "url"  → fuerza inicio en ese issue
+#   URL_FIN    = None   → hasta el último issue disponible
+#   URL_FIN    = "url"  → para DESPUÉS de procesar ese issue (inclusive)
+#   Seteamos 2025 por defecto por las especificaciones del taller
+URL_INICIO = "https://dl.acm.org/toc/tog/2025/44/1"
+URL_FIN    = "https://dl.acm.org/toc/tog/2025/44/6"
+```
+
+### 3.2 Funciones auxiliares
+
+```{python}
+#| label: scraper-helpers
+#| eval: false
+
+def iniciar_driver():
+    opts = uc.ChromeOptions()
+    opts.add_argument("--window-size=1920,1080")
+    return uc.Chrome(options=opts, version_main=VERSION_CHROME)
+
+
+def normalizar_url(url):
+    """Elimina trailing slash y query params para comparaciones fiables."""
+    return url.strip().rstrip("/").split("?")[0] if url else None
+
+
+def detectar_url_inicio_desde_csv(archivo_csv):
+    """
+    Lee el CSV y devuelve la URL del issue desde el que reanudar
+    (el SIGUIENTE al último registrado). Permite reanudar tras interrupciones.
+    """
+    if not Path(archivo_csv).exists():
+        print(f"'{archivo_csv}' no encontrado → comenzando desde 1982.")
+        return None, pd.DataFrame()
+
+    df = pd.read_csv(archivo_csv, encoding="utf-8-sig")
+    print(f"✓  CSV cargado: {len(df)} papers existentes.")
+
+    if "url_issue" not in df.columns or df["url_issue"].dropna().empty:
+        print("Columna 'url_issue' vacía → comenzando desde 1982.")
+        return None, df
+
+    ultimo = df["url_issue"].dropna().iloc[-1]
+    print(f"Último issue registrado: {ultimo}")
+    return ultimo, df
+
+
+def obtener_url_siguiente_issue(soup):
+    """Extrae la URL del botón 'Next Issue' de la página actual."""
+    btn = soup.select_one("a.content-navigation__btn--next")
+    if btn:
+        href = btn.get("href", "")
+        if href.startswith("/toc/tog/"):
+            return "https://dl.acm.org" + href
+    return None
+
+
+def expandir_acordeones(driver):
+    """
+    Expande los acordeones de sesiones en la página del issue
+    para hacer visibles todos los artículos del número.
+    """
+    try:
+        elems = driver.find_elements(
+            By.CSS_SELECTOR,
+            "a.accordion-tabbed__control, button.accordion-tabbed__control"
+        )
+        n = 0
+        for e in elems:
+            if e.get_attribute("aria-expanded") != "true":
+                try:
+                    driver.execute_script("arguments[0].click();", e)
+                    time.sleep(0.4)
+                    n += 1
+                except Exception:
+                    pass
+        if n:
+            time.sleep(1.2)
+        return n
+    except Exception:
+        return 0
+
+
+def guardar_batch(papers, archivo_csv):
+    """Guarda un lote de papers al CSV de forma incremental (append)."""
+    if not papers:
+        return
+    df = pd.DataFrame(papers)
+    header = not Path(archivo_csv).exists()
+    df.to_csv(archivo_csv, mode="a", header=header,
+              index=False, encoding="utf-8-sig")
+    print(f" +{len(papers)} papers → '{archivo_csv}'")
+```
+
+### 3.3 Anti-Cloudflare: warming up y reintentos
+
+ACM Digital Library usa Cloudflare para detectar bots. Se implementaron dos estrategias:
+una visita inicial a la home para establecer cookies («warming up») y reintentos con
+espera progresiva cuando se detecta el challenge.
+
+```{python}
+#| label: scraper-antibot
+#| eval: false
+
+def esperar_pagina_lista(driver, timeout=30):
+    """
+    Espera a que la página cargue y no sea un challenge de Cloudflare.
+    Retorna True si la página es válida, False si el timeout se agota.
+    """
+    tiempo, intervalo = 0, 2
+    while tiempo < timeout:
+        titulo = driver.title.lower()
+        bloqueado = any(x in titulo for x in [
+            "just a moment", "attention required", "cloudflare",
+            "checking your browser", "please wait"
+        ])
+        valido = any(x in titulo for x in [
+            "acm transactions", "tog", "acm digital library"
+        ]) or "/toc/tog/" in driver.current_url.lower()
+
+        if valido and not bloqueado:
+            return True
+        if bloqueado:
+            print(f"Cloudflare detectado, esperando... ({tiempo}s)")
+        time.sleep(intervalo)
+        tiempo += intervalo
+
+    print(f"\n TIMEOUT — Título: {driver.title}")
+    return False
+
+
+def navegar_con_reintento(driver, url, intentos=3):
+    """Navega a una URL con reintentos y warm-up si falla."""
+    for intento in range(1, intentos + 1):
+        print(f"- Cargando (intento {intento}/{intentos}): {url}")
+        driver.get(url)
+        time.sleep(PAUSA_ISSUE if intento == 1 else PAUSA_ISSUE * 2)
+        if esperar_pagina_lista(driver):
+            return True
+        if intento < intentos:
+            driver.get("https://dl.acm.org")   # warm-up intermedio
+            time.sleep(8)
+    print(f"  ✗  No se pudo cargar: {url}")
+    return False
+
+
+def warming_up(driver):
+    """
+    Visita la home de ACM antes de empezar para establecer cookies
+    y superar el challenge inicial de Cloudflare.
+    Si el captcha es manual, espera intervención del usuario.
+    """
+    print("Warming up: visitando ACM home...")
+    driver.get("https://dl.acm.org")
+    time.sleep(15)
+    if esperar_pagina_lista(driver, timeout=40):
+        print("Warming up completado.")
+    else:
+        print("Captcha manual detectado.")
+        input("   Resuélvelo en el navegador y pulsa ENTER para continuar...")
+```
+
+### 3.4 Extracción por issue y por paper
+
+```{python}
+#| label: scraper-extraccion
+#| eval: false
+
+def diagnosticar_issue(driver, url_issue):
+    """Diagnóstico cuando no se encuentran artículos en un issue."""
+    soup = BeautifulSoup(driver.page_source, "html.parser")
+    print(f"\n DIAGNÓSTICO de {url_issue}")
+    print(f"     Título   : {driver.title}")
+    print(f"     URL      : {driver.current_url}")
+    print(f"     issue-item   : {len(soup.select('div.issue-item'))}")
+    print(f"     h3/h5 titles : {len(soup.select('h3.issue-item__title a, h5.issue-item__title a'))}")
+
+
+def extraer_doi_urls_de_issue(driver, url_issue):
+    """
+    Navega al issue, expande acordeones y extrae las URLs de todos los papers.
+    Usa selector ampliado para cubrir variaciones del layout de ACM.
+    """
+    ok = navegar_con_reintento(driver, url_issue)
+    if not ok:
+        diagnosticar_issue(driver, url_issue)
+        return [], BeautifulSoup(driver.page_source, "html.parser")
+
+    n = expandir_acordeones(driver)
+    if n:
+        print(f"      (expandidos {n} acordeones)")
+
+    soup  = BeautifulSoup(driver.page_source, "html.parser")
+    links = soup.select(
+        "h3.issue-item__title a, h5.issue-item__title a, "
+        "div.issue-item__content h5 a, div.issue-item__content h3 a"
+    )
+    doi_urls = []
+    vistos = set()
+    for l in links:
+        href = l.get("href", "")
+        if href.startswith("/doi/") and href not in vistos:
+            doi_urls.append("https://dl.acm.org" + href)
+            vistos.add(href)
+
+    if not doi_urls:
+        diagnosticar_issue(driver, url_issue)
+
+    return doi_urls, soup
+
+
+def extraer_datos_paper(driver, url_paper):
+    """
+    Extrae todos los campos de un paper individual:
+    título, DOI, fecha, autores, resumen, citas, descargas,
+    tags de autor, tags CCS, número de referencias y lista de referencias.
+    """
+    driver.get(url_paper)
+    time.sleep(PAUSA_PAPER)
+    soup = BeautifulSoup(driver.page_source, "html.parser")
+
+    doi    = url_paper.replace("https://dl.acm.org/doi/", "")
+    t      = soup.find("h1", property="name")
+    titulo = t.get_text(strip=True) if t else "N/A"
+
+    f     = soup.select_one("span.core-date-published")
+    fecha = f.get_text(strip=True) if f else "N/A"
+
+    # Autores: combina givenName + familyName del HTML semántico
+    spans   = soup.select(
+        "div.contributors span[property='givenName'], "
+        "div.contributors span[property='familyName']"
+    )
+    nombres = [s.get_text(strip=True) for s in spans]
+    autores = [f"{nombres[i]} {nombres[i+1]}"
+               for i in range(0, len(nombres) - 1, 2)]
+    if not autores:
+        autores = [a.get_text(strip=True)
+                   for a in soup.select("ul.loa span.author-name")]
+    autores_str = "; ".join(autores) or "N/A"
+
+    ab      = soup.select_one("section#abstract div[role='paragraph']")
+    resumen = ab.get_text(" ", strip=True) if ab else "N/A"
+
+    # Citas y descargas — dos selectores por variaciones de layout
+    num_citas = num_descargas = "N/A"
+    mb = soup.select_one("button.metrics-toggle")
+    if mb:
+        cs = mb.select_one("span.citation span")
+        ds = mb.select_one("span.metric span")
+        if cs: num_citas     = cs.get_text(strip=True).replace(",", "")
+        if ds: num_descargas = ds.get_text(strip=True).replace(",", "")
+    if num_citas == "N/A":
+        ca = soup.select_one("div.article-metric.citation div.metric-value span")
+        da = soup.select_one("div.article-metric.download div.metric-value span")
+        if ca: num_citas     = ca.get_text(strip=True).replace(",", "")
+        if da: num_descargas = da.get_text(strip=True).replace(",", "")
+
+    # Tags del autor + badges ACM (deduplicados)
+    author_tags = [a.get_text(strip=True)
+                   for a in soup.select("section[property='keywords'] li a")]
+    badge_tags  = [a.get_text(strip=True) for a in soup.select("a.badge-type")]
+    vistos = set(author_tags)
+    for tag in badge_tags:
+        if tag not in vistos:
+            author_tags.append(tag)
+            vistos.add(tag)
+    tags_str = "; ".join(author_tags) or "N/A"
+
+    # ACM Computing Classification System (CCS)
+    ccs     = [a.get_text(strip=True)
+               for a in soup.select("section#sec-terms a")
+               if a.get_text(strip=True)]
+    ccs_str = "; ".join(ccs) or "N/A"
+
+    # Referencias bibliográficas separadas por " ||| "
+    refs = [
+        r.get_text(" ", strip=True)
+        for r in soup.select(
+            "section#bibliography div[role='listitem'] div.citation-content"
+        )
+        if r.get_text(strip=True)
+    ]
+    refs_str = " ||| ".join(refs) or "N/A"
+
+    return {
+        "titulo":          titulo,
+        "doi":             doi,
+        "url_paper":       url_paper,
+        "fecha":           fecha,
+        "autores":         autores_str,
+        "resumen":         resumen,
+        "num_citas":       num_citas,
+        "num_descargas":   num_descargas,
+        "tags":            tags_str,
+        "ccs_tags":        ccs_str,
+        "num_referencias": len(refs),
+        "referencias":     refs_str,
+    }
+```
+
+### 3.5 Bucle principal y punto de entrada
+
+```{python}
+#| label: scraper-main
+#| eval: false
+
+def correr_scraper(driver, url_inicio, url_fin, archivo_csv,
+                   max_issues=None, sufijo_csv=None):
+    """
+    Recorre issues en cadena usando el botón Next.
+    Guarda incrementalmente para poder reanudar tras interrupciones.
+    """
+    destino      = sufijo_csv if sufijo_csv else archivo_csv
+    url_fin_norm = normalizar_url(url_fin)
+    url_actual   = url_inicio
+    issue_count  = 0
+    paper_count  = 0
+
+    while url_actual:
+        issue_count += 1
+        url_actual_norm = normalizar_url(url_actual)
+        print(f"\n{'─'*60}")
+        print(f"[Issue #{issue_count}] {url_actual}")
+
+        doi_urls, soup = extraer_doi_urls_de_issue(driver, url_actual)
+        print(f"  → {len(doi_urls)} papers encontrados")
+
+        papers_issue = []
+        for j, url_paper in enumerate(doi_urls, 1):
+            print(f"    [{j}/{len(doi_urls)}] {url_paper.split('/')[-1]}", end=" ")
+            try:
+                datos = extraer_datos_paper(driver, url_paper)
+                datos["url_issue"] = url_actual
+                papers_issue.append(datos)
+                paper_count += 1
+                print(f"✓  citas={datos['num_citas']}")
+            except Exception as e:
+                print(f"✗ {e}")
+                papers_issue.append({
+                    "titulo": "ERROR", "doi": url_paper,
+                    "url_paper": url_paper, "url_issue": url_actual,
+                    "fecha": "", "autores": "", "resumen": "",
+                    "num_citas": "", "num_descargas": "",
+                    "tags": "", "ccs_tags": "",
+                    "num_referencias": 0, "referencias": str(e),
+                })
+
+        guardar_batch(papers_issue, destino)
+        print(f" Acumulado sesión: {paper_count} papers")
+
+        # Condición de parada por URL_FIN
+        if url_fin_norm and url_actual_norm == url_fin_norm:
+            print(f"\n  URL_FIN alcanzada. Deteniendo.")
+            break
+
+        # Condición de parada por límite de issues (modo prueba)
+        if max_issues and issue_count >= max_issues:
+            print(f"\n  Límite de {max_issues} issues alcanzado.")
+            break
+
+        # Avanzar al siguiente issue
+        url_siguiente = obtener_url_siguiente_issue(soup)
+        if not url_siguiente:
+            print("\n No hay más issues.")
+            break
+        url_actual = url_siguiente
+
+    print(f"\n{'='*60}")
+    print(f"{paper_count} papers guardados en '{destino}'")
+
+
+# ─── EJECUCIÓN ────────────────────────────────────────────────────────────────
+# Ejecutar de forma interactiva o como script separado.
+# Genera tog_papers.csv. No se ejecuta al renderizar el documento.
+
+driver = iniciar_driver()
+try:
+    warming_up(driver)
+
+    if MODO_PRUEBA:
+        print(f"\n MODO PRUEBA — inicio: {URL_PRUEBA_START}")
+        correr_scraper(
+            driver      = driver,
+            url_inicio  = URL_PRUEBA_START,
+            url_fin     = None,
+            archivo_csv = ARCHIVO_CSV,
+            max_issues  = MAX_ISSUES_PRUEBA,
+            sufijo_csv  = "PRUEBA_resume.csv",
+        )
+    else:
+        if URL_INICIO:
+            url_real_inicio = normalizar_url(URL_INICIO)
+            print(f"Inicio forzado: {url_real_inicio}")
+        else:
+            ultimo_issue, _ = detectar_url_inicio_desde_csv(ARCHIVO_CSV)
+            if ultimo_issue:
+                driver.get(ultimo_issue)
+                time.sleep(PAUSA_ISSUE)
+                soup_ultimo     = BeautifulSoup(driver.page_source, "html.parser")
+                url_real_inicio = obtener_url_siguiente_issue(soup_ultimo)
+                if not url_real_inicio:
+                    print("⚠  El journal ya está al día.")
+                    driver.quit()
+                    exit()
+            else:
+                url_real_inicio = "https://dl.acm.org/toc/tog/1982/1/1"
+
+        correr_scraper(
+            driver      = driver,
+            url_inicio  = url_real_inicio,
+            url_fin     = URL_FIN,
+            archivo_csv = ARCHIVO_CSV,
+        )
+finally:
+    driver.quit()
+    print("Navegador cerrado.")
+```
+
+---
+
+## 4. Carga y preparación de datos
+
+```{python}
+#| label: load-data
+#| eval: true
+
+# ── Cargar CSV generado por el scraper ────────────────────────────────────────
+
+if not os.path.exists(CSV_PATH):
+    print(f"ERROR: No se encontró '{CSV_PATH}'.")
+    print("Ejecuta primero el scraper (sección 3) de forma interactiva.")
+    print("O copia el CSV existente a este directorio.")
+    sys.exit(1)
+
+df = pd.read_csv(CSV_PATH, encoding="utf-8-sig")
+
+# Eliminar columnas vacías (artefacto del scraper al guardar con pandas)
+df = df.loc[:, ~df.columns.str.startswith("Unnamed")]
+
+
+# ── Extraer año desde la columna fecha  (ej: "01 October 2024") ───────────────
+def extract_year(x):
+    m = re.search(r"\d{4}", str(x))
+    return int(m.group()) if m else None
+
+df["year"] = df["fecha"].apply(extract_year)
+
+
+# ── Deduplicar autores ────────────────────────────────────────────────────────
+# El scraper capturaba nombres duplicados por el HTML semántico de ACM DL.
+# Se deduplican manteniendo el orden de aparición.
+def clean_authors(raw):
+    parts = [p.strip() for p in str(raw).split(";") if p.strip()]
+    seen, result = set(), []
+    for p in parts:
+        if p not in seen:
+            seen.add(p)
+            result.append(p)
+    return result
+
+df["n_authors"] = df["autores"].apply(lambda x: len(clean_authors(x)))
+
+
+# Usaremos ccg_tags para la clasificación  dado que este no tiene nulos.
+
+# Prioridad de asignación:
+#   1. IA Generativa   → previene solapamiento con ML para modelos generativos
+#   2. Machine Learning
+#   3. Estadística
+#   4. Otro
+GEN_KW = [
+    "generative adversarial", "generative model", "diffusion model",
+    "text-to-image", "large language model", "llm", "gpt",
+    "stable diffusion", "foundation model", "latent diffusion",
+    "denoising diffusion", "imagen", "dall-e",
+]
+ML_KW = [
+    "machine learning", "deep learning", "neural network",
+    "reinforcement learning", "convolutional",
+    "supervised learning", "unsupervised learning",
+]
+STAT_KW = [
+    "statistical", "bayesian", "regression", "markov chain",
+    "monte carlo", "stochastic", "probabilistic", "gaussian process",
+]
+
+def classify_topic(row):
+    combined = " ".join([
+        str(row.get("ccs_tags", "") or ""),
+        str(row.get("tags",     "") or ""),
+        str(row.get("resumen",  "") or ""),
+    ]).lower()
+    for k in GEN_KW:
+        if k in combined:
+            return "IA Generativa"
+    for k in ML_KW:
+        if k in combined:
+            return "Machine Learning"
+    for k in STAT_KW:
+        if k in combined:
+            return "Estadística"
+    return "Otro"
+
+df["topic_label"] = df.apply(classify_topic, axis=1)
+df["paper_id"]    = range(1, len(df) + 1)
+
+print(f"Artículos cargados : {len(df)}")
+print(f"Años cubiertos     : {sorted(df['year'].dropna().unique().astype(int).tolist())}")
+print()
+print("Distribución de tópicos:")
+print(df["topic_label"].value_counts().to_string())
+```
+
+### Aclaración sobre métricas
+
+| Variable | Métrica usada | Fuente |
+|---|---|---|
+| `downloads` | `num_descargas` — article views/downloads de ACM DL | ACM Digital Library (pública) |
+| `citations` | `num_citas` — citas reportadas por ACM DL | ACM Digital Library (pública) |
+
+**Descargas:** ACM DL publica la métrica "article views" por paper en su página
+pública, sin necesidad de autenticación. Se tomó directamente de esta fuente.
+
+**Citas:** ACM DL incluye el conteo de citas en la ficha de cada artículo.
+Dado que la mayoría de los papers son de 2025, los valores son bajos; esto
+se discute en la sección de limitaciones.
+
+---
+
+## 5. Construcción de la base de datos SQLite
+
+### 5.1 Esquema y creación de tablas
+
+La base contiene cinco tablas relacionadas:
+
+- **`papers`** — tabla principal con todos los metadatos requeridos
+- **`authors`** — autores únicos deduplicados
+- **`paper_authors`** — relación N:M entre papers y autores 
+- **`references_tbl`** — referencias bibliográficas únicas normalizadas
+- **`paper_references`** — relación N:M entre papers y referencias
+
+```{python}
+#| label: create-db
+#| eval: true
+
+# Borrar DB anterior si existe (garantiza reproducibilidad)
+if os.path.exists(DB_PATH):
+    os.remove(DB_PATH)
+
+con = sqlite3.connect(DB_PATH)
+cur = con.cursor()
+
+cur.executescript("""
+-- ── Tabla principal ──────────────────────────────────────────────────────────
+CREATE TABLE papers (
+    paper_id         INTEGER PRIMARY KEY,
+    journal_name     TEXT    NOT NULL,
+    title            TEXT    NOT NULL,
+    publication_date TEXT,
+    year             INTEGER,
+    doi              TEXT    UNIQUE,
+    url              TEXT,
+    abstract         TEXT,
+    authors_raw      TEXT,
+    n_authors        INTEGER,
+    citations        INTEGER,
+    downloads        INTEGER,
+    n_references     INTEGER,
+    topic_label      TEXT
+);
+
+-- ── Autores únicos ────────────────────────────────────────────────────────────
+CREATE TABLE authors (
+    author_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    author_name TEXT UNIQUE NOT NULL
+);
+
+-- ── Relación N:M paper ↔ autor ───────────────────────────────────────────────
+CREATE TABLE paper_authors (
+    paper_id     INTEGER NOT NULL REFERENCES papers(paper_id),
+    author_id    INTEGER NOT NULL REFERENCES authors(author_id),
+    author_order INTEGER,
+    PRIMARY KEY (paper_id, author_id)
+);
+
+-- ── Referencias únicas ────────────────────────────────────────────────────────
+CREATE TABLE references_tbl (
+    reference_id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    reference_text_normalized TEXT    UNIQUE NOT NULL
+);
+
+-- ── Relación N:M paper ↔ referencia ──────────────────────────────────────────
+CREATE TABLE paper_references (
+    paper_id     INTEGER NOT NULL REFERENCES papers(paper_id),
+    reference_id INTEGER NOT NULL REFERENCES references_tbl(reference_id),
+    PRIMARY KEY (paper_id, reference_id)
+);
+""")
+
+print("✓  Tablas creadas correctamente.")
+```
+
+### 5.2 Inserción de registros
+
+```{python}
+#| label: insert-records
+#| eval: true
+
+# ── papers ────────────────────────────────────────────────────────────────────
+rows_papers = []
+for _, row in df.iterrows():
+    rows_papers.append((
+        int(row["paper_id"]),
+        "ACM Transactions on Graphics",
+        row["titulo"],
+        str(row["fecha"]).strip(),
+        int(row["year"]) if pd.notna(row["year"]) else None,
+        row["doi"],
+        row["url_paper"],
+        row["resumen"],
+        row["autores"],
+        int(row["n_authors"]),
+        int(row["num_citas"]),
+        int(row["num_descargas"]),
+        int(row["num_referencias"]),
+        row["topic_label"],
+    ))
+
+cur.executemany("INSERT INTO papers VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows_papers)
+print(f"✓  papers insertados       : {cur.execute('SELECT COUNT(*) FROM papers').fetchone()[0]}")
+
+# ── authors + paper_authors ───────────────────────────────────────────────────
+for _, row in df.iterrows():
+    pid     = int(row["paper_id"])
+    authors = clean_authors(row["autores"])
+    for order, name in enumerate(authors, 1):
+        cur.execute("INSERT OR IGNORE INTO authors(author_name) VALUES (?)", (name,))
+        aid = cur.execute(
+            "SELECT author_id FROM authors WHERE author_name = ?", (name,)
+        ).fetchone()[0]
+        cur.execute(
+            "INSERT OR IGNORE INTO paper_authors VALUES (?,?,?)", (pid, aid, order)
+        )
+
+print(f" authors únicos          : {cur.execute('SELECT COUNT(*) FROM authors').fetchone()[0]}")
+print(f" relaciones paper-autor  : {cur.execute('SELECT COUNT(*) FROM paper_authors').fetchone()[0]}")
+
+# ── references_tbl + paper_references ────────────────────────────────────────
+for _, row in df.iterrows():
+    raw = str(row.get("referencias", "") or "")
+    if not raw or raw == "nan":
+        continue
+    pid  = int(row["paper_id"])
+    refs = [re.sub(r"\s+", " ", r).strip()
+            for r in raw.split(" ||| ") if r.strip()]
+    for ref in refs:
+        cur.execute(
+            "INSERT OR IGNORE INTO references_tbl(reference_text_normalized) VALUES (?)",
+            (ref,)
+        )
+        rid = cur.execute(
+            "SELECT reference_id FROM references_tbl WHERE reference_text_normalized = ?",
+            (ref,)
+        ).fetchone()[0]
+        cur.execute(
+            "INSERT OR IGNORE INTO paper_references VALUES (?,?)", (pid, rid)
+        )
+
+con.commit()
+print(f" referencias únicas      : {cur.execute('SELECT COUNT(*) FROM references_tbl').fetchone()[0]}")
+print(f" relaciones paper-ref    : {cur.execute('SELECT COUNT(*) FROM paper_references').fetchone()[0]}")
+```
+
+### 5.3 Validación básica
+
+```{python}
+#| label: validate-db
+#| eval: true
+
+val = pd.read_sql("""
+    SELECT
+        (SELECT COUNT(*) FROM papers)           AS n_papers,
+        (SELECT COUNT(*) FROM authors)          AS n_authors,
+        (SELECT COUNT(*) FROM paper_authors)    AS n_paper_authors,
+        (SELECT COUNT(*) FROM references_tbl)   AS n_references,
+        (SELECT COUNT(*) FROM paper_references) AS n_paper_references
+""", con)
+
+display(val.style
+    .set_caption("Conteo de registros por tabla")
+    .set_table_styles([{"selector": "caption",
+                        "props": [("font-weight","bold"),("font-size","14px")]}])
+    .format("{:,}"))
+```
+
+---
+
+## 6. Clasificación temática
+
+```{python}
+#| label: topic-dist
+#| eval: true
+
+topic_counts = pd.read_sql("""
+    SELECT topic_label AS Tópico, COUNT(*) AS "N artículos"
+    FROM papers
+    GROUP BY topic_label
+    ORDER BY "N artículos" DESC
+""", con)
+
+display(topic_counts.style
+    .set_caption("Distribución de artículos por categoría temática")
+    .set_table_styles([{"selector": "caption",
+                        "props": [("font-weight","bold"),("font-size","14px")]}])
+    .bar(subset=["N artículos"], color="#4E8ECA")
+    .format({"N artículos": "{:,}"}))
+
+print("""
+Criterio de clasificación (prioridad descendente):
+  1. IA Generativa   → diffusion model, generative adversarial, LLM, GPT, text-to-image …
+  2. Machine Learning → machine learning, deep learning, neural network, convolutional …
+  3. Estadística     → bayesian, monte carlo, stochastic, probabilistic, gaussian process …
+  4. Otro            → todo lo demás
+
+Fuente primaria : ccs_tags (ACM CCS — 0 nulos en los 204 artículos).
+Fuente de apoyo : tags (11 nulos, se omiten) + resumen.
+""")
+```
+
+---
+
+## 7. Consultas SQL y resultados
+
+```{python}
+#| label: helper-sql
+#| eval: true
+
+def run_sql(query, caption=""):
+    """Ejecuta una query SQL y muestra el resultado como tabla estilizada."""
+    result = pd.read_sql(query, con)
+    styled = result.style.set_caption(caption).set_table_styles([
+        {"selector": "caption",
+         "props": [("font-weight","bold"),("font-size","13px"),("text-align","left")]}
+    ])
+    display(styled)
+    return result
+```
+
+### 7.1 ¿Cuál es el número promedio de autores por paper?
+
+```{python}
+#| label: q1
+#| eval: true
+
+run_sql("""
+    SELECT ROUND(AVG(n_authors), 5) AS promedio_autores_por_paper
+    FROM papers
+""", "Q1 — Promedio de autores por paper");
+```
+
+> **Hallazgo:** ~5.3 autores por paper nos indica que mayormente es un trabajo colaborativo.
+
+---
+
+### 7.2 ¿Cuántos artículos están relacionados con Machine Learning?
+
+```{python}
+#| label: q2
+#| eval: true
+
+run_sql("""
+    SELECT COUNT(*) AS articulos_machine_learning
+    FROM papers
+    WHERE topic_label = 'Machine Learning'
+""", "Q2 — Artículos de Machine Learning");
+```
+
+> **Hallazgo:** 27 artículos. Incluye redes neuronales para
+> animación, reconstrucción 3D y procesamiento de movimiento sin énfasis generativo.
+
+ 
+---
+
+### 7.3 ¿Cuántos artículos están relacionados con IA Generativa?
+
+```{python}
+#| label: q3
+#| eval: true
+
+run_sql("""
+    SELECT COUNT(*) AS articulos_ia_generativa
+    FROM papers
+    WHERE topic_label = 'IA Generativa'
+""", "Q3 — Artículos de IA Generativa");
+```
+
+> **Hallazgo:** 25 artículos. Modelos de difusión, GANs y LLMs
+> aplicados a síntesis de imágenes, animación y generación de geometría 3D.
+> **Nota**  Aqui están algunos de los papers más llamativos como los de frame generation.
+
+---
+
+### 7.4 ¿Cuántos artículos están relacionados con otros temas estadísticos?
+
+```{python}
+#| label: q4
+#| eval: true
+
+run_sql("""
+    SELECT COUNT(*) AS articulos_estadisticos
+    FROM papers
+    WHERE topic_label = 'Estadística'
+""", "Q4 — Artículos de Estadística");
+```
+
+> **Hallazgo:** 16 artículos. Métodos probabilísticos,
+> Monte Carlo, procesos gaussianos y simulaciones estocásticas para renderizado.
+
+---
+
+### 7.5 ¿Cuál es el número total de descargas de los artículos publicados en 2025?
+
+```{python}
+#| label: q5
+#| eval: true
+
+run_sql("""
+    SELECT
+        year                             AS año,
+        COUNT(*)                         AS n_articulos,
+        SUM(downloads)                   AS total_descargas,
+        ROUND(AVG(downloads), 0)         AS promedio_descargas
+    FROM papers
+    WHERE year = 2025
+    GROUP BY year
+""", "Q5 — Descargas totales en 2025");
+```
+
+> **Hallazgo:** 272 439 descargas en 190 artículos de 2025.
+> Métrica: *article views* de ACM DL, pública y sin autenticación dado que no tenemos la matrica de las descargas.
+
+---
+
+### 7.6 ¿Cuál es el número promedio de referencias por artículo?
+
+```{python}
+#| label: q6
+#| eval: true
+
+run_sql("""
+    SELECT ROUND(AVG(n_references), 2) AS promedio_referencias_por_articulo
+    FROM papers
+""", "Q6 — Promedio de referencias por artículo");
+```
+
+> **Hallazgo:** ~63.03 referencias por artículo.
+> Eso es principalmente porque muchos de los metodos existen en otras areas pero 
+> se aplican a estas situaciones de renderizado, por lo que se espera una alta cantidad de citas.
+
+---
+
+### 7.7 ¿Cuál es la referencia que más se repite entre todos los artículos?
+
+```{python}
+#| label: q7
+#| eval: true
+
+run_sql("""
+    SELECT
+        rt.reference_text_normalized AS referencia,
+        COUNT(*)                     AS frecuencia
+    FROM paper_references pr
+    JOIN references_tbl rt ON pr.reference_id = rt.reference_id
+    GROUP BY rt.reference_id
+    ORDER BY frecuencia DESC
+    LIMIT 5
+""", "Q7 — Referencias más frecuentes (top 5)");
+```
+
+> **Hallazgo:** La referencia más repetida (11 veces) es **Thingi10K**
+> (Zhou & Jacobson, 2016), un dataset fundamental para trabajos sobre modelos 3D
+> imprimibles.
+> URL: https://github.com/Thingi10K/Thingi10K
+
+---
+
+### 7.8 ¿Cuál es el promedio de citas por artículo?
+
+```{python}
+#| label: q8
+#| eval: true
+
+run_sql("""
+    SELECT
+        ROUND(AVG(citations), 2) AS promedio_citas,
+        MIN(citations)           AS min_citas,
+        MAX(citations)           AS max_citas,
+        COUNT(*)                 AS total_articulos
+    FROM papers
+""", "Q8 — Estadísticas de citas");
+```
+
+> **Hallazgo:** Promedio de 1.51 citas por artículo.
+> Es una valor relativamente bajo, comparado a otras areas.
+
+---
+
+### 7.9 ¿Cuál es el paper con más citas?
+
+```{python}
+#| label: q9
+#| eval: true
+
+run_sql("""
+    SELECT title, year, citations, downloads, topic_label, doi
+    FROM papers
+    ORDER BY citations DESC
+    LIMIT 5
+""", "Q9 — Papers más citados (top 5)");
+```
+
+> **Hallazgo:** **SpotLessSplats** con 20 citas. Es sobre
+> Gaussian Splatting robusto frente a distractores dinámicos en escenas 3D.
+> (En otras palabras, este paper muestra un metodo para reconstruir escenas/perspectivas que no tengan un alto ruido en la camara) 
+
+---
+
+### 7.10 ¿Cuál es el paper de ML / IA Generativa / Estadística con más citas?
+
+```{python}
+#| label: q10
+#| eval: true
+
+run_sql("""
+    SELECT title, topic_label, citations, downloads, year, doi
+    FROM papers
+    WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+    ORDER BY citations DESC
+    LIMIT 5
+""", "Q10 — Papers de ML/GenAI/Estadística más citados (top 5)");
+```
+
+> **Hallazgo:** Tambien es SpotLessSplats.
+
+---
+
+### 7.11 ¿Cuál es el paper de ML / IA Generativa / Estadística con más descargas?
+
+```{python}
+#| label: q11
+#| eval: true
+
+run_sql("""
+    SELECT title, topic_label, downloads, citations, year, doi
+    FROM papers
+    WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+    ORDER BY downloads DESC
+    LIMIT 5
+""", "Q11 — Papers de ML/GenAI/Estadística más descargados (top 5)");
+```
+
+> **Hallazgo:** SpotLessSplats lidera con **4 136 descargas**.
+> Podríamos plantear una correlación entre el número de citas y descargas
+> a un mayor apropiamiento del paper mayor popularidad.
+
+---
+
+## 8. Análisis adicional: resumen por tópico
+
+```{python}
+#| label: topic-summary
+#| eval: true
+
+summary = pd.read_sql("""
+    SELECT
+        topic_label                AS "Tópico",
+        COUNT(*)                   AS "N artículos",
+        ROUND(AVG(citations),  2)  AS "Avg citas",
+        ROUND(AVG(downloads),  0)  AS "Avg descargas",
+        ROUND(AVG(n_authors),  1)  AS "Avg autores",
+        ROUND(AVG(n_references),1) AS "Avg referencias"
+    FROM papers
+    GROUP BY topic_label
+    ORDER BY "N artículos" DESC
+""", con)
+
+display(summary.style
+    .set_caption("Resumen por categoría temática")
+    .set_table_styles([{"selector": "caption",
+                        "props": [("font-weight","bold"),("font-size","14px")]}])
+    .bar(subset=["N artículos"], color="#4E8ECA")
+    .format({"N artículos": "{:,}", "Avg descargas": "{:,.0f}"}))
+```
+
+---
+
+## 9. Cierre de conexión
+
+```{python}
+#| label: close-db
+#| eval: true
+
+con.close()
+print(f"Conexión cerrada. Base de datos guardada en: {DB_PATH}")
+```
+
+---
+
+## 10. Hallazgos principales
+
+1. **204 artículos** de ACM TOG (issues 44/1 a 44/6), de los cuales 190 son de 2025.
+
+2. **Promedio de 5.3 autores** por paper, coherente con trabajo colaborativo
+   interdisciplinario.
+
+3. **27 artículos de Machine Learning** y **25 de IA Generativa**:
+   los modelos de difusión y las redes neuronales aplicadas a gráficos son los temas más fuertes.
+4. **16 artículos estadísticos**, principalmente simulación Monte Carlo y renderizado
+   físicamente basado.
+5. **272 439 descargas totales** en los 190 artículos de 2025 (promedio ~1 434/artículo).
+6. **~63 referencias por artículo** en promedio.
+7. **Promedio de 1.51 citas**; el más citado alcanza 20 citas en menos de un año.
+8. La referencia más compartida es el dataset **Thingi10K**, presente en 11 papers.
+9. **SpotLessSplats** es el paper más citado y más descargado en ML/GenAI/Estadística
+   (20 citas, 4 136 descargas).
+
+---
+
+## 11. Limitaciones
+
+- **Citas:** ACM DL reporta solo citas dentro de su propio índice; difieren de
+  Google Scholar o Semantic Scholar. Para artículos de 2025 el conteo está subestimado.
+
+- **Descargas:** "Article views" de ACM DL mezcla lecturas únicas con accesos
+  múltiples y bots; no equivale exactamente a descargas formales del PDF (Pues es solo darle a un boton).
+
+- **Cloudflare:** ACM DL usa detección de bots agresiva. El scraper requiere
+  un navegador real, pausas y en muchos casos una verificación humana inicial.
+
+- **Clasificación temática:** El 67 % de los artículos cae en "Otro" por ser
+  una revista especializada en gráficos. La frontera ML/GenAI puede solaparse;
+  se priorizó IA Generativa para evitar doble conteo.
+
+---
+
+## 12. Conclusión
+
+En este taller podemos ver como se puede construir un pipeline completo para la recolección/tratamiento y consulta de datos, actualmente existen las herramientas para realizar este trabajo
+a pesar de tener barreras fuertes como Cloudflare; incluso en una revista de alto prestigio pudimos extraer información, esto nos hace pensar que puede ser aplicable a cualquier funte pública.

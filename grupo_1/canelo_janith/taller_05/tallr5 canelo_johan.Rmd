@@ -1,0 +1,63 @@
+---
+title: "taller5"
+author: "Johan Canelo"
+date: "2026-04-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Para cada fuente de datos, indique: (a) si es estructurada, semi-estructurada o no estructurada; (b) la razón; (c) el paso de preprocesamiento mínimo para convertirla en un tibble analizable.
+
+Microdatos GEIH del DANE (archivo .csv de 300.000 filas)
+  Estructurado porque se pueden realizar consultas de manera facil con algun lenguaje, esta ya es una tabla analizable
+Respuesta JSON de la API pública datos.gov.co con indicadores de calidad del aire
+  Es semiestructurado, debido a que los datos estan organizados pero no podemos hacer consultas, tendríamos que
+  pasar los datos a una o multiples tablas.
+Grabaciones de audio de audiencias judiciales de la Rama Judicial
+  No estructurado, debido a que necesitamos tratarlos para ser consultados.
+Factura electrónica emitida por la DIAN (formato XML)
+  Semi estructurado,dado que tiene un formato pero no podemos hacer consultas con SQL
+Tabla HTML de Wikipedia scrapeada con rvest en las clases 2–3
+  semi estructurada dado que debemos tratarla con una funcion antes de poder trabajarla, principalmente porque no tiene indices definidos
+  
+  
+```{r}
+library(pacman)
+p_load(tidyverse, jsonlite, janitor)
+```
+
+```{r}
+url  <- "https://jsonplaceholder.typicode.com/users"
+raw  <- fromJSON(url)
+
+str(raw)
+```
+
+las listas aniadadas son: Address, company, geo.
+
+```{r}
+df_final <- raw %>%
+  as_tibble() %>%
+  # Desempaquetamos address y company (crea nombres como address.city)
+  unpack(cols = c(address, company), names_sep = ".") %>%
+  # Desempaquetamos la geolocalización que quedó dentro de address
+  unpack(cols = address.geo, names_sep = ".") %>%
+  # 2. Seleccionamos solo las columnas solicitadas
+  select(
+    name, 
+    email, 
+    address.city, 
+    address.geo.lat, 
+    address.geo.lng, 
+    company.name
+  )
+
+df_final |> clean_names()
+print(df_final)
+```
+la fuente es semiestructurada, tratarlo directamente no funciona porque tiene 2 niveles de jerarquia, lo que produce varias tablas.
+
+
+

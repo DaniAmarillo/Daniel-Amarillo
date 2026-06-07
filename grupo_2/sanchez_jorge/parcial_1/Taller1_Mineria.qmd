@@ -1,0 +1,529 @@
+---
+title: "Taller 1 – Web Scraping y Base de Datos SQLite"
+subtitle: "Journal of Finance (2025)"
+author: "Jorge Andres Sanchez Duarte"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-title: "Contenido"
+    number-sections: true
+    theme: cosmo
+    highlight-style: github
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+  message: false
+jupyter: python3
+---
+
+# Introducción
+
+La revista seleccionada es **The Journal of Finance**, una de las publicaciones académicas más importantes en el campo de las finanzas a nivel mundial. Es la revista oficial de la American Finance Association (AFA) y ha sido referente en investigación financiera desde 1946.
+
+**Enlace:** <https://onlinelibrary.wiley.com/journal/15406261>
+
+**Justificación:**La elección de esta fuente de información responde al interés personal en las áreas de la finanzas y la actuaría. Asimismo, el portal Wiley Online Library cumplio con todas las variables necesarias para el proceso de web scraping. Adicionalmente, su estructura HTML facilitó una extracción de datos sistemática y eficiente.
+
+---
+
+# Fuente de Datos y Scraping
+
+## Páginas usadas
+
+Se extrajeron artículos publicados en 2025 desde las páginas de búsqueda del portal Wiley Online Library, filtrando por año (`AfterYear=2025`, `BeforeYear=2025`). Se recorrieron 6 páginas de 20 artículos cada una, para luego ingresar individualmente a cada artículo y obtener datos adicionales.
+
+## Librerías utilizadas
+
+| Librería | Propósito |
+|---|---|
+| `undetected_chromedriver` | Automatización de Chrome sin ser detectado como bot(reemplazo mas robusto de Selenium)|
+| `BeautifulSoup` | Análisis del HTML de cada página |
+| `pandas` | Manipulación y almacenamiento de datos |
+| `time` | Pausas entre solicitudes para evitar bloqueos |
+
+## Estrategia de extracción
+
+El scraping se realizó en dos fases:
+
+1. **Fase 1 – Listado de artículos:** Se recorrieron las 6 páginas de resultados extrayendo título, fecha, DOI, URL y autores.
+2. **Fase 2 – Detalle por artículo:** Se ingresó individualmente a cada URL para extraer el abstract, referencias, número de citas y vistas.
+
+Finalmente, se construyeron columnas derivadas necesarias para la creacion del sqlite: `n_authors`, `n_references`, `year` y `topic_label`.
+
+## Código de scraping
+
+```{python}
+#| eval: false
+
+from bs4 import BeautifulSoup
+import pandas as pd
+import time
+import undetected_chromedriver as uc
+
+def clasificar_tematica(resumen):
+    """
+    Clasifica el tópico del artículo según palabras clave del abstract.
+    """
+    texto = str(resumen).lower()
+
+    if any(p in texto for p in ['machine learning', 'aprendizaje automático',
+                                 'neural network', 'deep learning']):
+        return "Machine Learning"
+    elif any(p in texto for p in ['generative ai', 'ia generativa', 'gpt',
+                                   'llm', 'large language model', 'diffusion']):
+        return "IA Generativa"
+    elif any(p in texto for p in ['statistics', 'estadística', 'regression',
+                                   'probability', 'p-value', 'inference']):
+        return "Estadística"
+    else:
+        return "Otros"
+
+# Configuración del driver
+options = uc.ChromeOptions()
+options.add_argument('--no-first-run')
+options.add_argument('--no-service-autorun')
+options.add_argument('--password-store=basic')
+driver = uc.Chrome(options=options, version_main=147)
+
+# URLs de las 6 páginas de resultados
+urls = [
+    f"https://onlinelibrary.wiley.com/action/doSearch?"
+    f"AfterYear=2025&BeforeYear=2025&SeriesKey=15406261"
+    f"&content=articlesChapters&sortBy=Earliest"
+    f"&startPage={i}&target=default&pageSize=20"
+    for i in range(6)
+]
+
+def art(url):
+    """Extrae metadatos básicos de una página de resultados."""
+    driver.get(url)
+    time.sleep(10)
+    soup = BeautifulSoup(driver.page_source, "html.parser")
+    titulos  = [i.get_text(strip=True) for i in soup.select("a.publication_title")]
+    fecha    = [i.get_text(strip=True).replace("First published:", "").strip()
+                for i in soup.select(".meta__epubDate")]
+    dois     = [i.get("value") for i in soup.select("div.bulkDownloadInput input")]
+    links    = [f"https://onlinelibrary.wiley.com{i['href']}"
+                for i in soup.select("a.publication_title")]
+    autores  = [", ".join(i.get_text(strip=True).strip(",").split(","))
+                for i in soup.select(".meta__authors")]
+    return pd.DataFrame({"title": titulos, "publication_date": fecha,
+                         "doi": dois, "url": links, "authors_raw": autores})
+
+def art2(url):
+    """Extrae abstract, referencias, citas y vistas de cada artículo."""
+    driver.get(url)
+    time.sleep(1)
+    soup = BeautifulSoup(driver.page_source, "html.parser")
+    resumenes  = [i.get_text(strip=True)
+                  for i in soup.select(".article-section__content.en.main")]
+    resumen    = resumenes[0] if resumenes else ""
+    refs       = [", ".join(i.get_text(strip=True).strip(",").split(","))
+                  for i in soup.select("ul.rlist.separator li")]
+    refs_final = " ; ".join(refs)
+    citas      = [i.get_text(strip=True) for i in soup.select(".cited-by-count span")]
+    vistas     = [i.get_text(strip=True) for i in soup.select(".number-of-downloads span")]
+    citas2     = citas[1] if len(citas) > 1 else 0
+    vistas2    = vistas[0] if vistas else 0
+    return pd.DataFrame({"abstract": [resumen], "references": [refs_final],
+                         "citations": [int(citas2)], "views": [int(vistas2)]})
+
+# Recolección y limpieza
+df_total = pd.concat([art(u) for u in urls], ignore_index=True)
+
+#eliminamos articulos no deseados
+lista_excluir = [
+    "ISSUE INFORMATION", "AMERICAN FINANCE ASSOCIATION", "ANNOUNCEMENTS",
+    "Tyler Muir: Winner of the 2025 Fischer Black Prize", "Steven N. Kaplan",
+    "Report of the EST and of the 2025 Annual Membership Meeting",
+    "BRATTLE GROUP AND DIMENSIONAL FUND ADVISORS PRIZES FOR 2024",
+    "Report of the Editor ofThe Journal of Financefor the Year 2024"
+]
+df_limpio = df_total[~df_total['title'].isin(lista_excluir)].reset_index(drop=True)
+df_limpio['publication_date'] = pd.to_datetime(
+    df_limpio['publication_date'], errors='coerce').dt.date
+
+# Detalle por artículo
+df_nuevo = pd.concat([art2(u) for u in df_limpio["url"]], ignore_index=True)
+df_definitivo = pd.concat([df_limpio, df_nuevo], axis=1)
+
+# Columnas derivadas
+df_definitivo['paper_id']    = range(1, len(df_definitivo) + 1)
+df_definitivo['journal_name'] = "Journal of Finance"
+df_definitivo['year']         = 2025
+df_definitivo['n_authors']    = df_definitivo['authors_raw'].apply(
+    lambda x: len(str(x).split(",")))
+df_definitivo['n_references'] = df_definitivo['references'].apply(
+    lambda x: len(str(x).split(";")))
+df_definitivo['topic_label']  = df_definitivo['abstract'].apply(clasificar_tematica)
+
+# Guardar
+columnas_papers = ['paper_id','journal_name','title','publication_date','year',
+                   'doi','url','abstract','authors_raw','n_authors',
+                   'citations','views','n_references','topic_label','references']
+df_definitivo = df_definitivo[columnas_papers]
+df_definitivo.to_excel("exel_webscraping.xlsx", index=False)
+```
+
+---
+
+# Construcción de la Base SQLite
+
+## Diseño del esquema
+
+La base de datos `sqlite_webscraping.db` tiene **5 tablas** con relaciones de clave foránea:
+
+- **`papers`** – tabla principal con todos los datos del artículo.
+- **`authors`** – catálogo único de autores.
+- **`paper_authors`** – relación muchos-a-muchos entre papers y autores, con orden de autoría.
+- **`references_table`** – catálogo de referencias bibliográficas.
+- **`paper_references`** – relación muchos-a-muchos entre papers y referencias.
+
+## Código de creación e inserción
+
+```{python}
+#| eval: false
+
+import pandas as pd
+import sqlite3
+import os
+
+ruta     = r"C:\Users\jorge\OneDrive\Escritorio\Materias\Mineria\Taller1_Mineria\exel_webscraping.xlsx"
+ruta_db  = r"C:\Users\jorge\OneDrive\Escritorio\Materias\Mineria\Taller1_Mineria\sqlite_webscraping.db"
+
+df_definitivo  = pd.read_excel(ruta)
+df_papers_final = df_definitivo.drop('references', axis=1)
+
+# Eliminar base existente para evitar duplicados
+if os.path.exists(ruta_db):
+    os.remove(ruta_db)
+
+conn   = sqlite3.connect(ruta_db)
+cursor = conn.cursor()
+
+#Creación de tablas
+cursor.execute('''
+    CREATE TABLE papers (
+        paper_id        INTEGER PRIMARY KEY,
+        journal_name    TEXT,
+        title           TEXT,
+        publication_date DATE,
+        year            INTEGER,
+        doi             TEXT,
+        url             TEXT,
+        abstract        TEXT,
+        authors_raw     TEXT,
+        n_authors       INTEGER,
+        citations       INTEGER,
+        views           INTEGER,
+        n_references    INTEGER,
+        topic_label     TEXT
+    )
+''')
+
+cursor.execute('''
+    CREATE TABLE authors (
+        author_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+        author_name TEXT UNIQUE
+    )
+''')
+
+cursor.execute('''
+    CREATE TABLE paper_authors (
+        paper_id     INTEGER,
+        author_id    INTEGER,
+        author_order INTEGER,
+        FOREIGN KEY (paper_id)  REFERENCES papers  (paper_id)  ON DELETE CASCADE,
+        FOREIGN KEY (author_id) REFERENCES authors (author_id) ON DELETE CASCADE
+    )
+''')
+
+cursor.execute('''
+    CREATE TABLE references_table (
+        reference_id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        reference_text_normalized  TEXT
+    )
+''')
+
+cursor.execute('''
+    CREATE TABLE paper_references (
+        paper_id     INTEGER,
+        reference_id INTEGER,
+        FOREIGN KEY (paper_id)     REFERENCES papers           (paper_id)     ON DELETE CASCADE,
+        FOREIGN KEY (reference_id) REFERENCES references_table (reference_id) ON DELETE CASCADE
+    )
+''')
+
+conn.commit()
+
+# Inserción en tabla principal
+df_papers_final.to_sql('papers', conn, if_exists='append', index=False)
+
+# Inserción en tablas de autores y referencias
+for i in range(len(df_papers_final)):
+    p_id = df_papers_final['paper_id'].iloc[i]
+
+    # Autores
+    for j, nombre in enumerate(
+            str(df_papers_final['authors_raw'].iloc[i]).split(',')):
+        nombre = nombre.strip()
+        if nombre and nombre.lower() != "nan":
+            cursor.execute('INSERT OR IGNORE INTO authors (author_name) VALUES (?)',
+                           (nombre,))
+            cursor.execute('SELECT author_id FROM authors WHERE author_name = ?',
+                           (nombre,))
+            a_id = cursor.fetchone()[0]
+            cursor.execute(
+                'INSERT INTO paper_authors (paper_id, author_id, author_order) VALUES (?,?,?)',
+                (p_id, a_id, j + 1))
+
+    # Referencias
+    for ref in str(df_definitivo['references'].iloc[i]).split(' ; '):
+        ref = ref.strip()
+        if ref and ref.lower() != "nan":
+            cursor.execute(
+                'INSERT OR IGNORE INTO references_table (reference_text_normalized) VALUES (?)',
+                (ref,))
+            r_id = cursor.lastrowid
+            cursor.execute(
+                'INSERT INTO paper_references (paper_id, reference_id) VALUES (?,?)',
+                (p_id, r_id))
+
+conn.commit()
+conn.close()
+```
+
+## Validación básica
+
+```{python}
+#| eval: false
+
+conn = sqlite3.connect(r"C:\Users\jorge\OneDrive\Escritorio\Materias\Mineria\Taller1_Mineria\sqlite_webscraping.db")
+cursor = conn.cursor()
+
+for tabla in ['papers', 'authors', 'paper_authors',
+              'references_table', 'paper_references']:
+    cursor.execute(f"SELECT COUNT(*) FROM {tabla}")
+    print(f"{tabla}: {cursor.fetchone()[0]} registros")
+
+conn.close()
+```
+
+---
+
+# Clasificación Temática
+
+## Criterio de etiquetado
+
+Cada artículo fue clasificado automáticamente en una de cuatro categorías, basándose en la presencia de palabras clave en el abstract (convertido a minúsculas):
+
+| Categoría | Palabras clave buscadas |
+|---|---|
+| **Machine Learning** | `machine learning`, `aprendizaje automático`, `neural network`, `deep learning` |
+| **IA Generativa** | `generative ai`, `ia generativa`, `gpt`, `llm`, `large language model`, `diffusion` |
+| **Estadística** | `statistics`, `estadística`, `regression`, `probability`, `p-value`, `inference` |
+| **Otros** | Cualquier abstract que no contenga las anteriores |
+
+Esta estrategia es simple y no requiere modelos de NLP externos . Su principal limitación es que depende de que el abstract mencione explícitamente estas palabras.
+
+
+---
+
+# Consultas SQL y Resultados
+
+```{python}
+import sqlite3
+import pandas as pd
+
+con = sqlite3.connect(r"C:\Users\jorge\OneDrive\Escritorio\Materias\Mineria\Taller1_Mineria\sqlite_webscraping.db")
+```
+
+## Consulta 1 – Promedio de autores por artículo
+
+```{python}
+resultado1 = pd.read_sql_query("""
+    SELECT ROUND(AVG(n_authors), 2) AS promedio_autores 
+    FROM papers
+""", con)
+resultado1
+```
+
+*Los artículos del Journal of Finance tienen en promedio **2.76 autores**, consistente con la práctica habitual en finanzas académicas donde la coautoría en pares o tríos es la norma.*
+
+---
+
+## Consulta 2 – Conteo por categoría temática
+
+```{python}
+resultado2 = pd.read_sql_query("""
+    SELECT topic_label    AS categoria, 
+           COUNT(*)       AS total_articulos
+    FROM papers
+    GROUP BY topic_label
+    ORDER BY total_articulos DESC
+""", con)
+resultado2
+```
+
+*La categoría **Otros** domina ampliamente. Machine Learning y Estadística tienen presencia minoritaria pero real, lo que refleja la creciente adopción de estos métodos en finanzas empíricas. Además, destaca que no aparecio la categoría IA Generativa*
+
+---
+
+## Consulta 3 – Total de vistas en 2025
+
+```{python}
+resultado3 = pd.read_sql_query("""
+    SELECT SUM(views) AS total_views_2025
+    FROM papers
+""", con)
+resultado3
+```
+
+*Los 78 artículos acumulan más de **341,000 vistas** en total, lo que habla del alto interés que genera esta revista en la comunidad académica y profesional.*
+
+---
+
+## Consulta 4 – Promedio de referencias por artículo
+
+```{python}
+resultado4 = pd.read_sql_query("""
+    SELECT ROUND(AVG(n_references), 2) AS promedio_referencias 
+    FROM papers
+""", con)
+resultado4
+```
+
+*En promedio, cada artículo cita **61.58 trabajos previos**, lo que indica una alta densidad de revisión de literatura, característica típica de journals de primer nivel.*
+
+---
+
+## Consulta 5 – Referencia más citada en la base
+
+```{python}
+resultado5 = pd.read_sql_query("""
+    SELECT r.reference_text_normalized AS referencia, 
+           COUNT(pr.reference_id)      AS veces_citada
+    FROM paper_references pr
+    JOIN references_table r ON pr.reference_id = r.reference_id
+    GROUP BY r.reference_id
+    ORDER BY veces_citada DESC
+    LIMIT 1
+""", con)
+resultado5
+```
+
+*No se encontro referencias comunes entre los artículos. Es muy probable, que esto se deba a la inconsistencia de los formatos de citación. Lo que hace muy difícil ver si realmente hay referencias en común.*
+
+
+---
+
+## Consulta 6 – Promedio de citas por artículo
+
+```{python}
+resultado6 = pd.read_sql_query("""
+    SELECT ROUND(AVG(citations), 2) AS promedio_citas 
+    FROM papers
+""", con)
+resultado6
+```
+
+*Con un promedio de **4.94 citas**, los artículos de 2025 muestran una acumulación de citas muy baja, lo cual es esperable dado que fueron publicados recientemente.*
+
+---
+
+## Consulta 7 – Artículo con más citas
+
+```{python}
+resultado7 = pd.read_sql_query("""
+    SELECT title       AS titulo,
+           citations   AS citas
+    FROM papers
+    ORDER BY citations DESC
+    LIMIT 1
+""", con)
+resultado7
+```
+
+*"Pricing Poseidon: Extreme Weather Uncertainty and Firm Return Dynamics" lidera con **47 citas.**Esto es entendible, pues fue el primer artículo publicado en el 2025.*
+
+---
+
+## Consulta 8 – Artículo más citado en categorías específicas
+
+```{python}
+resultado8 = pd.read_sql_query("""
+    SELECT title       AS titulo, 
+           topic_label AS categoria, 
+           citations   AS citas
+    FROM papers
+    WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+    ORDER BY citations DESC
+    LIMIT 1
+""", con)
+resultado8
+```
+
+*Dentro de las categorías técnicas, el artículo más citado pertenece a **Machine Learning**.*
+
+---
+
+## Consulta 9 – Artículo con más vistas en categorías específicas
+
+```{python}
+resultado9 = pd.read_sql_query("""
+    SELECT title       AS titulo, 
+           topic_label AS categoria, 
+           views       AS vistas
+    FROM papers
+    WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+    ORDER BY views DESC
+    LIMIT 1
+""", con)
+resultado9
+```
+
+*CEO Stress, Aging, and Death de la categoría Machine Learning fue el mas visto con un total de 9446*
+
+```{python}
+con.close()
+```
+
+---
+
+# Hallazgos
+
+Los resultados más relevantes del análisis son:
+
+1. **Dominio de "Otros":** El 87% de los artículos (68 de 78) no contiene palabras clave explícitas de ML, IA o estadística en el abstract. Esto no significa que no usen métodos cuantitativos, sino que el abstract no los menciona directamente.
+
+2. **Machine Learning tiene mayor impacto relativo:** Aunque solo 4 artículos están clasificados en esta categoría, fue el más citado y el mas visto, de las distintas categorías (ML, IA, Estadística).
+
+3. **Alta densidad bibliográfica:** Con un promedio de 61.58 referencias por artículo, los papers del Journal of Finance hacen una revisión de literatura muy amplia.
+
+4. **Coautoría predominante:** El promedio de 2.76 autores por artículo confirma que la investigación en finanzas es mayoritariamente colaborativa.
+
+---
+
+# Limitaciones
+
+1. **Datos faltantes en citas y vistas:** Algunos artículos recientes pueden tener citas = 0, esto se debe a ser articulos muy recientes.
+
+2. **Restricciones del sitio:** Wiley Online Library tiene mecanismos anti-bot. Se requirió usar `undetected_chromedriver`y pausas de 10 segundos entre páginas. Además, de pedir una validación humana al inico del proceso.
+
+3. **Clasificación temática simplificada:** El etiquetado por palabras clave en el abstract es una aproximación. Un artículo puede usar machine learning como método sin mencionarlo en el abstract, resultando clasificado como "Otros".
+
+4. **Sin categoría "IA Generativa":** Ningún artículo fue clasificado en esta categoría. Esto puede deberse a que la investigación con LLMs en finanzas es aún emergente o a que los autores usan terminología diferente en los abstracts.
+
+5. **Métricas no disponibles:** No se pudo extraer el factor de impacto individual por artículo, el número de descargas (distinto de vistas) ni el altmetric score, ya que estos datos requieren autenticación institucional.
+
+6. **Articulos Basura:** Durante la recolección, se identificó la presencia constante de registros irrelevantes, tales como secciones de Issue Information, anuncios de la American Finance Association y comunicados institucionales. Asimismo, se descartaron artículos de tipo bibliográfico y reportes administrativos. Este proceso de depuración se realizó de forma manual.
+
+
+---
+
+# Conclusión
+
+Este ejercicio permitió construir un flujo completo de minería de datos: desde la extracción automatizada de artículos del Journal of Finance (2025) mediante web scraping con Selenium y BeautifulSoup, hasta la estructuración de la información en una base de datos SQLite relacional de 5 tablas y su posterior análisis mediante consultas SQL. En total, se recolectaron 78 artículos con sus metadatos íntegros. Los hallazgos muestran que, en general, las publicaciones financieras recientes no integran en sus procesos investigativos temáticas como Machine Learning, IA Generativa o Estadística avanzada; sin embargo, se observó que los métodos de aprendizaje automático, aunque minoritarios, generan una alta recepción en la comunidad académica. Las principales limitaciones del estudio se asocian a la clasificación temática basada en palabras clave y a las restricciones técnicas del portal para el proceso de extracción

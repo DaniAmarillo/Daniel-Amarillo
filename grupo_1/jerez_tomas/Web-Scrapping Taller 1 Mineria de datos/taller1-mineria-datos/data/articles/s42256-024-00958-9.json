@@ -1,0 +1,49 @@
+{
+  "url": "https://www.nature.com/articles/s42256-024-00958-9",
+  "title": "Reusability report: Deep learning-based analysis of images and spectroscopy data with AtomAI",
+  "doi": "10.1038/s42256-024-00958-9",
+  "publication_date": "2025/01",
+  "online_date": "2025/01/02",
+  "journal": "Nature Machine Intelligence",
+  "volume": "7",
+  "issue": "1",
+  "language": "en",
+  "abstract": "Machine learning (ML) techniques are gaining traction for materials image processing applications. In this context, Ziatdinov et al. developed AtomAI, a user-friendly and comprehensive Python library designed for a wide range of materials imaging tasks, including image segmentation, denoising, image generation, image-to-spectrum mapping (and vice versa) and subsequent atomistic modelling of image-resolved structures. Given its broad applicability, this report aims to reproduce key aspects of the authors’ original work, extend its capabilities to new materials datasets and enhance certain features to improve model performance. We have not only successfully replicated parts of the original study, but also developed improved ML models for multiple datasets across different image processing tasks. The AtomAI library was found to be easy to use and extensible for custom applications. We believe that AtomAI holds significant potential for the microscopy and spectroscopy communities, and further development—such as semi-automated image segmentation—could broaden its utility and impact. Vashishtha and colleagues test and reuse AtomAI, a machine learning framework developed for analysing microscopy data, for a range of materials characterization tasks.",
+  "authors": [
+    "Vashishtha, Pragalbh",
+    "Kattamuri, Hitesh Gupta",
+    "Thawari, Nikhil",
+    "Amirthalingam, Murugaiyan",
+    "Batra, Rohit"
+  ],
+  "n_authors": 5,
+  "subjects": [
+    "Chemical engineering",
+    "Imaging techniques"
+  ],
+  "accesses": 2532,
+  "altmetric": 1,
+  "citations_nature": 8,
+  "references": [
+    "Roberts, G. et al. Deep learning for semantic segmentation of defects in advanced STEM images of steels. Sci. Rep. 9 , 12744 (2019).",
+    "Noguchi, S., Wang, H. & Inoue, J. Identification of microstructures critically affecting material properties using machine learning framework based on metallurgists’ thinking process. Sci. Rep. 12 , 14238 (2022).",
+    "Ziatdinov, M., Ghosh, A., Wong, C. & Kalinin, S. AtomAI framework for deep learning analysis of image and spectroscopy data in electron and scanning probe microscopy. Nat. Mach. Intell. 4 , 1101–1112 (2022).",
+    "Groschner, C. K., Choi, C. & Scott, M. C. Machine learning pipeline for segmentation and defect identification from high-resolution transmission electron microscopy data. Microsc. Microanal. 27 , 549–556 (2021).",
+    "Kong, S. et al. Density of states prediction for materials discovery via contrastive learning from probabilistic embeddings. Nat. Commun. 13 , 949 (2022).",
+    "Lobato, I., Friedrich, T. & Van Aert, S. Deep convolutional neural networks to restore single-shot electron microscopy images. npj Comput. Mater. 10 , 10 (2024).",
+    "Van der Walt, S. et al. scikit-image: image processing in Python. PeerJ 2 , e453 (2014).",
+    "Bradski, G. The OpenCV Library. Dr. Dobb’s J. Softw. Tools 25 , 120–125 (2000).",
+    "Beucher, S. & Lantuéjoul, C. Use of watersheds in contour detection. In International Workshop on Image Processing, Real-Time Edge and Motion Detection/Estimation 2.1–2.12 (CCETT/IRISA, 1979); https://people.cmm.minesparis.psl.eu/users/beucher/publi/watershed.pdf",
+    "Hu, Y.-C. J, Grossberg, M. D. & Mageras, G. S. Semi-automatic medical image segmentation with adaptive local statistics in conditional random fields framework. In 2008 30th Annual International Conference of the IEEE Engineering in Medicine and Biology Society 3099–3102 (IEEE, 2008).",
+    "Drumetz, L., Dalla Mura, M., Meulenyzer, S., Lombard, S. & Chanussot, J. Semi-automatic classification of cementitious materials using scanning electron microscope images. Proc. SPIE 9534 , 953403 (2015).",
+    "Gorynski, C., Frei, M., Kruis, FrankEinar & Winterer, M. Machine learning based quantitative characterization of microstructures. Acta Mater. 256 , 119106 (2023).",
+    "Sekachev, B. et al. opencv/cvat: v1.1.0 Zenodo https://zenodo.org/records/4009388 (2020).",
+    "Vashishtha, P., Kattamuri, H. G. & Batra, R. Pragalbhv/AtomAI_Reusability: AtomAI_Reusability_v.0.1.0. GitHub https://github.com/Pragalbhv/atomai (2024)."
+  ],
+  "n_references": 14,
+  "paper_id": "s42256-024-00958-9",
+  "title_listing": "Reusability report: Deep learning-based analysis of images and spectroscopy data with AtomAI",
+  "date_listing": "2025-01-02",
+  "article_type": "Article",
+  "scraped_at": "2026-05-03T00:22:58.143546Z"
+}

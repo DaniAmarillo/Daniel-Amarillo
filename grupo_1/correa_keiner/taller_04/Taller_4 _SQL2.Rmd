@@ -1,0 +1,340 @@
+---
+title: "Taller 2 SQL"
+author: "Keiner Correa"
+date: "2026-04-23"
+
+output:
+  html_document:
+    theme: united
+    highlight: tango
+    toc: true
+    toc_float: true
+    code_folding: show
+    df_print: paged     # Las tablas grandes se ven con paginación interactiva
+    code_download: true # Agrega un botón para bajar el archivo .Rmd
+    number_sections: true
+    css: styles.css
+---
+
+```{=html}
+<style>
+.nota-azul {
+  background-color: #f0f8ff;
+  border: 1px solid #add8e6;
+  padding: 10px;
+  border-radius: 8px;
+  color: #2c3e50;
+}
+h1 {
+  color: #051E9E;
+  font-weight: 700;
+}
+
+h2 {
+  color: #051E9E;
+}
+
+h3 {
+  color: #2934CC;
+}
+
+/* Código */
+pre {
+  background-color: #F8F9FA;
+  border-left: 5px solid #1E88E5;
+  border-radius: 6px;
+}
+
+code {
+  color: #D63384;
+}
+
+/* Texto justificado */
+body {
+  text-align: justify;
+}
+</style>
+```
+
+Cargar la base de datos
+
+```{r message=FALSE}
+url_chinook <- "https://raw.githubusercontent.com/lerocha/chinook-database/master/ChinookDatabase/DataSources/Chinook_Sqlite.sqlite"
+ruta_db     <- "chinook.db"
+
+if (!file.exists(ruta_db)) {
+  download.file(url_chinook, destfile = ruta_db, mode = "wb")
+  cat("Base de datos descargada en:", ruta_db, "\n")
+} else {
+  cat("La base de datos ya existe:", ruta_db, "\n")
+}
+```
+
+```{r message=FALSE, warning=FALSE}
+# Instalamos los paquetes necesarios
+paquetes  <- c("DBI", "RSQLite", "dplyr", "knitr")
+instalados <- rownames(installed.packages())
+pendientes <- setdiff(paquetes, instalados)
+if (length(pendientes) > 0) install.packages(pendientes)
+
+library(DBI)
+library(RSQLite)
+library(dplyr)
+
+# Abrimos la conexión
+con <- dbConnect(RSQLite::SQLite(), "chinook.db")
+cat("Conexión establecida.\n")
+```
+
+dbListFields(con, "Album")
+
+```{r}
+dbListTables(con)
+
+
+```
+
+dbListFields(con, "Invoice")
+
+```{r}
+dbListFields(con, "Playlist")
+dbListFields(con, "Customer")
+dbListFields(con, "Invoiceline")
+dbListFields(con, "track")
+
+```
+
+## Ejercicio 1
+
+1.  Escribe una consulta con `INNER JOIN` que devuelva: nombre del cliente, país, nombre de la pista comprada, género y precio unitario. Limita a 15 filas.
+
+    ```{sql connection=con}
+
+    SELECT c.FirstName as nombre, c.LastName as apellido, c.Country as país, t.name AS canción, g.name AS genero, il.unitprice as precio_unitario
+    FROM Customer c
+    INNER JOIN Invoice i 
+        ON c.CustomerId = i.CustomerId
+    INNER JOIN InvoiceLine il 
+        ON i.InvoiceId = il.InvoiceId
+    INNER JOIN track t
+    ON il.trackid = t.trackid
+    INNER JOIN GENRE g
+    ON  t.genreid= g.genreid
+    LIMIT 15;
+
+
+
+    ```
+
+2.  Usa un `LEFT JOIN` para encontrar pistas que **nunca han sido vendidas** (que no aparecen en `InvoiceLine`).
+
+    ```{sql connection=con}
+
+    SELECT t.trackid, il.InvoiceId
+    FROM Track t
+    LEFT JOIN InvoiceLine il
+    ON t.TrackId = il.TrackId
+    WHERE il.TrackId IS NULL;
+
+
+    ```
+
+3.  Con una **CTE**, calcula el total de ingresos por artista (suma de `UnitPrice × Quantity` de sus pistas vendidas). Muestra los 10 artistas con más ingresos.
+
+    ```{sql connection=con}
+      
+      WITH ingresos_artista AS (
+        SELECT 
+            ar.ArtistId,
+            ar.Name AS artista,
+            SUM(il.UnitPrice * il.Quantity) AS ingreso_total
+        FROM Artist ar
+        JOIN Album al 
+            ON ar.ArtistId = al.ArtistId
+        JOIN Track t 
+            ON al.AlbumId = t.AlbumId
+        JOIN InvoiceLine il 
+            ON t.TrackId = il.TrackId
+        GROUP BY ar.ArtistId, ar.Name
+    )
+
+    SELECT *
+    FROM ingresos_artista
+    ORDER BY ingreso_total DESC
+    LIMIT 10
+      
+      
+     
+
+    ```
+
+4.  Extiende la CTE anterior para agregar:
+
+- La participación porcentual de cada artista sobre el total de ingresos.
+
+- Un RANK() por ingresos.
+
+```{sql connection=con}
+
+   WITH ingresos_artista AS (
+    SELECT 
+        ar.ArtistId,
+        ar.Name AS artista,
+        SUM(il.UnitPrice * il.Quantity) AS ingreso_total
+    FROM Artist ar
+    JOIN Album al 
+        ON ar.ArtistId = al.ArtistId
+    JOIN Track t 
+        ON al.AlbumId = t.AlbumId
+    JOIN InvoiceLine il 
+        ON t.TrackId = il.TrackId
+    GROUP BY ar.ArtistId, ar.Name
+)
+
+SELECT 
+    ArtistId,
+    artista,
+    ingreso_total,
+
+    -- porcentaje del total
+    ROUND(
+        ingreso_total * 100.0 / SUM(ingreso_total) OVER (),
+        2
+    ) AS porcentaje_total,
+
+    -- ranking
+    RANK() OVER (
+        ORDER BY ingreso_total DESC
+    ) AS ranking
+
+FROM ingresos_artista
+ORDER BY ingreso_total DESC
+LIMIT 10;
+```
+
+
+## Ejercicio 2
+
+Usando la tabla `Invoice`:
+
+1.  Calcula el total de ventas por **año y mes** (`SUBSTR(InvoiceDate, 1, 7)`). Ordena cronológicamente.
+
+```{sql connection=con}
+SELECT 
+    SUBSTR(InvoiceDate, 1, 7) AS anio_mes,
+    SUM(Total) AS ventas_totales
+FROM Invoice
+GROUP BY anio_mes
+ORDER BY anio_mes;
+```
+
+2.  Agrega a la consulta anterior:
+
+    - `LAG`: ventas del mes anterior.
+
+    - Variación absoluta respecto al mes anterior.
+
+    - Media móvil de 3 meses (`ROWS BETWEEN 2 PRECEDING AND CURRENT ROW`).
+    
+```{sql connection=con}
+
+WITH ventas_mensuales AS (
+    SELECT 
+        SUBSTR(InvoiceDate, 1, 7) AS anio_mes,
+        SUM(Total) AS ventas_totales
+    FROM Invoice
+    GROUP BY anio_mes
+)
+
+SELECT 
+    anio_mes,
+    ventas_totales,
+
+    -- ventas mes anterior
+    LAG(ventas_totales) OVER (
+        ORDER BY anio_mes
+    ) AS ventas_mes_anterior,
+
+    -- variación absoluta
+    ventas_totales -
+    LAG(ventas_totales) OVER (
+        ORDER BY anio_mes
+    ) AS variacion_absoluta,
+
+    -- media móvil 3 meses
+    ROUND(
+        AVG(ventas_totales) OVER (
+            ORDER BY anio_mes
+            ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+        ),
+        2
+    ) AS media_movil_3m
+
+FROM ventas_mensuales
+ORDER BY anio_mes;
+
+```
+    
+
+3.  Usando `NTILE(4)`, clasifica cada mes en cuartiles según su nivel de ventas. ¿Cuáles meses pertenecen al cuartil superior (Q4)?
+
+
+```{sql connection=con}
+WITH ventas_mensuales AS (
+    SELECT 
+        SUBSTR(InvoiceDate, 1, 7) AS anio_mes,
+        SUM(Total) AS ventas_totales
+    FROM Invoice
+    GROUP BY anio_mes
+)
+
+SELECT 
+    anio_mes,
+    ventas_totales,
+
+    NTILE(4) OVER (
+        ORDER BY ventas_totales
+    ) AS cuartil
+
+FROM ventas_mensuales
+ORDER BY ventas_totales;
+```
+
+
+
+
+4.  Con `RANK()`, identifica el **mes con mayores ventas de cada año**. Usa una CTE para calcular primero las ventas mensuales, luego aplica `RANK()` con `PARTITION BY` el año.
+
+
+```{sql connection=con}
+WITH ventas_mensuales AS (
+    SELECT 
+        SUBSTR(InvoiceDate, 1, 4) AS anio,
+        SUBSTR(InvoiceDate, 1, 7) AS anio_mes,
+        SUM(Total) AS ventas_totales
+    FROM Invoice
+    GROUP BY anio, anio_mes
+),
+
+ranking_meses AS (
+    SELECT 
+        anio,
+        anio_mes,
+        ventas_totales,
+
+        RANK() OVER (
+            PARTITION BY anio
+            ORDER BY ventas_totales DESC
+        ) AS ranking
+    FROM ventas_mensuales
+)
+
+SELECT *
+FROM ranking_meses
+WHERE ranking = 1
+ORDER BY anio;
+```
+
+
+
+

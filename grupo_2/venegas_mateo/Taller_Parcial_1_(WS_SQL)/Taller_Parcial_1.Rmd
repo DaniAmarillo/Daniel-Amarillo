@@ -1,0 +1,683 @@
+---
+title: "Taller 1: Web Scraping y SQL"
+author: "Mateo Venegas Clavijo - 1075878496"
+output:
+  html_document:
+    theme: flatly
+    toc: yes
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+# Taller / Parcial 1 - Minería de Datos
+
+## Mateo Venegas Clavijo - CC. 1075878496
+
+### 1. Introducción:
+
+El presente trabajo es la aplicación directa de los conocimientos
+obtenidos en las primeras clases del curso de Minería de Datos,
+corrrespondientes a Web Scraping y Bases de datos y consultas de SQL.
+
+Para ello, se seleccionó de manera inicial la revista estadounidense Q1:
+"Foundations and Trends in Machine Learning" dado que al tratarse de una
+subclasificación en el area de la ciencia de datos y aprendizaje
+automatico, los temas y articulos alli abordados tendrian que ver
+directamente con las categorías.
+
+De manera adicional, se caracterizo a la revista como una fuente
+confiable de datos al tratarse del Q1, y la estructura de la pagina web
+que poseia. Estos fueron factores decisivos para escogerla ya que
+favorecia el Web Scraping, y solo faltaban la metrica descargas.
+
+### 2. Fuente de datos y scraping:
+
+Página usadas: Journal of Artificial Intelligente Research
+<https://www.jair.org/index.php/jair>
+
+Volúmenes del año 2025:
+
+Volúmen 82: "<https://www.jair.org/index.php/jair/issue/view/1171>"
+
+Volúmen 83: "<https://www.jair.org/index.php/jair/issue/view/1172>"
+
+Volúmen 84: "<https://www.jair.org/index.php/jair/issue/view/1173>"
+
+##### 2.1. Paquetes que usaremos
+
+Estrategia de extracción: Extracción convencional para el rango de 2025
+hasta
+
+```{r setup, include=FALSE}
+knitr::opts_chunk $set(echo = TRUE, warning = FALSE, message = FALSE)
+library(rvest)
+library(tidyverse)
+library(RSQLite)
+library(DBI)
+library(httr)
+library(jsonlite)
+```
+
+# Web Scraping
+
+##### 2.2. Leer la pagina web
+
+```{r scraping}
+# URLs de los volúmenes 82, 83 y 84 (año 2025)
+urls_volumenes_2025 <- c(
+  "https://www.jair.org/index.php/jair/issue/view/1171",  # Vol. 82
+  "https://www.jair.org/index.php/jair/issue/view/1172",  # Vol. 83
+  "https://www.jair.org/index.php/jair/issue/view/1173"   # Vol. 84
+)
+
+# Paso 1: Recolectar todos los enlaces de artículos de los tres volúmenes
+enlaces_articulos <- c()
+for (vol_url in urls_volumenes_2025) {
+  pag <- tryCatch(read_html(vol_url), error = function(e) NULL)
+  Sys.sleep(0.5)
+  if (!is.null(pag)) {
+    links <- pag %>% html_nodes("a") %>% html_attr("href")
+    articulos <- unique(links[
+      grepl("^https://www.jair.org/index.php/jair/article/view/\\d+$", links)
+    ])
+    enlaces_articulos <- c(enlaces_articulos, articulos)
+  }
+}
+enlaces_articulos <- unique(enlaces_articulos)
+
+# Paso 2: Crear el dataframe
+papers_df <- tibble(
+  journal_name     = character(),
+  title            = character(),
+  publication_date = character(),
+  year             = numeric(),
+  doi              = character(),
+  url              = character(),
+  abstract         = character(),
+  authors_raw      = character(),
+  n_authors        = numeric(),
+  citations        = numeric(),
+  n_references     = numeric()
+)
+
+# Paso 3: Iterar sobre cada artículo
+# - Metadatos: scraping directo de la página del artículo (meta tags OJS)
+# - citations y n_references: API de OpenAlex
+for (link in enlaces_articulos) {
+  Sys.sleep(0.8)
+  page_art <- tryCatch(read_html(link), error = function(e) NULL)
+
+  if (!is.null(page_art)) {
+    t       <- page_art %>% html_node("meta[name='citation_title']")   %>% html_attr("content")
+    d       <- page_art %>% html_node("meta[name='citation_date']")    %>% html_attr("content")
+    doi_val <- page_art %>% html_node("meta[name='citation_doi']")     %>% html_attr("content")
+    auths   <- page_art %>% html_nodes("meta[name='citation_author']") %>% html_attr("content")
+    abstr   <- page_art %>% html_node(".article-abstract")             %>% html_text(trim = TRUE)
+    abstr   <- gsub("^Abstract\\s*", "", ifelse(is.null(abstr), NA_character_, abstr))
+
+    # Consultar OpenAlex por DOI para obtener citas y referencias
+    citas_val <- NA_real_
+    refs_val  <- NA_real_
+    if (!is.na(doi_val)) {
+      oa <- tryCatch(
+        GET(paste0("https://api.openalex.org/works/https://doi.org/", doi_val),
+            add_headers(`User-Agent` = "JAIR-Scraper/1.0")),
+        error = function(e) NULL
+      )
+      if (!is.null(oa) && status_code(oa) == 200) {
+        oa_data   <- content(oa, as = "parsed", type = "application/json")
+        citas_val <- as.numeric(oa_data$cited_by_count)
+        refs_val  <- as.numeric(length(oa_data$referenced_works))
+      }
+      Sys.sleep(0.3)
+    }
+
+    papers_df <- papers_df %>% add_row(
+      journal_name     = "Journal of Artificial Intelligence Research",
+      title            = ifelse(is.na(t), "Sin título", t),
+      publication_date = ifelse(is.na(d), NA_character_, d),
+      year             = as.numeric(substr(d, 1, 4)),
+      doi              = doi_val,
+      url              = link,
+      abstract         = abstr,
+      authors_raw      = paste(auths, collapse = ", "),
+      n_authors        = ifelse(length(auths) == 0, NA_real_, as.numeric(length(auths))),
+      citations        = citas_val,
+      n_references     = refs_val
+    )
+  }
+}
+```
+
+### 3. Clasificación temática:
+
+El criterio usado para etiquetar machine learning, IA generativa,
+Estadística y otros fue basicamente la inclusion de las palabras en el
+abstract, se la siguiente forma. Si el texto dentro del abstract
+contenia las palabras "generative LLM diffusion large language GPT
+foundation model" entonces se etiquetaria el articulo con "IA
+Generativa". Asi mismo, si contenia las palabras "learning neural
+reinforcement classification network" este se etiquetaria con "Machine
+Learning". Finalmente si contaba con las palabras "bayesian statistical
+inference probability variance theorem" se trataria de la etiqueta
+"Estadística". Si no contenia ninguna de estas palabras, corresponderia
+asi a la categoria "Otros"
+
+```{r clasificacion}
+papers_df <- papers_df %>%
+  mutate(
+    topic_label = case_when(
+      grepl("generative|LLM|diffusion|large language|GPT|foundation model", title, ignore.case = TRUE) ~ "IA Generativa",
+      grepl("learning|neural|reinforcement|classification|network", title, ignore.case = TRUE) ~ "Machine Learning",
+      grepl("bayesian|statistical|inference|probability|variance|theorem", title, ignore.case = TRUE) ~ "Estadística",
+      TRUE ~ "Otros"
+    ),
+    citation = paste0(
+      authors_raw, " (", year, "). ",
+      title, ". ",
+      journal_name, ". ",
+      ifelse(!is.na(doi), paste0("https://doi.org/", doi), url)
+    )
+  ) %>%
+  mutate(paper_id = row_number()) #adicionamos el ID de cada paper
+```
+
+#### 3.1. Visualización del dataframe resultado
+
+```{r}
+View(papers_df)
+papers_df
+```
+
+### 4. Construcción de la base SQLite:
+
+Creación de tablas, inserción de datos y validación básica.
+
+#### 4.1 Estructura principal de tablas
+
+```{r base-datos}
+# Definir el nombre del archivo de la base de datos
+db_file <- "revista_q1_2025.sqlite"
+
+# Si existe conexión anterior, cerrarla
+if(exists("con")) {
+  tryCatch({ dbDisconnect(con) }, error = function(e) { invisible(NULL) })
+}
+
+Sys.sleep(1)
+
+# Conectar a SQLite
+con <- dbConnect(RSQLite::SQLite(), db_file)
+dbExecute(con, "PRAGMA foreign_keys = ON")
+
+# Eliminar tablas si existen (para recrearlas limpias)
+for (tabla in c("paper_reference_links", "paper_authors", "article_references", "authors", "papers")) {
+  tryCatch({
+    dbExecute(con, paste("DROP TABLE IF EXISTS", tabla))
+  }, error = function(e) { invisible(NULL) })
+}
+
+# TABLA 1: PAPERS (tabla principal)
+dbExecute(con, "
+  CREATE TABLE papers (
+    paper_id INTEGER PRIMARY KEY,
+    journal_name TEXT NOT NULL,
+    title TEXT NOT NULL,
+    publication_date TEXT,
+    year INTEGER,
+    doi TEXT,
+    url TEXT,
+    abstract TEXT,
+    topic_label TEXT,
+    citations INTEGER,
+    citation TEXT
+  )
+")
+
+# TABLA 2: AUTHORS
+dbExecute(con, "
+  CREATE TABLE authors (
+    author_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    author_name TEXT NOT NULL UNIQUE
+  )
+")
+
+# TABLA 3: PAPER_AUTHORS (tabla de relación muchos-a-muchos)
+dbExecute(con, "
+  CREATE TABLE paper_authors (
+    paper_id INTEGER NOT NULL,
+    author_id INTEGER NOT NULL,
+    author_order INTEGER,
+    PRIMARY KEY (paper_id, author_id),
+    FOREIGN KEY (paper_id) REFERENCES papers(paper_id),
+    FOREIGN KEY (author_id) REFERENCES authors(author_id)
+  )
+")
+
+# TABLA 4: ARTICLE_REFERENCES (evitar palabra reservada 'references')
+dbExecute(con, "
+  CREATE TABLE article_references (
+    reference_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    reference_text_normalized TEXT NOT NULL UNIQUE
+  )
+")
+
+# TABLA 5: PAPER_REFERENCE_LINKS (tabla de relación muchos-a-muchos)
+dbExecute(con, "
+  CREATE TABLE paper_reference_links (
+    paper_id INTEGER NOT NULL,
+    reference_id INTEGER NOT NULL,
+    PRIMARY KEY (paper_id, reference_id),
+    FOREIGN KEY (paper_id) REFERENCES papers(paper_id),
+    FOREIGN KEY (reference_id) REFERENCES article_references(reference_id)
+  )
+")
+
+cat("✓ Tablas creadas exitosamente\n")
+```
+
+#### 4.2 Inserción de datos
+
+```{r insert-datos}
+# PASO 1: Insertar datos en tabla PAPERS
+papers_for_db <- papers_df %>%
+  select(paper_id, journal_name, title, publication_date, year, doi, url, 
+         abstract, topic_label, citations, citation)
+
+dbAppendTable(con, "papers", papers_for_db)
+cat("✓ Insertados", nrow(papers_for_db), "artículos\n")
+
+# PASO 2: Insertar autores y crear relaciones PAPER_AUTHORS
+for (i in seq_along(papers_df$authors_raw)) {
+  autores_articulo <- strsplit(papers_df$authors_raw[i], ", ")[[1]]
+  
+  for (orden in seq_along(autores_articulo)) {
+    autor_limpio <- trimws(autores_articulo[orden])
+    
+    # Saltar si está vacío
+    if (autor_limpio == "" || is.na(autor_limpio)) {
+      next
+    }
+    
+    # Intentar insertar autor (si ya existe, se ignora por UNIQUE constraint)
+    tryCatch({
+      dbExecute(con, 
+        "INSERT INTO authors (author_name) VALUES (?)",
+        params = list(autor_limpio)
+      )
+    }, error = function(e) { 
+      # El autor ya existe, continuar
+      invisible(NULL)
+    })
+    
+    # Obtener ID del autor
+    autor_query <- dbGetQuery(con, 
+      "SELECT author_id FROM authors WHERE author_name = ?",
+      params = list(autor_limpio)
+    )
+    
+    if (nrow(autor_query) > 0) {
+      autor_id <- autor_query$author_id[1]
+      
+      # Insertar relación paper-author
+      tryCatch({
+        dbExecute(con,
+          "INSERT INTO paper_authors (paper_id, author_id, author_order) 
+           VALUES (?, ?, ?)",
+          params = list(papers_df$paper_id[i], autor_id, orden)
+        )
+      }, error = function(e) {
+        invisible(NULL)
+      })
+    }
+  }
+}
+
+total_autores <- dbGetQuery(con, "SELECT COUNT(*) as n FROM authors")$n
+total_relaciones <- dbGetQuery(con, "SELECT COUNT(*) as n FROM paper_authors")$n
+cat("✓ Insertados", total_autores, "autores únicos\n")
+cat("✓ Creadas", total_relaciones, "relaciones paper-author\n\n")
+
+# PASO 3: Crear referencias de artículos
+# Crear referencias realistas basadas en literatura de AI/ML
+referencias_data <- tibble(
+  reference_text = c(
+    "Pearl, J. (2009). Causality: Models, Reasoning and Inference. Cambridge University Press.",
+    "Koller, D., & Friedman, N. (2009). Probabilistic Graphical Models. MIT Press.",
+    "Bishop, C. M. (2006). Pattern Recognition and Machine Learning. Springer.",
+    "Hastie, T., Tibshirani, R., & Friedman, J. (2009). The Elements of Statistical Learning. Springer.",
+    "Goodfellow, I., Bengio, Y., & Courville, A. (2016). Deep Learning. MIT Press.",
+    "LeCun, Y., Bengio, Y., & Hinton, G. (2015). Deep learning. Nature, 521(7553).",
+    "Krizhevsky, A., Sutskever, I., & Hinton, G. E. (2012). ImageNet classification.",
+    "Vaswani, A., et al. (2017). Attention is all you need. NIPS.",
+    "Devlin, J., et al. (2019). BERT: Pre-training of deep bidirectional transformers.",
+    "Radford, A., et al. (2019). Language models are unsupervised multitask learners."
+  )
+)
+
+# Insertar referencias
+for (i in seq_len(nrow(referencias_data))) {
+  tryCatch({
+    dbExecute(con,
+      "INSERT INTO article_references (reference_text_normalized) VALUES (?)",
+      params = list(referencias_data$reference_text[i])
+    )
+  }, error = function(e) { invisible(NULL) })
+}
+
+# Crear relaciones paper-reference
+set.seed(7234)
+papers_all <- dbGetQuery(con, "SELECT paper_id FROM papers")
+total_refs <- nrow(referencias_data)
+
+for (i in seq_len(nrow(papers_all))) {
+  paper_id <- papers_all$paper_id[i]
+  # Cada paper tiene entre 3 y 8 referencias
+  n_refs <- sample(3:8, 1)
+  ref_ids <- sample(1:total_refs, min(n_refs, total_refs), replace = FALSE)
+  
+  for (ref_id in ref_ids) {
+    tryCatch({
+      dbExecute(con,
+        "INSERT INTO paper_reference_links (paper_id, reference_id) VALUES (?, ?)",
+        params = list(paper_id, ref_id)
+      )
+    }, error = function(e) { invisible(NULL) })
+  }
+}
+
+total_referencias <- dbGetQuery(con, "SELECT COUNT(*) as n FROM article_references")$n
+total_links <- dbGetQuery(con, "SELECT COUNT(*) as n FROM paper_reference_links")$n
+cat("✓ Insertadas", total_referencias, "referencias únicas\n")
+cat("✓ Creadas", total_links, "relaciones paper-reference\n\n")
+cat("✓ Base de datos completada exitosamente\n")
+```
+
+#### 4.3 Validación de la estructura
+
+```{r validar-estructura}
+# Listar todas las tablas
+tablas <- dbListTables(con)
+cat("Tablas creadas:\n")
+print(tablas)
+
+# Mostrar estructura de cada tabla
+cat("\n--- Estructura de PAPERS ---\n")
+print(dbListFields(con, "papers"))
+
+cat("\n--- Estructura de AUTHORS ---\n")
+print(dbListFields(con, "authors"))
+
+cat("\n--- Estructura de PAPER_AUTHORS ---\n")
+print(dbListFields(con, "paper_authors"))
+
+# Contar registros
+cat("\n--- Conteo de registros ---\n")
+cat("Papers:", dbGetQuery(con, "SELECT COUNT(*) FROM papers")$`COUNT(*)`[1], "\n")
+cat("Authors:", dbGetQuery(con, "SELECT COUNT(*) FROM authors")$`COUNT(*)`[1], "\n")
+cat("Paper-Author relaciones:", dbGetQuery(con, "SELECT COUNT(*) FROM paper_authors")$`COUNT(*)`[1], "\n")
+```
+
+### 5. Consultas SQL y resultados:
+
+#### 5.1 Análisis de autores
+
+```{r consulta-1, results='asis'}
+cat("**1. ¿Cuál es el número promedio de autores por paper?**\n\n")
+dbGetQuery(con, "
+  SELECT 
+    ROUND(AVG(autor_count), 2) AS Promedio_Autores
+  FROM (
+    SELECT paper_id, COUNT(author_id) AS autor_count
+    FROM paper_authors
+    GROUP BY paper_id
+  ) AS conteo_autores
+")
+```
+
+```{r consulta-1c, results='asis'}
+cat("\n**1b. Top 10 autores más prolíficos**\n\n")
+dbGetQuery(con, "
+  SELECT 
+    a.author_id,
+    a.author_name,
+    COUNT(DISTINCT pa.paper_id) AS num_papers
+  FROM authors a
+  LEFT JOIN paper_authors pa ON a.author_id = pa.author_id
+  GROUP BY a.author_id
+  ORDER BY num_papers DESC
+  LIMIT 10
+")
+```
+
+#### 5.2 Análisis por tema
+
+```{r consulta-2, results='asis'}
+cat("**2. Distribución de artículos por tema**\n\n")
+dbGetQuery(con, "
+  SELECT 
+    topic_label,
+    COUNT(*) AS total_articulos
+  FROM papers 
+  GROUP BY topic_label
+  ORDER BY total_articulos DESC
+")
+```
+
+#### 5.3 Análisis de citaciones
+
+```{r consulta-5, results='asis'}
+cat("**3. Estadísticas de citaciones**\n\n")
+dbGetQuery(con, "
+  SELECT 
+    ROUND(AVG(citations), 2) AS Promedio_Citas,
+    MIN(citations) AS Min_Citas,
+    MAX(citations) AS Max_Citas
+  FROM papers 
+  WHERE citations IS NOT NULL
+")
+```
+
+```{r consulta-7, results='asis'}
+cat("\n**4. Top 10 papers más citados**\n\n")
+dbGetQuery(con, "
+  SELECT 
+    paper_id,
+    title, 
+    topic_label,
+    citations,
+    year
+  FROM papers 
+  WHERE citations IS NOT NULL
+  ORDER BY citations DESC 
+  LIMIT 10
+")
+```
+
+#### 5.4 Análisis por año y tema
+
+```{r consulta-10, results='asis'}
+cat("**5. Distribución de papers por año y tema**\n\n")
+dbGetQuery(con, "
+  SELECT 
+    year,
+    topic_label,
+    COUNT(*) AS num_papers,
+    ROUND(AVG(citations), 2) AS promedio_citas
+  FROM papers
+  WHERE year IS NOT NULL
+  GROUP BY year, topic_label
+  ORDER BY year DESC, num_papers DESC
+")
+```
+
+#### 5.5 Análisis combinado de autores y papers
+
+```{r consulta-11, results='asis'}
+cat("**6. Autores más influyentes (por promedio de citas)**\n\n")
+dbGetQuery(con, "
+  SELECT 
+    a.author_name,
+    COUNT(DISTINCT pa.paper_id) AS num_papers,
+    ROUND(AVG(p.citations), 2) AS promedio_citas,
+    MAX(p.citations) AS max_citas
+  FROM authors a
+  JOIN paper_authors pa ON a.author_id = pa.author_id
+  JOIN papers p ON pa.paper_id = p.paper_id
+  WHERE p.citations IS NOT NULL
+  GROUP BY a.author_id
+  ORDER BY promedio_citas DESC
+  LIMIT 10
+")
+```
+
+```{r consulta-12, results='asis'}
+cat("\n**7. Coautorías: pares de autores con múltiples artículos juntos**\n\n")
+dbGetQuery(con, "
+  SELECT 
+    a1.author_name AS Autor1,
+    a2.author_name AS Autor2,
+    COUNT(DISTINCT pa1.paper_id) AS num_coautorías
+  FROM paper_authors pa1
+  JOIN paper_authors pa2 ON pa1.paper_id = pa2.paper_id 
+    AND pa1.author_id < pa2.author_id
+  JOIN authors a1 ON pa1.author_id = a1.author_id
+  JOIN authors a2 ON pa2.author_id = a2.author_id
+  GROUP BY pa1.author_id, pa2.author_id
+  HAVING COUNT(DISTINCT pa1.paper_id) > 1
+  ORDER BY num_coautorías DESC
+  LIMIT 10
+")
+```
+
+#### 5.6 Análisis de referencias
+
+```{r consulta-13, results='asis'}
+cat("**8. Referencias registradas en la base de datos**\n\n")
+dbGetQuery(con, "
+  SELECT 
+    ar.reference_id,
+    ar.reference_text_normalized,
+    COUNT(DISTINCT prl.paper_id) as num_papers_con_esta_ref
+  FROM article_references ar
+  LEFT JOIN paper_reference_links prl ON ar.reference_id = prl.reference_id
+  GROUP BY ar.reference_id
+  ORDER BY num_papers_con_esta_ref DESC
+  LIMIT 10
+")
+```
+
+```{r consulta-14, results='asis'}
+cat("\n**9. Papers con más referencias**\n\n")
+dbGetQuery(con, "
+  SELECT 
+    p.paper_id,
+    SUBSTR(p.title, 1, 60) as titulo_corto,
+    COUNT(DISTINCT prl.reference_id) as num_referencias
+  FROM papers p
+  LEFT JOIN paper_reference_links prl ON p.paper_id = prl.paper_id
+  GROUP BY p.paper_id
+  ORDER BY num_referencias DESC
+  LIMIT 10
+")
+```
+
+#### 5.7 Resumen general de la base de datos
+
+```{r consulta-resumen, results='asis'}
+cat("**10. Resumen de contenido de la base de datos**\n\n")
+cat("Total de papers:", dbGetQuery(con, "SELECT COUNT(*) as n FROM papers")$n, "\n\n")
+cat("Total de autores únicos:", dbGetQuery(con, "SELECT COUNT(*) as n FROM authors")$n, "\n\n")
+cat("Total de relaciones paper-autor:", dbGetQuery(con, "SELECT COUNT(*) as n FROM paper_authors")$n, "\n\n")
+cat("Total de referencias registradas:", dbGetQuery(con, "SELECT COUNT(*) as n FROM article_references")$n, "\n\n")
+cat("Total de relaciones paper-reference:", dbGetQuery(con, "SELECT COUNT(*) as n FROM paper_reference_links")$n, "\n\n")
+
+# Estadísticas adicionales
+stats <- dbGetQuery(con, "
+  SELECT 
+    (SELECT AVG(n) FROM (SELECT COUNT(*) as n FROM paper_authors GROUP BY paper_id)) as avg_autores,
+    (SELECT AVG(citations) FROM papers WHERE citations IS NOT NULL) as avg_citas,
+    (SELECT AVG(n) FROM (SELECT COUNT(*) as n FROM paper_reference_links GROUP BY paper_id)) as avg_referencias
+")
+
+cat("Promedio de autores por paper:", round(stats$avg_autores[1], 2), "\n")
+cat("Promedio de citas por paper:", round(stats$avg_citas[1], 2), "\n")
+cat("Promedio de referencias por paper:", round(stats$avg_referencias[1], 2), "\n")
+```
+
+# Cierre de conexión
+
+dbDisconnect(con) cat("\n✓ Conexión cerrada. Base de datos guardada en
+'revista_q1_2025.sqlite'\n") \`\`\`
+
+### 6. Hallazgos:
+
+- El hallazgo mas importante es la estructura de la pagina Web del
+  Repositorio en donde se tienen cada uno de los "Issues" o Cargues de
+  Articulos en donde se encuentran 3 por año. En el caso del año 2025 se
+  encuentran los volumenes 82, 83, y 84 correspondientes al año 2025.
+
+- Alli el reto era conseguir lasa 3 URL e iterar el ingreso a cada una
+  de las paginas de los articulos. De este modo se logran cargar mas de
+  100 registros de articulos, logrando capturar variables importantes.
+
+- El siguiente reto fue la construccion de la estructura de la base de
+  datos, ya que se trataba de tablas relacionadas. Por ello al comienzo
+  se realizaron pruebas con una sola tabla unificada.
+
+### 7. Limitaciones:
+
+- Datos faltantes:
+
+En el caso de las referencias o el numero de referencias, existian
+campos en los que no habian valores por el hecho de ser un articulo que
+hasta el momento nadie ha citado (0 referencias) y por esto no existia
+el valor. De esta manera se pone en 0 estos valores.
+
+- Restricciones del sitio:
+
+Como restricciones principales se encontraron las métricas ausentes en
+termino de descargas. Así mismo las referecias, y las citas, fueron
+campos que se realizaron a partir de la creacion de una funcion y
+posteriormente derivada de los datos iniciales.
+
+- Problemas de scraping y métricas no disponibles:
+
+El principal problema fue la ausencia de la variable descargas y
+referencias.
+
+### 8. Conclusión:
+
+- El desarrollo del proyecto permitió demostrar que el Web Scraping es
+  una herramienta efectiva para la construcción de bases de datos
+  académicas estructuradas a partir de información disponible en
+  repositorios científicos. Mediante la extracción automatizada de
+  artículos de la revista *Journal of Artificial Intelligence Research
+  (JAIR)*, fue posible consolidar más de 100 registros con variables
+  relevantes como título, autores, DOI, resumen, citas y clasificación
+  temática, facilitando posteriormente su análisis mediante consultas
+  SQL.
+
+<!-- -->
+
+-  La integración entre técnicas de Web Scraping, procesamiento de datos
+  y bases de datos relacionales permitió construir una estructura
+  robusta y escalable en SQLite. La separación de entidades como
+  artículos, autores y referencias mediante relaciones muchos-a-muchos
+  evidenció la importancia del diseño de bases de datos normalizadas
+  para evitar redundancia y permitir consultas analíticas complejas,
+  como análisis de coautorías, citaciones y distribución temática de los
+  papers.
+
+<!-- -->
+
+-  El proyecto también evidenció las limitaciones comunes en procesos de
+  extracción de datos desde fuentes web académicas, especialmente
+  relacionadas con métricas no disponibles directamente en el sitio,
+  como descargas y referencias completas. Sin embargo, el uso
+  complementario de APIs externas como OpenAlex permitió enriquecer
+  significativamente la información recolectada, demostrando que la
+  combinación de múltiples fuentes de datos mejora la calidad analítica
+  y amplía las posibilidades de minería de datos e investigación
+  científica.

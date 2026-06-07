@@ -1,0 +1,1624 @@
+---
+title: "Taller 1 de Minería de Datos"
+subtitle: "Web scraping y exploración SQL de artículos del año 2025 de una revista Q1"
+author: "Cristian Harvey Ardila Bolívar"
+date: "`r format(Sys.Date(), '%d de %B de %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 2
+    number_sections: false
+    code_folding: show
+    theme: cosmo
+    highlight: textmate
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+# Configurar cómo se mostrarán los bloques de código en el informe.
+# Se muestra el código, pero se ocultan mensajes y advertencias extensas.
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+
+options(width = 140, scipen = 999)
+```
+
+```{css, echo=FALSE}
+body {
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+pre,
+code {
+  font-size: 0.92em;
+  font-family: Consolas, "Liberation Mono", Menlo, Monaco, monospace;
+}
+
+pre,
+div.sourceCode pre {
+  background-color: #f8f9fa !important;
+  color: #2d3748;
+  border: 1px solid #e6e8eb;
+  border-radius: 8px;
+  padding: 12px 14px;
+  line-height: 1.45;
+  overflow-x: auto;
+}
+
+.hljs,
+.sourceCode {
+  background-color: #f8f9fa !important;
+}
+
+pre:not([class]) {
+  background-color: #fbfbfb !important;
+  color: #333333;
+}
+
+.table,
+table {
+  font-size: 0.94em;
+}
+
+.tocify {
+  border-radius: 8px;
+  border: 1px solid #e6e8eb;
+}
+```
+
+```{r paquetes}
+# Cargar de paquetes necesarios a lo largo del talle.
+# Este bloque instala automáticamente los paquetes faltantes antes de cargarlos.
+paquetes <- c(
+  "rvest", "xml2", "httr", "dplyr", "purrr", "stringr",
+  "tibble", "tidyr", "lubridate", "janitor", "knitr",
+  "readr", "DBI", "RSQLite"
+)
+
+instalados <- rownames(installed.packages())
+pendientes <- setdiff(paquetes, instalados)
+
+# Instalar los paquetes que no estén disponibles.
+if (length(pendientes) > 0) {
+  install.packages(pendientes)
+}
+
+# Cargar de paquetes.
+invisible(lapply(paquetes, library, character.only = TRUE))
+```
+
+```{r funciones-generales}
+# Funciones generales para mostrar tablas, buscar archivos y recortar textos largos.
+mostrar_tabla <- function(x, n = Inf, caption = NULL) {
+  if (!is.infinite(n)) {
+    x <- head(x, n)
+  }
+  knitr::kable(x, caption = caption)
+}
+
+buscar_archivo <- function(nombre) {
+  rutas <- c(
+    nombre,
+    file.path("salidas", nombre),
+    file.path("salidas_sql", nombre),
+    file.path("datos", nombre)
+  )
+
+  rutas <- rutas[file.exists(rutas)]
+
+  if (length(rutas) == 0) {
+    NA_character_
+  } else {
+    rutas[1]
+  }
+}
+
+acortar_texto <- function(x, n = 90) {
+  x <- as.character(x)
+  ifelse(nchar(x) > n, paste0(substr(x, 1, n), "..."), x)
+}
+```
+
+## 1. Introducción
+
+### 1.1 Objetivos del documento
+
+Este documento presenta un proceso secuencial para construir una base de datos SQLite a partir de artículos publicados en 2025 en una revista científica Q1 que ha sido objeto de web scraping. Primero se justifica la revista seleccionada, luego se inspecciona manualmente la estructura HTML del sitio, después se explica cómo se extraen los datos bibliográficos guardados en el HTML, se limpian los datos, se clasifican por temas específicos los artículos, se construye la base de datos y, finalmente, se responden las preguntas del taller mediante consultas SQL.
+
+### 1.2 Revista seleccionada
+
+La revista seleccionada tras la exploración fue **Frontiers in Bioinformatics**. Esta revista resultó conveniente en el ejercicio porque publica artículos en páginas HTML con estructura relativamente uniforme, permite filtrar publicaciones por fecha y expone datos útiles como título, DOI, fecha de publicación, autores, resumen, palabras clave, visualizaciones y enlaces DOI de las referencias.
+
+En el archivo de SCImago, descargado de su página web y usado como punto de partida, la revista aparece como Q1 en la categoría de interés. El siguiente bloque no es indispensable para el scraping, pero documenta el origen de la fuente.
+
+```{r validacion-scimago}
+# Verificar en el archivo de SCImago que la revista seleccionada aparece como fuente válida.
+archivo_scimago <- buscar_archivo(
+  "scimagojr 2025  Subject Category - Statistics and Probability.csv"
+)
+
+if (!is.na(archivo_scimago)) {
+  revista_scimago <- read_delim(
+    archivo_scimago,
+    delim = ";",
+    show_col_types = FALSE
+  ) %>%
+    clean_names() %>%
+    filter(str_detect(title, regex("Frontiers in Bioinformatics", ignore_case = TRUE))) %>%
+    select(
+      title,
+      type,
+      open_access,
+      sjr,
+      sjr_quartile,
+      h_index,
+      total_docs_2025,
+      categories
+    )
+
+  mostrar_tabla(
+    revista_scimago,
+    caption = "Registro de Frontiers in Bioinformatics en el archivo de SCImago"
+  )
+}
+```
+
+## 2. Fuente de datos y scraping
+
+### 2.1 URLs de trabajo y criterio de extracción
+
+La fuente principal es el listado de artículos de la revista. La URL general muestra artículos de distintos años, por lo que se utiliza el filtro de fecha publicado por la misma página. Así, el scraping se concentra en artículos publicados entre el 1 de enero y el 31 de diciembre de 2025.
+
+```{r urls-base}
+# Definir las URLs de trabajo, el filtro temporal de 2025 y opciones generales del scraping.
+# Se define un User-Agent para que la solicitud imite a la de un navegador.
+base_frontiers <- "https://www.frontiersin.org"
+url_listado <- "https://www.frontiersin.org/journals/bioinformatics/articles"
+
+url_listado_2025 <- paste0(
+  url_listado,
+  "?publication-date=01%2F01%2F2025-31%2F12%2F2025"
+)
+
+# Función para simular un navegador en caso de que la página rechace la conexión
+user_agent_frontiers <- paste(
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+  "AppleWebKit/537.36 (KHTML, like Gecko)",
+  "Chrome/122.0.0.0 Safari/537.36"
+)
+
+max_paginas <- 25
+volumenes_permitidos <- c(4, 5)
+
+# Esto controla los bloques del archivo rmd que hacer el proceso de scraping, si la 
+# opción es "TRUE" hace el scraping completo, si es "FALSE" usa información previa  
+# de un scraping previo en la carpeta "salidas". 
+ejecutar_scraping <- TRUE
+```
+
+### 2.2 Inspección manual del listado
+
+La primera inspección se hizo sobre el listado de artículos. Al revisar la página se observa que cada bloque del listado correspondiente a un artículo contiene un enlace con una ruta muy estable: `/journals/bioinformatics/articles/10.3389/fbinf...`. Dicha ruta es útil porque incluye el DOI de la revista y permite diferenciar artículos reales de otros enlaces de navegación.
+
+Además, dentro del texto visible de cada bloque de artículo aparecen elementos que luego sirven para filtrar y validar: el estado `Published on`, la fecha de publicación, el DOI y la medida de `views`. Por eso el primer selector importante fue:
+
+```{r selector-listado, eval=FALSE}
+# Ejemplo de inspección del listado: leer HTML y buscar enlaces de artículos.
+html_listado <- read_html(
+  GET(
+    url_listado_2025,
+    add_headers(`User-Agent` = user_agent_frontiers)
+  )
+)
+
+links_listado <- html_listado %>%
+  html_nodes("a[href*='/journals/bioinformatics/articles/10.3389/fbinf']") %>%
+  html_attr("href") %>%
+  unique()
+```
+
+La lógica del selector es la siguiente: se buscan etiquetas `<a>` porque los artículos están enlazados; se restringe a `href` que contenga `/journals/bioinformatics/articles/` porque esa es la ruta de los artículos de la revista; y se restringe a `10.3389/fbinf` porque ese patrón corresponde al DOI usado por Frontiers in Bioinformatics.
+
+### 2.3 Inspección manual de una página de artículo
+
+Después de detectar enlaces en el listado, se abrió una página individual de artículo. En esa inspección se revisaron etiquetas generales (`h1`, `h2`, `h3`, `a`, `table`) y datos bibliográficos especializados (`meta[name='citation_*']`). La razón es que hay revistas que agregan datos bibliográficos en etiquetas `meta`, mientras que el texto visible del artículo se organiza con encabezados HTML.
+
+```{r urls-piloto}
+# Definir tres artículos piloto para explorar la estructura HTML interna de una página de artículo.
+urls_piloto <- c(
+  "https://www.frontiersin.org/journals/bioinformatics/articles/10.3389/fbinf.2025.1642039/full",
+  "https://www.frontiersin.org/journals/bioinformatics/articles/10.3389/fbinf.2025.1572937/full",
+  "https://www.frontiersin.org/journals/bioinformatics/articles/10.3389/fbinf.2025.1602850/full"
+)
+```
+
+```{r exploracion-selectores, eval=FALSE}
+# Probar selectores HTML candidatos y contar cuántos nodos devuelve cada uno.
+html_articulo_1 <- read_html(
+  GET(
+    urls_piloto[1],
+    add_headers(`User-Agent` = user_agent_frontiers)
+  )
+)
+
+selectores_candidatos <- c(
+  "h1",
+  "h2",
+  "h3",
+  "a",
+  "a[href*='doi.org']",
+  "a[href*='loop.frontiersin.org']",
+  "a[href*='pubmed.ncbi.nlm.nih.gov']",
+  "a[href*='scholar.google.com']",
+  "a[href*='pdf']",
+  "a[href*='xml']",
+  "table",
+  "meta[name='citation_title']",
+  "meta[name='citation_doi']",
+  "meta[name='citation_publication_date']",
+  "meta[name='citation_author']",
+  "meta[name='citation_keywords']"
+)
+
+exploracion_selectores <- tibble(
+  selector = selectores_candidatos
+) %>%
+  mutate(
+    n_nodos = map_int(
+      selector,
+      ~ length(html_articulo_1 %>% html_nodes(.x))
+    ),
+    ejemplo_texto = map_chr(
+      selector,
+      ~ html_articulo_1 %>%
+        html_nodes(.x) %>%
+        html_text(trim = TRUE) %>%
+        str_squish() %>%
+        head(1) %>%
+        paste(collapse = "")
+    ),
+    ejemplo_texto = ifelse(ejemplo_texto == "", NA_character_, ejemplo_texto),
+    ejemplo_texto = str_sub(ejemplo_texto, 1, 160)
+  )
+
+mostrar_tabla(
+  exploracion_selectores,
+  caption = "Exploración de selectores en el primer artículo piloto"
+)
+```
+
+El resultado de la inspección manual permitió identificar los siguientes elementos HTML como piezas clave del scraping.
+
+```{r tabla-selectores-clave}
+# Crear una tabla documental con los elementos HTML finalmente usados en el scraping.
+# La tabla resume qué se busca, con qué selector y por qué.
+selectores_clave <- tribble(
+  ~elemento_buscado, ~selector_html, ~razon_de_uso,
+  "Enlaces de artículos en el listado", "a[href*='/journals/bioinformatics/articles/10.3389/fbinf']", "Localiza los bloques del listado donde aparece cada artículo y permite recuperar sus URLs completas.",
+  "Título del artículo", "meta[name='citation_title'] y, si falla, h1", "El dato bibliográfico guardado en `meta` es más estable que el texto visible; h1 queda como respaldo.",
+  "DOI del artículo", "meta[name='citation_doi']", "El DOI identifica de manera única el artículo y permite unir tablas.",
+  "Fecha de publicación", "meta[name='citation_publication_date']", "Permite filtrar artículos realmente publicados en 2025.",
+  "Autores", "meta[name='citation_author']", "Cada autor aparece como un dato repetido en etiquetas `meta`; se concatena y se cuenta.",
+  "Resumen", "bloque posterior al h2 Abstract", "El resumen aparece como texto visible dentro de la sección Abstract.",
+  "Palabras clave", "meta[name='citation_keywords'] o bloque Summary Keywords", "Se usan como señal principal para clasificación temática.",
+  "Referencias", "a[href*='doi.org']", "Los enlaces DOI dentro de la página permiten construir una tabla de referencias fácil de revisar.",
+  "Visualizaciones", "texto visible del bloque de artículo: patrón '[número] views'", "La variable downloads se aproxima mediante views, aceptada como medida equivalente."
+)
+
+mostrar_tabla(
+  selectores_clave,
+  caption = "Elementos HTML clave encontrados durante la exploración"
+)
+```
+
+La inspección de encabezados también mostró una secuencia estable de secciones como `Abstract`, `References`, `Summary`, `Cite article` y `Article metrics`. Esto fue importante porque permitió extraer el resumen como un bloque de texto y separar las referencias de otros contenidos de la página.
+
+```{r encabezados-piloto, eval=FALSE}
+# Revisar encabezados h1 y h2 del artículo piloto para ubicar secciones como Abstract y References.
+encabezados_articulo_1 <- tibble(
+  texto = html_articulo_1 %>% html_nodes("h1, h2") %>% html_text(trim = TRUE),
+  etiqueta = html_articulo_1 %>% html_nodes("h1, h2") %>% html_name()
+) %>%
+  mutate(texto = str_squish(texto)) %>%
+  filter(texto != "")
+
+mostrar_tabla(
+  encabezados_articulo_1,
+  n = 20,
+  caption = "Encabezados h1 y h2 detectados en el artículo piloto"
+)
+```
+
+### 2.4 Funciones auxiliares de limpieza
+
+Antes de extraer datos se definen unas funciones cortas para limpiar texto, tomar el primer valor disponible y convertir valores como `1,436 views` o `13k views` en números.
+
+```{r limpieza-texto}
+# Definir funciones auxiliares de limpieza de texto y conversión numérica.
+# Estas funciones reducen ruido típico del HTML: espacios, saltos de línea y textos como '1,436 views'.
+# Función para limpiar texto extraído del HTML.
+limpiar_texto <- function(x) {
+  x <- as.character(x)
+  x <- str_replace_all(x, "\\u00A0", " ")
+  x <- str_replace_all(x, "[[:cntrl:]]+", " ")
+  x <- str_squish(x)
+  ifelse(is.na(x) | x == "", NA_character_, x)
+}
+
+# Función para tomar el primer valor no vacío de un vector.
+tomar_primero <- function(x) {
+  x <- limpiar_texto(x)
+  x <- x[!is.na(x)]
+  if (length(x) == 0) NA_character_ else x[1]
+}
+
+# Función para convertir textos de visualizaciones en números.
+convertir_numero <- function(x) {
+  x <- as.character(x)
+  x <- str_to_lower(str_squish(x))
+  x <- str_replace_all(x, ",", "")
+  numero <- as.numeric(str_extract(x, "[0-9]+(\\.[0-9]+)?"))
+  numero <- ifelse(str_detect(x, "k"), numero * 1000, numero)
+  numero
+}
+```
+
+### 2.5 Lectura de páginas HTML
+
+En los ejemplos de clase el paso central del scraping es leer el HTML. En un sitio real puede ser necesario enviar un `User-Agent`, porque algunos servidores rechazan las conexión cuando no reconocen el cliente. Para ello se usa `GET()` y luego `read_html()`.
+
+```{r lectura-html}
+# Crear una función para leer páginas HTML de Frontiers.
+# La función simula un navegador y verifica errores de navegación antes de procesar el HTML.
+leer_frontiers <- function(url) {
+  respuesta <- try(
+    GET(
+      url,
+      add_headers(`User-Agent` = user_agent_frontiers),
+      timeout(30)
+    ),
+    silent = TRUE
+  )
+
+  # Verificar errores de navegación, como una caída de conexión o timeout.
+  if (inherits(respuesta, "try-error")) return(NULL)
+
+  # Verificar errores HTTP: 403, 404, 500, entre otros.
+  if (status_code(respuesta) >= 400) return(NULL)
+
+  # Convertir la respuesta en un objeto HTML que rvest puede consultar.
+  read_html(respuesta)
+}
+```
+
+### 2.6 Extracción del listado de artículos
+
+El listado se recorre por páginas. En cada página se buscan los enlaces de artículos, se reconstruye la URL completa, se extrae el DOI desde la URL, se identifica la fecha visible en el bloque del artículo y se recupera la medida de visualizaciones.
+
+```{r funcion-listado}
+# Crear función para extraer enlaces, DOI, fecha y visualizaciones desde una página del listado.
+# Esta función se aplicará luego a varias páginas del listado 2025.
+extraer_listado_pagina <- function(url_pagina, pagina) {
+  html <- leer_frontiers(url_pagina)
+
+  # Si la página no se pudo leer, devolver una tabla vacía para no detener el proceso.
+  if (is.null(html)) return(tibble())
+
+  # Buscar enlaces de artículos reales usando la ruta estable del sitio y el patrón DOI.
+  links_nodos <- html %>%
+    html_nodes("a[href*='/journals/bioinformatics/articles/10.3389/fbinf']")
+
+  # Si no hay enlaces de artículos, devolver tabla vacía.
+  if (length(links_nodos) == 0) return(tibble())
+
+  # Crear tabla con página, URL y texto visible del bloque del artículo.
+  tibble(
+    pagina = pagina,
+    url = links_nodos %>% html_attr("href"),
+    texto_bloque_articulo = links_nodos %>% html_text2()
+  ) %>%
+    mutate(
+      # Completar URLs relativas con la URL base de Frontiers.
+      url = ifelse(str_detect(url, "^http"), url, paste0(base_frontiers, url)),
+      # Cambiar enlaces /abstract por /full para acceder al artículo completo.
+      url = str_replace(url, "/abstract$", "/full"),
+      # Extraer DOI del artículo desde la URL.
+      doi = str_extract(url, "10\\.3389/fbinf\\.[0-9]{4}\\.[0-9]+"),
+      # Identificar si el artículo está publicado o solamente aceptado.
+      estado_publicacion_listado = str_extract(texto_bloque_articulo, "Published on|Accepted on"),
+      # Extraer la fecha textual que aparece junto a Published on o Accepted on.
+      fecha_publicacion_listado_texto = str_match(
+        texto_bloque_articulo,
+        "(Published on|Accepted on)\\s+([0-9]{1,2} [A-Za-z]+ [0-9]{4})"
+      )[, 3],
+      # Convertir la fecha textual en formato fecha de R.
+      fecha_publicacion_listado = suppressWarnings(dmy(fecha_publicacion_listado_texto, locale = "C")),
+      year_publicacion_listado = year(fecha_publicacion_listado),
+      # Extraer visualizaciones como texto, por ejemplo "1,436 views".
+      views_text = str_extract(
+        texto_bloque_articulo,
+        regex("[0-9][0-9,]*(\\.[0-9]+)?\\s*[kK]?\\s+views", ignore_case = TRUE)
+      ),
+      # Convertir views a número y guardarlas como downloads.
+      downloads = convertir_numero(
+        str_remove(views_text, regex("\\s+views", ignore_case = TRUE))
+      )
+    ) %>%
+    # Conservar solo registros válidos y eliminar URLs repetidas.
+    filter(!is.na(url), !is.na(doi)) %>%
+    distinct(url, .keep_all = TRUE)
+}
+```
+
+```{r ejecucion-listado, eval=ejecutar_scraping}
+# Recorrer páginas del listado, unir resultados y guardar el listado final de artículos publicados en 2025.
+# Este bloque solo se ejecuta si ejecutar_scraping = TRUE.
+# Crear tabla de páginas del listado que serán recorridas.
+listado_2025 <- tibble(
+  pagina = 1:max_paginas,
+  url_pagina = ifelse(
+    pagina == 1,
+    url_listado_2025,
+    paste0(url_listado_2025, "&page=", pagina)
+  )
+) %>%
+  # Aplicar la función de extracción a cada página y unir todos los resultados.
+  mutate(datos = map2(url_pagina, pagina, extraer_listado_pagina)) %>%
+  select(datos) %>%
+  unnest(datos) %>%
+  # Conservar artículos publicados, no solamente aceptados.
+  filter(estado_publicacion_listado == "Published on") %>%
+  # Conservar únicamente publicaciones del año 2025.
+  filter(year_publicacion_listado == 2025) %>%
+  # Eliminar duplicados por DOI.
+  distinct(doi, .keep_all = TRUE) %>%
+  arrange(desc(fecha_publicacion_listado))
+
+# Guardar el listado filtrado para no repetir esta extracción en cada ejecución.
+write_csv(listado_2025, "listado_publicados_2025.csv")
+
+mostrar_tabla(
+  listado_2025 %>% select(pagina, doi, fecha_publicacion_listado, downloads, url),
+  n = 10,
+  caption = "Primeros artículos detectados desde el listado filtrado"
+)
+```
+
+### 2.7 Extracción de datos de cada artículo
+
+Para cada artículo se extraen campos bibliográficos desde etiquetas `meta`, porque estas son más estables que el texto visual. Cuando algún dato no está disponible, se usa el texto visible como respaldo. Las citas no se leen directamente de Frontiers, sino desde Crossref usando el DOI.
+
+```{r funciones-articulo-1}
+# Definir funciones para consultar citas en Crossref y extraer bloques de texto por encabezado h2.
+# Estas funciones apoyan la extracción del artículo completo.
+extraer_citas_crossref <- function(doi) {
+  if (length(doi) == 0 || is.na(doi)) return(NA_real_)
+
+  url_api <- paste0(
+    "https://api.crossref.org/works/",
+    URLencode(doi, reserved = TRUE)
+  )
+
+  # Consultar Crossref con control de errores.
+  respuesta <- try(GET(url_api, timeout(20)), silent = TRUE)
+
+  # Verificar errores de navegación y errores HTTP.
+  if (inherits(respuesta, "try-error")) return(NA_real_)
+  if (status_code(respuesta) >= 400) return(NA_real_)
+
+  # Leer la respuesta JSON de Crossref.
+  contenido <- content(respuesta, as = "parsed", type = "application/json")
+  citas <- contenido$message$`is-referenced-by-count`
+
+  if (is.null(citas)) NA_real_ else as.numeric(citas)
+}
+
+# Función para extraer el texto que aparece después de un encabezado h2 específico.
+extraer_bloque_h2 <- function(html, encabezado) {
+  # Tomar encabezados y párrafos porque allí está el contenido visible del artículo.
+  nodos <- html %>%
+    html_nodes("h2, h3, p")
+
+  # Construir tabla con el orden de aparición de cada nodo.
+  tabla_nodos <- tibble(
+    orden = seq_along(nodos),
+    etiqueta = html_name(nodos),
+    texto = html_text2(nodos) %>% limpiar_texto()
+  ) %>%
+    filter(!is.na(texto))
+
+  # Ubicar el encabezado inicial que delimita la sección buscada.
+  pos_inicio <- tabla_nodos %>%
+    filter(etiqueta == "h2", str_to_lower(texto) == str_to_lower(encabezado)) %>%
+    slice(1) %>%
+    pull(orden)
+
+  if (length(pos_inicio) == 0) return(NA_character_)
+
+  # Ubicar el siguiente h2 para saber dónde termina la sección.
+  pos_fin <- tabla_nodos %>%
+    filter(orden > pos_inicio, etiqueta == "h2") %>%
+    slice(1) %>%
+    pull(orden)
+
+  if (length(pos_fin) == 0) {
+    pos_fin <- max(tabla_nodos$orden) + 1
+  }
+
+  # Extraer solo los nodos ubicados dentro de los límites de la sección.
+  bloque <- tabla_nodos %>%
+    filter(orden > pos_inicio, orden < pos_fin) %>%
+    filter(etiqueta %in% c("h3", "p")) %>%
+    pull(texto)
+
+  tomar_primero(paste(bloque, collapse = " "))
+}
+```
+
+```{r funciones-articulo-2}
+# Definir funciones específicas para recuperar resumen y palabras clave de cada artículo.
+extraer_abstract <- function(html) {
+  abstract_html <- extraer_bloque_h2(html, "Abstract")
+
+  if (!is.na(abstract_html)) {
+    return(abstract_html)
+  }
+
+  html %>%
+    html_nodes("meta[name='description']") %>%
+    html_attr("content") %>%
+    tomar_primero()
+}
+
+extraer_keywords <- function(html, texto_pagina) {
+  keywords_meta <- html %>%
+    html_nodes("meta[name='citation_keywords']") %>%
+    html_attr("content") %>%
+    limpiar_texto()
+
+  keywords_meta <- keywords_meta[!is.na(keywords_meta)]
+
+  if (length(keywords_meta) > 0) {
+    return(tomar_primero(paste(unique(keywords_meta), collapse = "; ")))
+  }
+
+  keywords_summary <- str_match(
+    texto_pagina,
+    "Summary\\s+Keywords\\s+(.*?)\\s+Citation"
+  )[, 2]
+
+  tomar_primero(keywords_summary)
+}
+```
+
+```{r funcion-articulo-principal}
+# Crear función principal para extraer los datos bibliográficos de un artículo individual.
+# Devuelve una fila con título, DOI, fecha, autores, resumen, citas, visualizaciones y palabras clave.
+extraer_articulo <- function(url_articulo, listado_2025) {
+  # Leer HTML del artículo individual.
+  html <- leer_frontiers(url_articulo)
+
+  # Verificar errores de navegación para no detener el scraping completo.
+  if (is.null(html)) {
+    return(tibble(extraction_status = "error_html", url = url_articulo))
+  }
+
+  # Guardar el texto completo de la página para buscar patrones no disponibles en meta.
+  texto_pagina <- html %>% html_text2() %>% limpiar_texto()
+  # Extraer el DOI desde la URL como respaldo.
+  doi_url <- str_extract(url_articulo, "10\\.3389/fbinf\\.[0-9]{4}\\.[0-9]+")
+
+  # Extraer título desde etiquetas meta de citación.
+  title <- html %>%
+    html_nodes("meta[name='citation_title']") %>%
+    html_attr("content") %>%
+    tomar_primero()
+
+  # Si el título no aparece en metadatos, usar el h1 visible como respaldo.
+  if (is.na(title)) {
+    title <- html %>%
+      html_node("h1") %>%
+      html_text(trim = TRUE) %>%
+      tomar_primero()
+  }
+
+  # Extraer tipo de artículo desde encabezados visibles.
+  article_type <- html %>%
+    html_nodes("h2") %>%
+    html_text(trim = TRUE) %>%
+    tomar_primero()
+
+  # Extraer DOI desde etiquetas meta de citación.
+  doi <- html %>%
+    html_nodes("meta[name='citation_doi']") %>%
+    html_attr("content") %>%
+    tomar_primero()
+
+  if (is.na(doi)) doi <- doi_url
+  doi_articulo <- doi
+
+  # Extraer fecha de publicación desde metadatos.
+  fecha_texto <- html %>%
+    html_nodes("meta[name='citation_publication_date']") %>%
+    html_attr("content") %>%
+    tomar_primero()
+
+  publication_date <- suppressWarnings(ymd(fecha_texto))
+
+  # Si la fecha no aparece en meta, buscarla en el texto visible de la página.
+  if (is.na(publication_date)) {
+    fecha_texto <- str_match(texto_pagina, "Published\\s+([0-9]{2} [A-Za-z]+ [0-9]{4})")[, 2]
+    publication_date <- suppressWarnings(dmy(fecha_texto, locale = "C"))
+  }
+  # Extraer volumen desde el texto visible del artículo.
+
+  volume_text <- str_match(texto_pagina, "Volume\\s+([0-9]+\\s+-\\s+[0-9]{4})")[, 2] %>%
+    tomar_primero()
+
+  volume_number <- as.numeric(str_extract(volume_text, "^[0-9]+"))
+  volume_year <- as.numeric(str_extract(volume_text, "[0-9]{4}$"))
+
+  # Detectar páginas de artículos aceptados pero todavía no publicados formalmente.
+  no_publicado <- str_detect(
+    texto_pagina,
+    "final, formatted version of the article will be published soon|Notify me on publication|Accepted on"
+  )
+
+  publication_status <- ifelse(
+    no_publicado | is.na(publication_date),
+    "not_published",
+    "published"
+  )
+
+  # Extraer autores desde etiquetas meta repetidas.
+  autores <- html %>%
+    html_nodes("meta[name='citation_author']") %>%
+    html_attr("content") %>%
+    limpiar_texto()
+
+  autores <- autores[!is.na(autores)]
+  authors_raw <- paste(autores, collapse = "; ") %>% limpiar_texto()
+
+  n_authors <- length(autores)
+  if (n_authors == 0) n_authors <- NA_integer_
+
+  # Extraer resumen y palabras clave con funciones auxiliares.
+  abstract <- extraer_abstract(html)
+  keywords <- extraer_keywords(html, texto_pagina)
+  # Extraer la sección de la revista si aparece en el texto de la página.
+
+  section <- str_match(texto_pagina, "Sec\\. ([A-Za-z0-9 ,\\-&]+?) Volume")[, 2] %>%
+    limpiar_texto()
+
+  # Consultar citas solo para artículos publicados.
+  citations <- ifelse(
+    publication_status == "published",
+    extraer_citas_crossref(doi_articulo),
+    NA_real_
+  )
+
+  # Recuperar visualizaciones desde el listado filtrado usando el DOI como llave.
+  downloads <- listado_2025 %>%
+    filter(.data$doi == .env$doi_articulo) %>%
+    pull(downloads) %>%
+    tomar_primero() %>%
+    as.numeric()
+
+  # Crear la fila final del artículo con las columnas requeridas para la base papers.
+  tibble(
+    journal_name = "Frontiers in Bioinformatics",
+    extraction_status = "ok",
+    article_type = article_type,
+    publication_status = publication_status,
+    volume_text = volume_text,
+    volume_number = volume_number,
+    volume_year = volume_year,
+    section = section,
+    title = title,
+    publication_date = publication_date,
+    year = year(publication_date),
+    doi = doi_articulo,
+    url = url_articulo,
+    abstract = abstract,
+    authors_raw = authors_raw,
+    n_authors = n_authors,
+    citations = citations,
+    citation_source = "Crossref",
+    downloads = downloads,
+    metric_used_as_downloads = "views_from_filtered_article_listing_2025",
+    keywords = keywords
+  )
+}
+```
+
+### 2.8 Extracción de referencias
+
+Para las referencias se decidió construir una tabla relacional basada en enlaces DOI. Esta decisión es razonable porque los textos completos de las referencias pueden variar mucho en formato, mientras que los DOI permiten identificar repeticiones entre artículos de manera más sencilla.
+
+```{r funcion-referencias}
+# Crear función para extraer referencias a partir de enlaces DOI encontrados en cada artículo.
+extraer_referencias <- function(url_articulo) {
+  # Leer HTML del artículo.
+  html <- leer_frontiers(url_articulo)
+
+  # Si no se puede leer la página, devolver tabla vacía.
+  if (is.null(html)) return(tibble())
+
+  # Extraer el DOI del artículo para no confundirlo con sus referencias.
+  doi_articulo <- str_extract(
+    url_articulo,
+    "10\\.3389/fbinf\\.[0-9]{4}\\.[0-9]+"
+  )
+
+  # Buscar enlaces DOI dentro del HTML del artículo.
+  # Estos enlaces permiten crear la tabla de referencias sin depender del formato textual.
+  html %>%
+    html_nodes("a[href*='doi.org']") %>%
+    html_attr("href") %>%
+    tibble(reference_url = .) %>%
+    mutate(
+      reference_doi = str_extract(reference_url, "10\\.[0-9]{4,9}/[^\\s]+"),
+      reference_doi = str_remove(reference_doi, "[\\.,;\\)]$")
+    ) %>%
+    # Conservar DOI válidos, eliminar el DOI del propio artículo y evitar duplicados internos.
+    filter(!is.na(reference_doi)) %>%
+    filter(reference_doi != doi_articulo) %>%
+    distinct(reference_doi, .keep_all = TRUE) %>%
+    mutate(
+      doi = doi_articulo,
+      url = url_articulo,
+      reference_order = row_number(),
+      reference_text = reference_doi
+    ) %>%
+    select(doi, url, reference_order, reference_text, reference_doi)
+}
+```
+
+### 2.9 Ejecución del scraping completo
+
+El código siguiente ejecuta el scraping de todos los artículos publicados.
+
+```{r ejecutar-scraping-completo, eval=ejecutar_scraping}
+# Ejecutar el scraping completo de artículos y referencias.
+# El resultado se guarda en CSV para no depender de la página cada vez que se genera el informe.
+# Extraer datos completos de cada artículo encontrado en el listado.
+papers_2025 <- listado_2025 %>%
+  pull(url) %>%
+  map_dfr(~ extraer_articulo(.x, listado_2025)) %>%
+  clean_names() %>%
+  # Conservar artículos extraídos correctamente.
+  filter(extraction_status == "ok") %>%
+  # Conservar solo artículos publicados oficialmente en 2025 y en los volúmenes válidos.
+  filter(publication_status == "published") %>%
+  filter(year == 2025) %>%
+  filter(volume_number %in% volumenes_permitidos) %>%
+  arrange(desc(publication_date), title) %>%
+  mutate(paper_id = row_number(), .before = 1)
+
+# Extraer referencias DOI para los artículos finales.
+references_2025 <- papers_2025 %>%
+  pull(url) %>%
+  map_dfr(extraer_referencias) %>%
+  clean_names() %>%
+  left_join(
+    papers_2025 %>% select(paper_id, doi),
+    by = "doi"
+  ) %>%
+  relocate(paper_id, doi, reference_order, reference_doi, reference_text, url)
+
+# Guardar salidas principales del scraping completo.
+write_csv(papers_2025, "01_papers_2025.csv")
+write_csv(references_2025, "02_references_2025.csv")
+```
+
+### 2.10 Lectura de salidas guardadas
+
+Para continuar el informe con resultados estables, se leen las salidas ya generadas. Además, se actualiza la variable `downloads` desde el listado filtrado, porque la medida de visualizaciones se encuentra de forma natural en las bloques de artículo del listado y no en el cuerpo principal de cada artículo.
+
+```{r leer-salidas}
+# Leer las salidas guardadas del scraping y preparar los datos para el análisis.
+# Esto permite trabajar con resultados estables aunque no se vuelva a ejecutar el scraping.
+# Buscar archivo de artículos guardado previamente.
+ruta_papers <- buscar_archivo("01_papers_2025.csv")
+ruta_references <- buscar_archivo("02_references_2025.csv")
+ruta_listado <- buscar_archivo("listado_publicados_2025.csv")
+
+if (is.na(ruta_papers) | is.na(ruta_references)) {
+  stop("No se encontraron 01_papers_2025.csv y 02_references_2025.csv. Ejecute el scraping o ubique los archivos en salidas/.")
+}
+
+# Leer tabla principal de artículos.
+papers_2025 <- read_csv(ruta_papers, show_col_types = FALSE) %>%
+  clean_names()
+
+# Leer tabla de referencias extraídas.
+references_2025 <- read_csv(ruta_references, show_col_types = FALSE) %>%
+  clean_names()
+
+if (!is.na(ruta_listado)) {
+  listado_2025 <- read_csv(ruta_listado, show_col_types = FALSE) %>%
+    clean_names()
+
+  # Crear tabla auxiliar DOI -> visualizaciones del listado.
+  descargas_listado <- listado_2025 %>%
+    select(doi, downloads_listado = downloads) %>%
+    distinct(doi, .keep_all = TRUE)
+
+  papers_2025 <- papers_2025 %>%
+    select(-any_of("downloads")) %>%
+    left_join(descargas_listado, by = "doi") %>%
+    rename(downloads = downloads_listado) %>%
+    mutate(metric_used_as_downloads = "views_from_filtered_article_listing_2025")
+}
+
+# Contar cuántas referencias DOI tiene cada artículo.
+conteo_referencias <- references_2025 %>%
+  count(paper_id, name = "n_references_calculado")
+
+papers_2025 <- papers_2025 %>%
+  select(-any_of("n_references")) %>%
+  left_join(conteo_referencias, by = "paper_id") %>%
+  mutate(
+    n_references = ifelse(is.na(n_references_calculado), 0L, n_references_calculado)
+  ) %>%
+  select(-n_references_calculado)
+```
+
+```{r resumen-scraping}
+# Crear una tabla de control para validar el número de artículos, fechas, citas, views y referencias.
+resumen_salida_scraping <- tibble(
+  indicador = c(
+    "articulos_finales_2025",
+    "fecha_minima",
+    "fecha_maxima",
+    "articulos_con_citas_crossref",
+    "articulos_con_views",
+    "referencias_doi_detectadas"
+  ),
+  valor = c(
+    nrow(papers_2025),
+    as.character(min(papers_2025$publication_date, na.rm = TRUE)),
+    as.character(max(papers_2025$publication_date, na.rm = TRUE)),
+    sum(!is.na(papers_2025$citations)),
+    sum(!is.na(papers_2025$downloads)),
+    nrow(references_2025)
+  )
+)
+
+mostrar_tabla(
+  resumen_salida_scraping,
+  caption = "Resumen de salidas del scraping"
+)
+```
+
+La base final contiene **`r nrow(papers_2025)` artículos publicados en 2025**. El rango de fechas va de **`r min(papers_2025$publication_date, na.rm = TRUE)`** a **`r max(papers_2025$publication_date, na.rm = TRUE)`**. La extracción de referencias se basó en DOI y produjo **`r nrow(references_2025)` relaciones artículo-referencia** antes de separar referencias únicas.
+
+## 3. Construcción de la base SQLite
+
+### 3.1 Preparación de tablas relacionales
+
+La tabla principal se llama `papers` y tiene una fila por artículo. Las referencias se separan en dos tablas: `references`, que contiene cada DOI de referencia una sola vez, y `paper_references`, que funciona como tabla de relación entre artículos y referencias.
+
+```{r tablas-relacionales}
+# Preparar las tres tablas relacionales: papers, references y paper_references.
+# Aquí se ajustan tipos de columnas y se separan referencias únicas de relaciones artículo-referencia.
+columnas_clasificacion <- c(
+  "topic_label", "topic_source", "topic_evidence", "topic_confidence",
+  "manual_topic_label", "manual_topic_source", "manual_topic_evidence",
+  "manual_topic_status"
+)
+
+# Crear columnas de clasificación faltantes para mantener estructura uniforme.
+for (columna in columnas_clasificacion) {
+  if (!columna %in% names(papers_2025)) {
+    papers_2025[[columna]] <- NA_character_
+  }
+}
+
+# Crear tabla papers: una fila por artículo y columnas en el orden solicitado.
+papers_sql <- papers_2025 %>%
+  mutate(
+    paper_id = as.integer(paper_id),
+    publication_date = as.character(publication_date),
+    year = as.integer(year),
+    volume_number = as.integer(volume_number),
+    volume_year = as.integer(volume_year),
+    n_authors = as.integer(n_authors),
+    citations = as.numeric(citations),
+    downloads = as.numeric(downloads),
+    n_references = as.integer(n_references)
+  ) %>%
+  select(
+    paper_id,
+    journal_name,
+    article_type,
+    publication_status,
+    volume_text,
+    volume_number,
+    volume_year,
+    section,
+    title,
+    publication_date,
+    year,
+    doi,
+    url,
+    abstract,
+    authors_raw,
+    n_authors,
+    citations,
+    citation_source,
+    downloads,
+    metric_used_as_downloads,
+    n_references,
+    keywords,
+    topic_label,
+    topic_source,
+    topic_evidence,
+    topic_confidence,
+    manual_topic_label,
+    manual_topic_source,
+    manual_topic_evidence,
+    manual_topic_status
+  ) %>%
+  arrange(paper_id)
+
+# Crear tabla temporal de referencias limpias antes de normalizarlas.
+references_raw <- references_2025 %>%
+  mutate(
+    paper_id = as.integer(paper_id),
+    reference_order = as.integer(reference_order),
+    reference_doi = str_squish(reference_doi),
+    reference_text = str_squish(reference_text)
+  ) %>%
+  filter(!is.na(paper_id), !is.na(reference_doi), reference_doi != "")
+
+# Crear tabla de referencias únicas.
+references_sql <- references_raw %>%
+  distinct(reference_doi, .keep_all = TRUE) %>%
+  arrange(reference_doi) %>%
+  mutate(reference_id = row_number()) %>%
+  select(reference_id, reference_doi, reference_text)
+
+# Crear tabla de relación entre artículos y referencias.
+paper_references_sql <- references_raw %>%
+  select(paper_id, doi, url, reference_order, reference_doi) %>%
+  left_join(
+    references_sql %>% select(reference_id, reference_doi),
+    by = "reference_doi"
+  ) %>%
+  select(paper_id, reference_id, reference_order) %>%
+  distinct() %>%
+  arrange(paper_id, reference_order)
+```
+
+### 3.2 Revisión antes de escribir SQLite
+
+Antes de crear la base se revisa que las llaves no estén duplicadas, que las referencias tengan artículo asociado y que la medida de visualizaciones tenga variación. Esta última revisión es importante porque `downloads` se está usando como equivalente de `views`, no como descargas estrictas.
+
+```{r validacion-previa}
+# Validar conteos y llaves antes de escribir la base SQLite.
+# La idea es detectar problemas antes de crear las tablas definitivas.
+validacion_antes_sqlite <- tibble(
+  control = c(
+    "articulos_en_papers",
+    "paper_id_unicos",
+    "doi_unicos",
+    "referencias_detectadas",
+    "referencias_unicas",
+    "relaciones_paper_referencia",
+    "referencias_sin_paper",
+    "articulos_con_views",
+    "views_distintos",
+    "views_minimo",
+    "views_promedio",
+    "views_maximo"
+  ),
+  valor = c(
+    nrow(papers_sql),
+    n_distinct(papers_sql$paper_id),
+    n_distinct(papers_sql$doi),
+    nrow(references_raw),
+    nrow(references_sql),
+    nrow(paper_references_sql),
+    paper_references_sql %>%
+      anti_join(papers_sql %>% select(paper_id), by = "paper_id") %>%
+      nrow(),
+    sum(!is.na(papers_sql$downloads)),
+    n_distinct(papers_sql$downloads),
+    min(papers_sql$downloads, na.rm = TRUE),
+    round(mean(papers_sql$downloads, na.rm = TRUE), 2),
+    max(papers_sql$downloads, na.rm = TRUE)
+  ) %>%
+    as.character()
+)
+
+mostrar_tabla(
+  validacion_antes_sqlite,
+  caption = "Revisiones antes de construir SQLite"
+)
+```
+
+### 3.3 Creación de la base SQLite
+
+Se crea una base llamada `revista_q1_2025.sqlite`.
+
+```{r crear-sqlite}
+# Crear la base SQLite y escribir las tablas finales.
+# Si existe una versión anterior, se reemplaza para garantizar reproducibilidad.
+# Nombre del archivo SQLite que se entregará.
+ruta_sqlite <- "revista_q1_2025.sqlite"
+
+# Eliminar versión anterior de la base para reconstruirla desde cero.
+if (file.exists(ruta_sqlite)) {
+  file.remove(ruta_sqlite)
+}
+
+# Crear conexión con SQLite.
+con <- dbConnect(SQLite(), ruta_sqlite)
+
+# Crear tabla de artículos.
+dbWriteTable(con, "papers", papers_sql, overwrite = TRUE)
+
+# Crear tabla de referencias únicas.
+dbWriteTable(con, "references", references_sql, overwrite = TRUE)
+
+# Crear tabla de relación artículo-referencia.
+dbWriteTable(con, "paper_references", paper_references_sql, overwrite = TRUE)
+
+# Crear índices para acelerar consultas y uniones.
+invisible(dbExecute(con, "CREATE INDEX IF NOT EXISTS indice_papers_paper_id ON papers(paper_id);"))
+invisible(dbExecute(con, "CREATE INDEX IF NOT EXISTS indice_papers_doi ON papers(doi);"))
+invisible(dbExecute(con, "CREATE INDEX IF NOT EXISTS indice_references_reference_id ON \"references\"(reference_id);"))
+invisible(dbExecute(con, "CREATE INDEX IF NOT EXISTS indice_paper_references_paper_id ON paper_references(paper_id);"))
+invisible(dbExecute(con, "CREATE INDEX IF NOT EXISTS indice_paper_references_reference_id ON paper_references(reference_id);"))
+```
+
+### 3.4 Revisión básica de la base SQLite
+
+```{r validacion-sqlite}
+# Consultar SQLite para verificar cuántas filas quedaron en cada tabla creada.
+consulta_00_tablas <- dbGetQuery(con, "
+  SELECT 'papers' AS tabla,
+         COUNT(*) AS n_filas
+  FROM papers
+
+  UNION ALL
+
+  SELECT 'references' AS tabla,
+         COUNT(*) AS n_filas
+  FROM \"references\"
+
+  UNION ALL
+
+  SELECT 'paper_references' AS tabla,
+         COUNT(*) AS n_filas
+  FROM paper_references;
+")
+
+mostrar_tabla(
+  consulta_00_tablas,
+  caption = "Tablas creadas en SQLite"
+)
+```
+
+## 4. Clasificación temática
+
+### 4.1 Criterio de clasificación
+
+Cada artículo se clasificó en una de cuatro categorías: `Machine Learning`, `IA Generativa`, `Estadistica` u `Otros`. La regla fue reproducible y se basó en términos buscados en tres partes del artículo: título, palabras clave y resumen. Si el término aparecía en el título o en las palabras clave, se tomó como señal principal, porque esas partes resumen directamente el tema del artículo. Si el término aparecía solo en el resumen, el artículo se dejó para revisión manual y no se cambió automáticamente su categoría principal.
+
+```{r diccionario-temas}
+# Crear el diccionario de palabras clave para clasificar artículos por tema.
+# La prioridad resuelve casos donde un artículo coincide con más de una categoría.
+diccionario_temas <- tribble(
+  ~topic_label,        ~prioridad, ~patron,
+  "IA Generativa",           1,    "generative ai|generative model(s)?|diffusion model(s)?|large language model(s)?|\\bllm(s)?\\b|chatgpt|\\bgpt[- ]?[0-9]*\\b|foundation model(s)?",
+  "Machine Learning",        2,    "machine learning|deep learning|neural network(s)?|graph neural network(s)?|random forest|support vector machine|reinforcement learning|supervised learning|unsupervised learning|representation learning|conformal prediction|mask r-cnn|\\bqsar\\b|automl",
+  "Estadistica",             3,    "bayesian|survival analysis|regression|principal component analysis|\\bpca\\b|clustering|statistical analysis|statistical model(s)?"
+)
+
+mostrar_tabla(
+  diccionario_temas,
+  caption = "Diccionario reproducible de clasificación temática"
+)
+```
+
+### 4.2 Aplicación del criterio de clasificación
+
+```{r aplicar-clasificacion}
+# Aplicar el diccionario temático a título, palabras clave y resumen.
+# La evidencia fuerte aparece en título o keywords; la evidencia débil aparece solo en resumen.
+# Crear tabla artículo-patrón para buscar cada categoría en cada artículo.
+candidatos_tema <- papers_2025 %>%
+  transmute(
+    paper_id,
+    texto_title = str_to_lower(ifelse(is.na(title), "", title)),
+    texto_keywords = str_to_lower(ifelse(is.na(keywords), "", keywords)),
+    texto_abstract = str_to_lower(ifelse(is.na(abstract), "", abstract)),
+    llave = 1
+  ) %>%
+  # Cruzar cada artículo con cada patrón del diccionario temático.
+  inner_join(diccionario_temas %>% mutate(llave = 1), by = "llave") %>%
+  mutate(
+    evidencia_title = str_extract(texto_title, regex(patron, ignore_case = TRUE)),
+    evidencia_keywords = str_extract(texto_keywords, regex(patron, ignore_case = TRUE)),
+    evidencia_abstract = str_extract(texto_abstract, regex(patron, ignore_case = TRUE)),
+    # Evidencia fuerte: aparece en título o palabras clave.
+    evidencia_fuerte = !is.na(evidencia_title) | !is.na(evidencia_keywords),
+    # Evidencia débil: aparece solo en el resumen.
+    evidencia_debil = is.na(evidencia_title) & is.na(evidencia_keywords) & !is.na(evidencia_abstract),
+    topic_source = case_when(
+      !is.na(evidencia_title) ~ "title",
+      !is.na(evidencia_keywords) ~ "keywords",
+      !is.na(evidencia_abstract) ~ "abstract",
+      TRUE ~ NA_character_
+    ),
+    topic_evidence = case_when(
+      !is.na(evidencia_title) ~ evidencia_title,
+      !is.na(evidencia_keywords) ~ evidencia_keywords,
+      !is.na(evidencia_abstract) ~ evidencia_abstract,
+      TRUE ~ NA_character_
+    ),
+    topic_score = case_when(
+      evidencia_fuerte ~ 3,
+      evidencia_debil ~ 1,
+      TRUE ~ 0
+    )
+  ) %>%
+  filter(topic_score > 0)
+
+# Asignar categoría final usando solo evidencia fuerte.
+clasificacion_fuerte <- candidatos_tema %>%
+  filter(topic_score == 3) %>%
+  group_by(paper_id) %>%
+  arrange(prioridad, .by_group = TRUE) %>%
+  slice(1) %>%
+  ungroup() %>%
+  transmute(
+    paper_id,
+    topic_label,
+    topic_source,
+    topic_evidence,
+    topic_confidence = "alta"
+  )
+
+# Guardar casos de evidencia débil para revisión manual.
+clasificacion_debil <- candidatos_tema %>%
+  filter(topic_score == 1) %>%
+  anti_join(clasificacion_fuerte %>% distinct(paper_id), by = "paper_id") %>%
+  group_by(paper_id) %>%
+  arrange(prioridad, .by_group = TRUE) %>%
+  slice(1) %>%
+  ungroup() %>%
+  transmute(
+    paper_id,
+    manual_topic_label = topic_label,
+    manual_topic_source = topic_source,
+    manual_topic_evidence = topic_evidence,
+    manual_topic_status = "revision_manual"
+  )
+
+papers_2025 <- papers_2025 %>%
+  select(-any_of(c(
+    "topic_label", "topic_source", "topic_evidence", "topic_confidence",
+    "manual_topic_label", "manual_topic_source", "manual_topic_evidence", "manual_topic_status"
+  ))) %>%
+  left_join(clasificacion_fuerte, by = "paper_id") %>%
+  left_join(clasificacion_debil, by = "paper_id") %>%
+  mutate(
+    topic_label = ifelse(is.na(topic_label), "Otros", topic_label),
+    topic_confidence = case_when(
+      topic_label == "Otros" ~ "sin_evidencia_fuerte",
+      TRUE ~ topic_confidence
+    )
+  )
+```
+
+### 4.3 Resumen de la clasificación
+
+```{r tabla-clasificacion}
+# Resumir cuántos artículos quedaron en cada categoría selecta
+# Contar artículos por etiqueta temática.
+resumen_temas <- papers_2025 %>%
+  count(topic_label, name = "n_articulos") %>%
+  arrange(desc(n_articulos))
+
+mostrar_tabla(
+  resumen_temas,
+  caption = "Distribución de artículos por categoría temática"
+)
+```
+
+### 4.4 Actualización de la tabla `papers` con las etiquetas temáticas
+
+Después de clasificar los artículos, se actualiza la tabla `papers` dentro de SQLite. De esta forma, las consultas posteriores se responden directamente desde la base relacional y no desde tablas temporales cargadas en R.
+
+```{r actualizar-papers-clasificacion-sqlite}
+# Actualizar la tabla papers en SQLite para incluir las etiquetas temáticas finales.
+papers_sql <- papers_2025 %>%
+  mutate(
+    paper_id = as.integer(paper_id),
+    publication_date = as.character(publication_date),
+    year = as.integer(year),
+    volume_number = as.integer(volume_number),
+    volume_year = as.integer(volume_year),
+    n_authors = as.integer(n_authors),
+    citations = as.numeric(citations),
+    downloads = as.numeric(downloads),
+    n_references = as.integer(n_references)
+  ) %>%
+  select(
+    paper_id,
+    journal_name,
+    article_type,
+    publication_status,
+    volume_text,
+    volume_number,
+    volume_year,
+    section,
+    title,
+    publication_date,
+    year,
+    doi,
+    url,
+    abstract,
+    authors_raw,
+    n_authors,
+    citations,
+    citation_source,
+    downloads,
+    metric_used_as_downloads,
+    n_references,
+    keywords,
+    topic_label,
+    topic_source,
+    topic_evidence,
+    topic_confidence,
+    manual_topic_label,
+    manual_topic_source,
+    manual_topic_evidence,
+    manual_topic_status
+  ) %>%
+  arrange(paper_id)
+
+dbWriteTable(con, "papers", papers_sql, overwrite = TRUE)
+
+invisible(dbExecute(con, "CREATE INDEX IF NOT EXISTS indice_papers_paper_id ON papers(paper_id);"))
+invisible(dbExecute(con, "CREATE INDEX IF NOT EXISTS indice_papers_doi ON papers(doi);"))
+
+consulta_validacion_temas_sqlite <- dbGetQuery(con, "
+  SELECT papers.topic_label,
+         COUNT(*) AS n_articulos
+  FROM papers
+  GROUP BY papers.topic_label
+  ORDER BY COUNT(*) DESC;
+")
+
+mostrar_tabla(
+  consulta_validacion_temas_sqlite,
+  caption = "Revisión de etiquetas temáticas en SQLite"
+)
+```
+
+La clasificación muestra que la mayor parte de los artículos quedó en `Otros`, con **`r resumen_temas$n_articulos[resumen_temas$topic_label == 'Otros']` artículos**. Entre los temas identificados explícitamente, domina `Machine Learning` con **`r resumen_temas$n_articulos[resumen_temas$topic_label == 'Machine Learning']` artículos**, mientras que `Estadistica` e `IA Generativa` aparecen con menor frecuencia. Esta distribución es viable con una revista de bioinformática: muchos artículos usan métodos computacionales, pero no todos declaran en el título o palabras clave que el enfoque principal sea machine learning, IA generativa o estadística.
+
+## 5. Consultas SQL y resultados
+
+En esta sección cada pregunta se responde usando SQL. Las consultas evitan alias abreviados de tablas para mantener la sintaxis más clara: se escriben explícitamente nombres como `papers.topic_label` o `paper_references.reference_id`.
+
+### 5.1 Promedio de autores por artículo
+
+Para responder esta pregunta se usa la columna `n_authors` de la tabla `papers`, porque cada fila representa un artículo y esa columna resume el número de autores detectado en las etiquetas `meta`.
+
+```{r sql-promedio-autores}
+# Consulta SQL: calcular el promedio de autores por artículo.
+consulta_01_promedio_autores <- dbGetQuery(con, "
+  SELECT ROUND(AVG(papers.n_authors), 2) AS promedio_autores_por_articulo
+  FROM papers;
+")
+
+mostrar_tabla(
+  consulta_01_promedio_autores,
+  caption = "Promedio de autores por artículo"
+)
+```
+
+El promedio obtenido fue **`r consulta_01_promedio_autores$promedio_autores_por_articulo` autores por artículo**. Esto indica que la revista publica principalmente trabajos colaborativos, algo esperable en bioinformática por la combinación de componentes computacionales, biológicos y clínicos.
+
+### 5.2 Número de artículos por tema
+
+Las tres preguntas sobre `Machine Learning`, `IA Generativa` y `Estadistica` se responden agrupando por `topic_label`. Esta columna fue construida antes de crear SQLite, pero la pregunta se responde desde la base relacional.
+
+```{r sql-temas}
+# Consulta SQL: contar artículos por categoría selecta.
+consulta_02_articulos_por_tema <- dbGetQuery(con, "
+  SELECT papers.topic_label,
+         COUNT(*) AS n_articulos
+  FROM papers
+  GROUP BY papers.topic_label
+  ORDER BY COUNT(*) DESC;
+")
+
+mostrar_tabla(
+  consulta_02_articulos_por_tema,
+  caption = "Número de artículos por categoría selecta"
+)
+```
+
+El grupo más grande fue `Otros`, con **`r consulta_02_articulos_por_tema$n_articulos[consulta_02_articulos_por_tema$topic_label == 'Otros']` artículos**. En las categorías de interés se identificaron **`r consulta_02_articulos_por_tema$n_articulos[consulta_02_articulos_por_tema$topic_label == 'Machine Learning']` artículos de Machine Learning**, **`r consulta_02_articulos_por_tema$n_articulos[consulta_02_articulos_por_tema$topic_label == 'IA Generativa']` de IA Generativa** y **`r consulta_02_articulos_por_tema$n_articulos[consulta_02_articulos_por_tema$topic_label == 'Estadistica']` de Estadistica**. La baja frecuencia de IA Generativa sugiere que este tema aparece, pero todavía no domina la producción de la revista en 2025 bajo el criterio prudente usado.
+
+### 5.3 Total de visualizaciones usadas como descargas
+
+Se permite usar `views`, `article views`, `accesses` o una medida equivalente cuando no existe una variable estricta de descargas. En este caso se usó `views` del listado de artículos y se guardó en la columna `downloads` para conservar el nombre solicitado por el enunciado.
+
+```{r sql-downloads}
+# Consulta SQL: sumar y resumir las visualizaciones guardadas como downloads.
+consulta_03_total_downloads <- dbGetQuery(con, "
+  SELECT SUM(papers.downloads) AS total_downloads,
+         ROUND(AVG(papers.downloads), 2) AS promedio_downloads,
+         MIN(papers.downloads) AS minimo_downloads,
+         MAX(papers.downloads) AS max_downloads
+  FROM papers;
+")
+
+mostrar_tabla(
+  consulta_03_total_downloads,
+  caption = "Total y resumen de views usadas como downloads"
+)
+```
+
+El total fue **`r consulta_03_total_downloads$total_downloads` visualizaciones**, con un promedio de **`r consulta_03_total_downloads$promedio_downloads` por artículo**. La lectura de esta medida debe hacerse con cuidado: no mide citas ni calidad académica, sino atención o consulta de los artículos en la plataforma.
+
+### 5.4 Promedio de referencias por artículo
+
+El promedio de referencias se calcula desde `papers.n_references`. Esta variable resume cuántos DOI de referencias fueron detectados por artículo.
+
+```{r sql-referencias-promedio}
+# Consulta SQL: calcular el promedio de referencias DOI por artículo.
+consulta_04_promedio_referencias <- dbGetQuery(con, "
+  SELECT ROUND(AVG(papers.n_references), 2) AS promedio_referencias_por_articulo,
+         SUM(papers.n_references) AS total_referencias_detectadas,
+         MAX(papers.n_references) AS max_referencias_en_un_articulo
+  FROM papers;
+")
+
+mostrar_tabla(
+  consulta_04_promedio_referencias,
+  caption = "Promedio de referencias por artículo"
+)
+```
+
+El promedio fue **`r consulta_04_promedio_referencias$promedio_referencias_por_articulo` referencias DOI por artículo**. Este valor no equivale necesariamente al total bibliográfico completo, porque la estrategia captura referencias con DOI detectable; aun así, permite analizar patrones de repetición entre artículos.
+
+### 5.5 Referencia más repetida
+
+Para encontrar la referencia más repetida se usa la tabla de relación `paper_references` y se une con la tabla `references`. La agrupación se hace por DOI de referencia.
+
+```{r sql-referencias-repetidas}
+# Consulta SQL: encontrar las referencias DOI más repetidas en la base.
+consulta_05_referencias_mas_repetidas <- dbGetQuery(con, "
+  SELECT \"references\".reference_doi,
+         COUNT(paper_references.paper_id) AS n_apariciones
+  FROM paper_references
+  INNER JOIN \"references\"
+          ON paper_references.reference_id = \"references\".reference_id
+  GROUP BY \"references\".reference_doi
+  ORDER BY COUNT(paper_references.paper_id) DESC,
+           \"references\".reference_doi ASC
+  LIMIT 10;
+")
+
+mostrar_tabla(
+  consulta_05_referencias_mas_repetidas,
+  caption = "Referencias DOI más repetidas"
+)
+```
+
+La referencia más repetida fue **`r consulta_05_referencias_mas_repetidas$reference_doi[1]`**, con **`r consulta_05_referencias_mas_repetidas$n_apariciones[1]` apariciones**. Esto señala una referencia transversal dentro del conjunto analizado, aunque para interpretarla bibliográficamente habría que revisar el artículo asociado a ese DOI.
+
+### 5.6 Promedio de citas por artículo
+
+Las citas se obtuvieron desde Crossref mediante el DOI. Como las citas cambian con el tiempo, este resultado corresponde al momento en el que se consultaron los datos.
+
+```{r sql-citas-promedio}
+# Consulta SQL: calcular promedio, total y máximo de citas por artículo.
+consulta_06_promedio_citas <- dbGetQuery(con, "
+  SELECT ROUND(AVG(papers.citations), 2) AS promedio_citas_por_articulo,
+         SUM(papers.citations) AS total_citas,
+         MAX(papers.citations) AS max_citas
+  FROM papers;
+")
+
+mostrar_tabla(
+  consulta_06_promedio_citas,
+  caption = "Promedio de citas por artículo"
+)
+```
+
+El promedio fue **`r consulta_06_promedio_citas$promedio_citas_por_articulo` citas por artículo**, con un máximo de **`r consulta_06_promedio_citas$max_citas` citas**.
+
+### 5.7 Paper con más citas
+
+El paper con más citas se identifica ordenando la tabla `papers` por `citations` de mayor a menor. En caso de empate, se deja `downloads` como segundo criterio de ordenamiento.
+
+```{r sql-paper-mas-citado}
+# Consulta SQL: identificar los artículos con más citas.
+consulta_07_articulos_mas_citados <- dbGetQuery(con, "
+  SELECT papers.title,
+         papers.doi,
+         papers.topic_label,
+         papers.publication_date,
+         papers.citations,
+         papers.downloads
+  FROM papers
+  ORDER BY papers.citations DESC,
+           papers.downloads DESC
+  LIMIT 10;
+")
+
+consulta_07_articulos_mas_citados_mostrar <- consulta_07_articulos_mas_citados %>%
+  mutate(title = acortar_texto(title, 90))
+
+mostrar_tabla(
+  consulta_07_articulos_mas_citados_mostrar,
+  caption = "Artículos con más citas"
+)
+```
+
+El artículo más citado fue **`r consulta_07_articulos_mas_citados$title[1]`**, clasificado como **`r consulta_07_articulos_mas_citados$topic_label[1]`**, con **`r consulta_07_articulos_mas_citados$citations[1]` citas**. Este resultado es consistente con la visibilidad actual de los temas de inteligencia artificial aplicada a bioinformática.
+
+### 5.8 Paper relacionado a los temas selectos con más citas
+
+Ahora se restringe la consulta a artículos clasificados como `Machine Learning`, `IA Generativa` o `Estadistica`. Esto excluye `Otros` y permite responder directamente la pregunta temática del taller.
+
+```{r sql-tematicos-citas}
+# Consulta SQL: filtrar artículos temáticos y ordenarlos por número de citas.
+consulta_08_tematicos_mas_citados <- dbGetQuery(con, "
+  SELECT papers.title,
+         papers.doi,
+         papers.topic_label,
+         papers.topic_source,
+         papers.topic_evidence,
+         papers.citations,
+         papers.downloads
+  FROM papers
+  WHERE papers.topic_label <> 'Otros'
+  ORDER BY papers.citations DESC,
+           papers.downloads DESC
+  LIMIT 15;
+")
+
+consulta_08_tematicos_mas_citados_mostrar <- consulta_08_tematicos_mas_citados %>%
+  mutate(title = acortar_texto(title, 90))
+
+mostrar_tabla(
+  consulta_08_tematicos_mas_citados_mostrar,
+  caption = "Artículos temáticos con más citas"
+)
+```
+
+El primer lugar de tópicos selectos vuelve a ser **`r consulta_08_tematicos_mas_citados$title[1]`**. La categoría se justificó porque en **`r consulta_08_tematicos_mas_citados$topic_source[1]`** apareció el término **`r consulta_08_tematicos_mas_citados$topic_evidence[1]`**. Es decir, no solo fue el más citado de la base completa, sino también el más citado dentro de las categorías de interés.
+
+### 5.9 Paper relacionado a los temas selectos con más visualizaciones
+
+La misma restricción a los temas selectos se aplica a la medida de visualizaciones. Esto permite identificar el artículo con mayor atención en plataforma dentro de las categorías de interés.
+
+```{r sql-tematicos-downloads}
+# Consulta SQL: filtrar artículos temáticos y ordenarlos por visualizaciones.
+consulta_09_tematicos_mas_downloads <- dbGetQuery(con, "
+  SELECT papers.title,
+         papers.doi,
+         papers.topic_label,
+         papers.topic_source,
+         papers.topic_evidence,
+         papers.downloads,
+         papers.citations
+  FROM papers
+  WHERE papers.topic_label <> 'Otros'
+  ORDER BY papers.downloads DESC,
+           papers.citations DESC
+  LIMIT 15;
+")
+
+consulta_09_tematicos_mas_downloads_mostrar <- consulta_09_tematicos_mas_downloads %>%
+  mutate(title = acortar_texto(title, 90))
+
+mostrar_tabla(
+  consulta_09_tematicos_mas_downloads_mostrar,
+  caption = "Artículos temáticos con más views/downloads"
+)
+```
+
+El artículo sobre temas selectos con más visualizaciones fue **`r consulta_09_tematicos_mas_downloads$title[1]`**, con **`r consulta_09_tematicos_mas_downloads$downloads[1]` visualizaciones**. En este caso coincide con el artículo más citado, lo cual sugiere una relación entre visibilidad y citación para este caso particular.
+
+### 5.10 Resumen por categoría
+
+Como cierre de las consultas, se resume cada categoría por número de artículos, promedio de autores, referencias, citas y visualizaciones.
+
+```{r sql-resumen-tema}
+# Consulta SQL: resumir autores, referencias, citas y visualizaciones por categoría.
+consulta_10_resumen_por_tema <- dbGetQuery(con, "
+  SELECT papers.topic_label,
+         COUNT(*) AS n_articulos,
+         ROUND(AVG(papers.n_authors), 2) AS promedio_autores,
+         ROUND(AVG(papers.n_references), 2) AS promedio_referencias,
+         ROUND(AVG(papers.citations), 2) AS promedio_citas,
+         ROUND(AVG(papers.downloads), 2) AS promedio_downloads
+  FROM papers
+  GROUP BY papers.topic_label
+  ORDER BY COUNT(*) DESC;
+")
+
+mostrar_tabla(
+  consulta_10_resumen_por_tema,
+  caption = "Resumen por categoría temática"
+)
+```
+
+La categoría `Estadistica` tiene el mayor promedio de citas en esta extracción, aunque con pocos artículos. `Machine Learning` tiene más volumen de producción temática, pero su promedio de citas es más moderado. Esta comparación debe leerse con cuidado porque las categorías tienen tamaños muy distintos.
+
+### 5.11 Artículos separados para revisión manual
+
+Finalmente se revisan los artículos que tuvieron término de clasificación encontrado solo en el resumen. Estos casos se separan porque el criterio principal fue prudente: título y palabras clave se les dio más peso que menciones internas en el abstract.
+
+```{r sql-revision-manual}
+# Consulta SQL: listar artículos enviados a revisión manual por evidencia temática débil.
+consulta_11_revision_manual <- dbGetQuery(con, "
+  SELECT papers.title,
+         papers.doi,
+         papers.manual_topic_label,
+         papers.manual_topic_source,
+         papers.manual_topic_evidence,
+         papers.manual_topic_status
+  FROM papers
+  WHERE papers.manual_topic_status = 'revision_manual'
+  ORDER BY papers.manual_topic_label,
+           papers.title;
+")
+
+consulta_11_revision_manual_mostrar <- consulta_11_revision_manual %>%
+  mutate(title = acortar_texto(title, 90))
+
+mostrar_tabla(
+  consulta_11_revision_manual_mostrar,
+  caption = "Artículos separados para revisión manual"
+)
+```
+
+Estos artículos no fueron incorporados automáticamente a las categorías principales porque el término aparece solo dentro del resumen. Esta decisión evita aumentar artificialmente las categorías con menciones metodológicas no relacionadas a lo que se busca.
+
+## 6. Hallazgos
+
+El scraping permitió construir una base con **`r nrow(papers_sql)` artículos publicados en 2025** y **`r nrow(references_sql)` referencias DOI únicas**. La estructura relacional quedó compuesta por `papers`, `references` y `paper_references`, lo que permite responder preguntas agregadas y también preguntas sobre repetición de referencias.
+
+El tema más frecuente entre las categorías explícitas fue `Machine Learning`, con **`r consulta_02_articulos_por_tema$n_articulos[consulta_02_articulos_por_tema$topic_label == 'Machine Learning']` artículos**. Sin embargo, el grupo mayoritario fue `Otros`, lo cual muestra que la revista aborda muchos temas en bioinformática que no necesariamente declaran machine learning, IA generativa o estadística en el título o las palabras clave.
+
+El artículo con mayor número de citas fue **`r consulta_07_articulos_mas_citados$title[1]`**, con **`r consulta_07_articulos_mas_citados$citations[1]` citas**. También fue el artículo temático más visible por visualizaciones, siendo el caso más destacado de la base bajo los criterios aplicados.
+
+## 7. Limitaciones
+
+La primera limitación es que la variable `downloads` corresponde a `views` del listado de Frontiers. Esta equivalencia está permitida por las especificaciones del taller cuando no hay descargas estrictas, pero debe interpretarse como una medida de consulta o exposición, no como descargas reales.
+
+La segunda limitación es que las citas vienen de Crossref. Por tanto, pueden cambiar si se ejecuta el documento en otra fecha.
+
+La tercera limitación está en las referencias. La tabla de referencias se construyó con enlaces DOI detectados en el HTML; que no necesariamente corresponde a las referencias DOI totales, por ejemplo hay referencias DOI totales, etc.
+
+La cuarta limitación es la clasificación temática. Es un criterio que se construyo en base a una extensa exploración manual de la revista seleccionada: título y palabras clave cuentan como señal principal; el resumen se usa para revisión manual. Esto reduce falsos positivos, pero igualmente es posible que hayan artículos que queden mal clasificados bajo el criterio dado.
+
+## 8. Conclusión
+
+El ejercicio logró mostrar paso a paso cómo transformar una fuente web con partes organizadas y texto libre en una base relacional consultable. La utilidad del código se ve fuertemente determinada por la calidad de la exploración manual de los elementos HTML de la página sobre la cual se quiso extraer información, justificando los selectores que harían la tarea durante el resto del web scraping. Primero se detectaron los enlaces de artículos en el listado de la web de SCImago dada, se seleccionó una revista candidata, luego se identificaron datos bibliográficos estables dentro del HTML de cada artículo, después se separaron referencias y, finalmente, se creó una base SQLite con tablas relacionadas.
+
+A partir de esa base se respondieron preguntas de exploración con SQL para obtener un panorama descriptivo de los artículos publicados por la revista seleccionada: promedio de autores, conteos temáticos, total de visualizaciones, promedio de referencias, referencia más repetida, promedio de citas y artículos más destacados por citas o visualizaciones. El resultado final es reproducible y deja explícitas las decisiones metodológicas tomadas durante el proceso de recolección y estructuración de datos.
+
+```{r cerrar-conexion, include=FALSE}
+# Cerrar la conexión a SQLite al finalizar la generación del informe.
+dbDisconnect(con)
+```

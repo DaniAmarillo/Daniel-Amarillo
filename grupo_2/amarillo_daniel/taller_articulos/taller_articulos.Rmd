@@ -1,0 +1,637 @@
+---
+title: "Informe 1"
+subtitle: "Webscraping de Journal of Behavioral Addictions"
+author: "Daniel Eduardo Amarillo Echeverry"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries,include = FALSE}
+if (!require("pacman")) install.packages("pacman", repos = "https://cran.rstudio.com/")
+library(pacman)
+paquetes <- c( 
+  "RSQLite","knitr","tidyverse","knitr"
+)
+lapply(paquetes, library, character.only = TRUE)
+```
+# Introducción 
+
+*Nueve de cada diez jóvenes de entre 18 y 30 años presentan un riesgo alto de adicción a las pantallas*
+
+
+
+Escogí: [Journal of Behavioral Addictions][https://www.akjournals.com/view/journals/2006/2006-overview.xml] Mi motivo principal para elegir una revista  alejada de las ciencias exactas o económicas es observar con que frecuencia las investigaciones psicologicas actuales tratan de la inteligencia artificial y los algoritmos generativos con respecto a su influencia en los cambios de conducta de las personas, en este caso especificamente en las adicciones que esta puede crear, Además consultar el estado del arte en términos estadísticos están siendo utilizados en las investigaciones de vanguardia.
+
+# Webscraping
+
+## Carga de paquetes
+
+Se instalan y cargan las librerias necesarias para el scraping, la limpieza de datosy su posterior organización en SQLite
+
+```{r web_1, eval=FALSE}
+paquetes <- c(
+  "rvest", "xml2", "httr2", "dplyr", "stringr","openalexR",
+  "purrr", "tibble", "janitor", "readr", "knitr", "tidyr","RSQLite"
+)
+
+# Verificamos qué paquetes faltan
+instalados <- rownames(installed.packages())
+pendientes <- setdiff(paquetes, instalados)
+
+if (length(pendientes) > 0) {
+  install.packages(pendientes)
+}
+
+# Cargamos los paquetes sin mostrar mensajes
+lapply(paquetes, library, character.only = TRUE)
+
+```
+
+##  Declaración de variables y construcción de funciones
+
+Se declara la variable issues_url la cual contiene 5 links de los journals publicados desde Enero del año 2025 a Marzo de 2026. Luego se construye la función `crear_nodo()` que utilizando las funciones del paquete `httr2` retorna la estructura html de la url ingresada como parámetro.
+
+
+```{r web_2, eval=FALSE}
+#Vector de Urls 
+issues_url <- c("https://www.akjournals.com/view/journals/2006/14/1/2006.14.issue-1.xml"
+                ,"https://www.akjournals.com/view/journals/2006/14/2/2006.14.issue-2.xml"
+                ,"https://www.akjournals.com/view/journals/2006/14/3/2006.14.issue-3.xml"
+                ,"https://www.akjournals.com/view/journals/2006/14/4/2006.14.issue-4.xml"
+                ,"https://www.akjournals.com/view/journals/2006/15/1/2006.15.issue-1.xml")
+
+crear_nodo <- function(url){
+# Definimos un user-agent similar al de un navegador real
+user_agent_navegador <- paste(
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+  "AppleWebKit/537.36 (KHTML, like Gecko)",
+  "Chrome/122.0.0.0 Safari/537.36"
+)
+
+# Construimos la solicitud HTTP y añadimos encabezados para 
+# que parezca una visita normal
+
+respuesta <- request(url) |>
+  req_user_agent(user_agent_navegador) |>
+  req_headers(`accept-language` = "en-US,en;q=0.9") |>
+  req_perform()
+
+# Convertimos el cuerpo de la respuesta en un documento HTML
+# analizable con rvest/xml2
+nodo <- respuesta |>
+  resp_body_html()
+nodo
+}
+
+```
+
+## Función `extraer_general()`
+
+Busca en la estructura html devuelta por la función `crear_nodo` la información general de los articulos de cada journal en el vector como:
+
+* El titulo del paper 
+* el doi (identificador unico de cada paper)
+* la versión del journal 
+
+Esto con el fin de tener una lista de todos los papers publicados con su respectivo identificador, que a su vez sirve como url del articulo.
+
+```{r web_3, eval=FALSE}
+extraer_general <- function(nodo) {
+  # Extraemos el títulos de los articulos
+  titulo <- nodo |>
+    html_elements("[data-testid='block-primitivetitle']") |>
+    html_text2()
+  
+  issue <- titulo[length(titulo)]
+  titulo <- titulo[-length(titulo)]
+    # Extraemos el enlace relativo doi del articulo
+  doi <- nodo |> 
+    html_elements( " a,[target='_blank'], .c-Button--link") |>
+    html_text()
+  #filtramos por links que contengan https doi 
+  doi <- doi[grep(pattern="https://doi*",doi)]
+  #Creamos una tabla con la información general de cada journal 
+  tibble(
+    titulo = titulo,
+    doi = doi,
+    issue = issue
+  )
+}
+```  
+
+### 1ra extracción con `extraer_general()`
+
+Declara la base de datos papers y se construye un ciclo `for` que itera sobre el vector de url, creando una estructura html y extrayendo la información de los papers contenidos en cada version del journal. 
+
+```{r web_4, eval=FALSE}
+papers <- data.frame()
+for (i in issues_url) {
+  nodo = crear_nodo(i)
+  df <- extraer_general(nodo)
+  papers <- rbind(papers,df)
+}
+
+```
+
+## Función `extraer_paper()`
+
+utiliza una url para crear un nodo html y extrae:
+
+* el identificador único `doi` de cada paper. 
+
+* un vector de caracteres con los `autores` del paper.
+
+* el `abstract` del paper dividido por partes (background,Metodos,Resultados y Conclusión) si el resumen no está estructurado retorna el texto completo.
+
+* la `fecha` de publicación online en caractéres.
+
+* con el respectivo doi busca repositorio openalex extrae la *métrica $fcwi$* de cada articulo.
+
+* La `url` canónica.
+
+* Un vector de caractéres con las `Referencias`.
+
+* Con una simulación de navegación extrae el `número de citas` de cada articulo, devuelve `NA` si no encuentra que fue citado.
+
+Estos elementos extraidos los ordena y retorna en 4 dataframes
+(`paper_row`,`autores_row`,`abstract_row`,`reference_row``)   
+
+```{r web_5, eval=FALSE}
+extraer_paper <- function(url){
+ 
+  nodo <- crear_nodo(url)
+ #EXTRACCIÓN DOI (LLAVE EN COMUN CON GENERALITIES)
+doi <- nodo |> 
+  html_elements( " a,[target='_blank'], .c-Button--link") |>
+  html_text()
+doi <- doi[grep(pattern="https://doi*",doi)][1]
+
+ #AUTORES 
+autores_ex <- nodo |> 
+  html_elements("[data-testid='author-name']") |>
+  html_text()
+autores <- paste(autores_ex,collapse = ",")
+ #ABSTRACT
+ raw_abstract <- nodo |> html_elements(".abstract.border-bottom.border-bottom-solid.border-bottom-medium") |>
+   html_text2()
+ a <- unlist(strsplit(raw_abstract, split = "\n"))
+ Backround_and_aims <- NA
+ Methods <- NA
+ Results <- NA
+ Conclusion <- NA
+ abstract <- NA
+ if (length(a)<4) {
+   abstract <- a[3] 
+ }else {
+   Backround_and_aims <- a[4]
+   Methods <- a[8]
+   Results <- a[12]
+   Conclusion <- a[16]
+ }
+
+ #FECHA DE PUBLICACIÓN
+ fecha <- nodo |> 
+   html_elements(".onlinepubdate.c-List__items") |>
+   html_text2() |>
+   str_squish() |>
+   str_remove("^[^0-9]+")
+ 
+ #Métrica
+ fwci <- oa_fetch(entity = "works", doi = doi)$fwci
+ 
+ #URL 
+ URL <- nodo |> 
+   html_elements('[rel="canonical"], href')|>
+   html_attr("href")
+ 
+ #REFERENCIAS
+ ref_ex <- NA
+ ref_ex <- nodo |> 
+   html_elements(".citationText.text-body1") |>
+   html_text()
+ 
+ 
+ # CITAS
+ dyn_cit = read_html_live(URL)
+ try(dyn_cit$click("[data-tab-id='citedBy-30734']"),silent = TRUE)
+ n_citaciones <- NA
+ intentos <- 0
+ while (intentos < 10) {
+   Sys.sleep(3)
+   p <- dyn_cit |> 
+     html_elements("#citedByWidget") |>
+     html_children()
+   
+   texto <- p[2] |> html_text() |> str_squish()
+   
+   if (length(texto) > 0 && nchar(texto) > 0) {
+     n_citaciones <- word(texto, -2)
+     break
+   }
+   intentos <- intentos + 1
+ }
+
+ 
+paper_row <- tibble (doi = doi,
+                      url = URL,
+                      fecha_publicacion = fecha,
+                      nro_de_citas = n_citaciones,
+                      fwci = fwci)
+
+ abstract_row <- tibble( doi = doi,
+         resumen = abstract,
+         Backround = Backround_and_aims,
+         Metodos = Methods,
+         Resultados = Results,
+         Conclusion = Conclusion
+         )
+ autores_row <- tibble( doi = doi,
+                        autores = list(autores_ex) )
+ ref_row <- tibble(doi = doi,
+                   list(ref_ex))
+ 
+ dyn_cit$session$close()
+ 
+
+ return(list(paper_row,abstract_row,autores_row,ref_row))
+}
+```
+
+### 2da Extracción con `extraer_paper()`
+
+Se declaran 4 `tibbles` que almacenaran las filas producto de el el ciclo `for` que itera toda la columna `papers$doi` evaluandolas en la función `extraer_paper()`. Para tener control del tiempo de este proceso se crea una barra de progreso en la variable `pb`.
+
+**disclaimer:** Para compilar con rapidez este archivo se desactivó el siguiente chunk (para ejecutar este ciclo ir al archivo `Webscrapping.R` en la misma carpeta de este markdown) 
+```{r web_6, eval=FALSE}
+
+#INICIALIZACIÓN DE TABLAS DE EXTRACCIÓN 
+abstract <- tibble()
+autores <- tibble()
+referencias <- tibble()
+comp_papers <- tibble()
+
+ pb <- txtProgressBar(min = 1, max = length(papers$doi), style = 3)
+ it  = 0
+ 
+ #PRECAUCIÓN TIEMPO APROXIMADO DE EJECUCIÓN 40 mins a 1 hora 
+  for (i in papers$doi){
+    tibbles <- extraer_paper(i)
+    comp_papers <- comp_papers |> bind_rows(tibbles[1])  
+    abstract <- abstract |> bind_rows(tibbles[2]) 
+    autores <- autores |> bind_rows(tibbles[3]) 
+    referencias <- referencias |> bind_rows(tibbles[4]) 
+    it= it +1 
+    setTxtProgressBar(pb, it)
+  }
+
+```
+
+# Limpieza de datos
+
+Con los paquetes de `Tidyverse` se hace limpieza de datos, creación de variables de conteo e indexación de autores y referencias.
+
+```{r Limpieza, eval=FALSE}
+# Ordenamos y separamos las tablas de referencias y autores
+paper_references <- referencias |> tidyr::unnest(`list(ref_ex)`) |> rename(referencia = `list(ref_ex)`)
+# Creación de Ids de autores
+paper_references$id_referencia <- as.numeric(as.factor(paper_references$referencia))
+references <- paper_references[c("id_referencia","referencia")] |> unique() |> arrange(id_referencia)
+paper_references <- paper_references |> select(-referencia) |> unique()
+
+
+paper_authors <- autores |> tidyr::unnest(autores) 
+# Creación de Ids de referencias
+paper_authors$id_autor <- as.numeric(as.factor(paper_authors$autores)) 
+authors <- paper_authors[c("id_autor","autores")] |> unique() |> arrange(id_autor)
+paper_authors <- paper_authors |> select(-autores) |> unique()
+
+#REMPLAZO DE CITAS EN NA POR 0 
+comp_papers <- comp_papers |> mutate(nro_de_citas = coalesce(as.numeric(nro_de_citas), 0))
+
+#Creación variables en la tabla principal 
+papers["journal_name"] <- "Journal of Behavioral Addictions" 
+papers <- papers |> full_join(comp_papers,by="doi")
+papers <- papers |> full_join(paper_authors |>
+                                     group_by(doi) |>
+                                     summarise(n_autores = n()),by="doi")
+
+papers <- papers |> full_join(paper_references |>
+                                     group_by(doi) |>
+                                     summarise(n_referencia = n()),by="doi")
+
+#NORMALIZACIÓN DE CARACTERES
+abstract <- abstract |>
+  mutate(across(-doi, tolower))
+
+```
+# Clasificación temática
+
+ los papers se clasificaron con los abstract que en alguna parte de su estructura contenian las siguientes  palabras clave:
+
+* `statistic` : regression,inference,variance,covariance,statistic,sample,survey,random 
+
+* `artificial intelligence` : artificial intelligence,llm,gpt,nlp,agents,neuronal networks,chatbot,deep learning,transformers,ai 
+
+* `machine learning` : machine learning,clustering,knn,overfitting
+
+* `Other`
+
+
+```{r labels, eval=FALSE}
+#ETIQUETADO DE TEMAS 
+abstract <- abstract |> 
+    mutate(topic_label = case_when(
+    if_any(-doi , ~ str_detect(., "regression|inference|variance|covariance|statistic|sample|survey|random")) ~ "Statistic" ,
+    if_any(-doi , ~ str_detect(., "artificial intelligence| llm |gpt|nlp|agents|neuronal networks|chatbot|deep learning|transformers| ai ")) ~ "AI",
+    if_any(-doi , ~ str_detect(., "machine learning|clustering|knn|overfitting")) ~ "Machine Learning",
+    TRUE ~ "Other"
+  ))
+
+#ANEXION DE LA COLUMNA  ETIQUETA Y CREACIÓN DE LA COLUMNA AÑO
+ papers <- papers |> full_join(abstract[c("doi","topic_label")],by="doi")
+ papers <- papers |> mutate( year = str_sub(fecha_publicacion, -4, -1))
+
+```
+
+
+# Creación Base de Datos `SQLite`
+
+Se crea el archivo "JBA_25_26.sqlite" y se almacenan las tablas procesadas anteriormente. 
+
+
+```{r BD, eval=FALSE}
+ # CREACIÓN LA BASE DE DATOS 
+ con <- dbConnect(RSQLite::SQLite(), "JBA_25_26.sqlite")
+ dbWriteTable(con, "papers", papers)
+ dbWriteTable(con, "paper_authors", paper_authors)
+ dbWriteTable(con, "authors", authors)
+ dbWriteTable(con, "paper_references", paper_references)
+ dbWriteTable(con, "references", references)
+ dbWriteTable(con, "abstract", abstract)
+ dbDisconnect(con)
+
+```
+
+# Consultas SQL
+```{r datos_sql,include=FALSE}
+con <- dbConnect(RSQLite::SQLite(), "JBA_25_26.sqlite")
+```
+
+### Tablas en la Base de Datos 
+```{r show_db}
+dbListTables(con)
+```
+
+
+## 1. ¿Cúal es el número promedio de autores por paper?
+```{r sql_1}
+dbGetQuery(con, "
+  SELECT ROUND(AVG(n_autores)) as autores_promedio
+  FROM papers
+")  |>
+kable()
+```
+## 2. ¿Cúantos artículos están relacionados con Machine Learning?
+```{r sql_2}
+dbGetQuery(con, "
+  SELECT COUNT(*) AS Articulos_ML 
+  FROM papers 
+  WHERE topic_label == 'Machine Learning'
+")  |>
+kable()
+```
+
+Estos articulos utilizan metodos de machine learning como Clustering y modelos XGBoost para estudiar la ludopatia y las rutinas de los adictos al juego 
+
+## 3. ¿Cúantos artículos están relacionados con IA Generativa?
+```{r sql_3}
+dbGetQuery(con, "
+  SELECT COUNT(*) AS Articulos_AI 
+  FROM papers 
+  WHERE topic_label == 'AI'
+")  |>
+kable()
+```
+Este articulo utilizó un modelo de deeplearning autosegmentado para predecir la duración de una enfermedad basado en las caracteristicas de la personalidad de un grupo de pacientes. Esta falta de investigaciones sobre la IA generativa o el Machine Learning como posible influencia en las conductas adictivas puede deberse a que es un tema reciente o no se han presentado casos severos de adicción con respecto a estos temas.  
+
+## 4. ¿Cúantos artículos están relacionados con otros temas estadísticos?
+```{r sql_4}
+ dbGetQuery(con, "
+  SELECT COUNT(*) AS Articulos_STATS 
+  FROM papers 
+  WHERE topic_label == 'Statistic'
+")  |>
+kable()
+```
+La estadística es generalmente presentada en el metodo o en los resultados para validar las hipotesis que presentan los investigadores, sin embargo no es un tema central de estudio en este campo de la psicología.
+
+## 5. ¿Cúal es el impacto promedio de los la revista en 2025?
+
+```{r sql_5}
+ dbGetQuery(con, "
+  SELECT AVG(fwci) AS fcwi_promedio
+  FROM papers 
+  WHERE year == 2025
+")  |>
+kable()
+```
+El *Field-Weighted Citation Impact* `FWCI` promedio es 9.626 lo que quiere decir que en su campo de estudio el año pasado la revista fue 9.626 veces mejor que la revista promedio.
+
+## 6. ¿Cúal es el número promedio de referencias por artículo?
+```{r sql_6}
+dbGetQuery(con, "
+  SELECT AVG(n_referencia) AS promedio_referencias
+  FROM papers 
+")  |>
+kable()
+```
+## 7. ¿Cúal es la referencia que más se repite entre todos los artículos?
+```{r sql_7}
+dbGetQuery(con, "
+  SELECT referencia,
+  COUNT(*) AS repeticiones
+  FROM paper_references p_ref
+  INNER JOIN 'references' ref ON p_ref.id_referencia = ref.id_referencia
+  GROUP BY p_ref.id_referencia
+  ORDER BY repeticiones DESC
+  LIMIT 1
+")  |>
+kable()
+```
+## 8. ¿Cúal es el promedio de citas por artículo?
+```{r sql_8}
+dbGetQuery(con, "
+  SELECT AVG(nro_de_citas) AS promedio_citas
+  FROM papers
+  
+")
+```
+##9. ¿Cúal es el paper con más citas?
+```{r sql_9}
+dbGetQuery(con, "
+  SELECT titulo,
+  nro_de_citas
+  FROM papers
+  ORDER BY nro_de_citas DESC
+  LIMIT 1
+")  |>
+kable()
+```
+
+## 10. ¿Cúal es el paper relacionado con machine learning, IA generativa o Estadís-
+tica con más citas?
+
+### Machine Learning
+
+```{r sql_10_A}
+dbGetQuery(con, "
+    SELECT titulo,
+    nro_de_citas
+  FROM papers 
+  WHERE topic_label == 'Machine Learning'
+  ORDER BY nro_de_citas DESC
+  LIMIT 1
+")  |>
+kable()
+```
+
+### Inteligencia Artificial 
+```{r sql_10_B}
+dbGetQuery(con, "
+    SELECT titulo,
+    nro_de_citas
+  FROM papers 
+  WHERE topic_label == 'AI'
+  ORDER BY nro_de_citas DESC
+  LIMIT 1
+")  |>
+kable()
+
+```
+
+### Estadística
+```{r sql_10_C}
+dbGetQuery(con, "
+  SELECT titulo,
+  nro_de_citas,
+  year
+  FROM papers 
+  WHERE topic_label == 'Statistic'
+  ORDER BY nro_de_citas DESC
+  LIMIT 1
+")  |>
+kable()
+```
+
+## 11. ¿Cúal es el paper relacionado con machine learning, IA generativa o Estadística con más impacto?
+
+```{r sql_11}
+dbGetQuery(con, "
+  SELECT titulo,
+  fwci ,
+  topic_label AS etiqueta
+  FROM papers 
+  WHERE topic_label == 'Statistic' OR topic_label == 'AI' OR topic_label == 'Machine Learning'
+  ORDER BY fwci DESC
+  LIMIT 1
+")  |>
+kable()
+```
+# Hallazgos
+## Citaciones 
+
+Existe un grupo pequeño de papers con una cantidad atípica de citaciones que suben el promedio de citaciones de la revista.
+
+```{r}
+dbGetQuery(con, "WITH RankedData AS (
+    SELECT 
+        nro_de_citas,
+        ROW_NUMBER() OVER (ORDER BY nro_de_citas) AS rn,
+        COUNT(*) OVER () AS total_count
+    FROM papers
+  ),
+  IQRSubset AS (
+    SELECT nro_de_citas
+    FROM RankedData
+    WHERE rn > total_count * 0.25 
+      AND rn <= total_count * 0.75
+  )
+  SELECT AVG(nro_de_citas) AS InterquartileMean
+  FROM IQRSubset; 
+") |> 
+  kable()
+```
+Si se calcula la media intercuartil el numero promedio de citaciones baja de 2.544 a 1
+
+## Palabras Frecuentes
+
+```{r hallazgo_1}
+initExtension(con) 
+words <- dbGetQuery(con, "WITH RECURSIVE split_words AS (
+  -- Anchor member: Select the first word and the remaining string
+  SELECT 
+    TRIM(SUBSTR(titulo || ' ', 1, INSTR(titulo || ' ', ' '))) AS word,
+    SUBSTR(titulo || ' ', INSTR(titulo || ' ', ' ') + 1) AS rest
+  FROM papers
+  
+  UNION ALL
+  
+  -- Recursive member: Process the 'rest' column
+  SELECT 
+    TRIM(SUBSTR(rest, 1, INSTR(rest, ' '))) AS word,
+    SUBSTR(rest, INSTR(rest, ' ') + 1) AS rest
+  FROM split_words
+  WHERE rest <> ''
+  )
+  SELECT word, COUNT(*) as frequency
+  FROM split_words
+  WHERE word <> ''
+  GROUP BY word
+  ORDER BY frequency DESC;
+") 
+
+words |> 
+  filter(nchar(word) > 4) |>
+  head(10) |>
+  kable()
+```
+
+Encontrando las palabras frecuentes se da un primer vistazo a las problemáticas investigadas por los psicologos especializados, este primer analisis puede abrir la puerta a un análisis factorial más detallado.
+
+# Limitaciones
+
+## Problemas con partes dinámicas del html
+
+Al momento de extraer el número de citaciones de la web, este valor se encuentra en un widget dinamico, lo cual imposibilitó extraerlo con el método `read_html()`. Para solucionarlo se utilizó la función `read_html_live()` que permite interactuar con la pagina mediante una simulacion con `cromote`, debido a esto el tiempo de computación se disparó a 16 segundos por paper.
+
+## Métricas inexistentes
+
+Debido a que la revista es de acceso abierto el la url de cada paper no existia una metrica de descarga ni de vista, la solución para esto fue mediante la api de OpenAlex obtener el indice de impacto:
+
+$$fwci = \frac{\text{numero de citas}}{\text{valor esperado de las citas}} $$
+
+Interpretación:
+
+* FWCI $= 1.00$: El documento ha recibido la misma cantidad de citas que el promedio mundial (rendimiento promedio).
+
+* FWCI $> 1.00$: El documento ha sido citado más de lo esperado. Por ejemplo, un FWCI de $2.50$ significa que la publicación ha recibido $150%$ más citas que el promedio (o $2.5$ veces más).
+
+* FWCI $< 1.00$: El documento ha sido citado menos de lo esperado. Por ejemplo, un FWCI de $0.80$ significa que tiene un $20%$ menos de citas que el promedio mundial.
+
+
+
+# Conclusión 
+
+El ejercicio consistió en realizar web scraping a los artículos publicados entre enero de 2025 y marzo de 2026 en el Journal of Behavioral Addictions, con el fin de analizar la presencia y el impacto de temas relacionados con inteligencia artificial, machine learning y estadística en la investigación actual sobre adicciones conductuales.
+
+Se extrajeron metadatos de 5 números de la revista (títulos, DOIs, autores, resúmenes, fechas, referencias y citas) utilizando rvest, httr2 y read_html_live (para simular clics en widgets dinámicos de citas).
+
+* Se complementó la información con la métrica Field-Weighted Citation Impact (FWCI) a través de la API de OpenAlex.
+
+* Los resúmenes se clasificaron automáticamente en cuatro categorías: Statistic, AI, Machine Learning y Other mediante detección de palabras clave.
+
+* Los datos limpiados se almacenaron en una base de datos SQLite, sobre la cual se ejecutaron 11 consultas SQL para responder preguntas cuantitativas.
