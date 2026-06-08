@@ -7,8 +7,7 @@
 ---
 
 ## Enlace de la Aplicación en Vivo
-La aplicación ha sido desplegada exitosamente en ShinyApps.io y está lista para su evaluación:
-**(https://qwbdau-wlucano.shinyapps.io/entrega_2/)**
+La aplicación ha sido desplegada exitosamente en ShinyApps.io y está lista para su evaluación: **https://qwbdau-wlucano.shinyapps.io/entrega_2/**
 
 ---
 
