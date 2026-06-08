@@ -2,7 +2,7 @@
 **Dashboard KDD: Nature Ecology & Evolution**  
 Sebastián Tabares-Segovia · `setabaress@unal.edu.co`  
 Universidad Nacional de Colombia — Facultad de Ciencias
-Readme crado con gpt(v.5.0)
+Readme creado con gpt(v5.0)
 
 ---
 
