@@ -1,4 +1,4 @@
-# 🔬 Entrega 2: Springer Visual Miner | Plataforma de Minería de Datos
+# Entrega 2: Springer Visual Miner | Plataforma de Minería de Datos
 
 **Estudiante:** Winston Obeymar Lucano Villota 
 **Materia:** Mineria De Datos
@@ -6,13 +6,13 @@
 
 ---
 
-## 🌐 Enlace de la Aplicación en Vivo
+## Enlace de la Aplicación en Vivo
 La aplicación ha sido desplegada exitosamente en ShinyApps.io y está lista para su evaluación:
 **[👉 CLIC AQUÍ PARA ABRIR LA APLICACIÓN 👈](https://qwbdau-wlucano.shinyapps.io/entrega_2/)**
 
 ---
 
-## 🎯 Guía de Evaluación para el Profesor
+## Guía de Evaluación para el Profesor
 
 Para revisar todas las funcionalidades técnicas implementadas en esta plataforma, sugiero seguir este flujo de revisión:
 
@@ -37,9 +37,8 @@ En esta sección se encuentra el motor de actualización de datos.
 
 ---
 
-## 🛠️ Arquitectura y Tecnologías Utilizadas
+## Arquitectura y Tecnologías Utilizadas
 
-* **Lenguaje:** R (>= 4.0.0)
 * **Framework Web:** Shiny (con `shinyjs` para inyección de JavaScript)
 * **Base de Datos:** Motor `RSQLite` integrado.
 * **Manejo de Datos:** `dplyr`, `tidyr` (Tidyverse)
