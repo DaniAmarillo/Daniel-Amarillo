@@ -1,8 +1,9 @@
 # Taller 2 — Minería de Datos (2016325)
+*Readme creado con gpt(v5.0)*
 **Dashboard KDD: Nature Ecology & Evolution**  
 Sebastián Tabares-Segovia · `setabaress@unal.edu.co`  
 Universidad Nacional de Colombia — Facultad de Ciencias
-Readme creado con gpt(v5.0)
+
 
 ---
 
