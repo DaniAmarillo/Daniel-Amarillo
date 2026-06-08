@@ -8,7 +8,7 @@
 
 ## Enlace de la Aplicación en Vivo
 La aplicación ha sido desplegada exitosamente en ShinyApps.io y está lista para su evaluación:
-**[ CLIC AQUÍ PARA ABRIR LA APLICACIÓN ](https://qwbdau-wlucano.shinyapps.io/entrega_2/)**
+**CLIC AQUÍ PARA ABRIR LA APLICACIÓN (https://qwbdau-wlucano.shinyapps.io/entrega_2/)**
 
 ---
 
