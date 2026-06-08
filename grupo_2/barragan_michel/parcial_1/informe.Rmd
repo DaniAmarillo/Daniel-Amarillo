@@ -1,0 +1,571 @@
+---
+title: "Taller 1. Minería de datos. Scrapping Journal of Statistical Software(JSS)"
+author: "Michel Mendivenson Barragán Zabala"
+date: "`r Sys.Date()`"
+output: 
+  rmdformats::html_clean:
+    thumbnails: false
+    lightbox: false
+    code_folding: show
+---
+
+# Introducción
+
+El *Journal of Statistical Software* (JSS) es una revista de acceso abierto de gran relevancia en la comunidad estadística y de ciencia de datos. Sus publicaciones abarcan software, algoritmosy métodos computacionales ampliamente utilizados en estadística aplicada, lo que la convierte en una fuente valiosa para estudiar tendencias temáticas y patrones de producción científica en el área.
+
+El presente taller tiene como objetivo aplicar técnicas de minería de datos sobre el contenido 
+publicado en el JSS. Para ello, se construyó un proceso de extracción automatizada (*scrapping*) de la información disponible en el sitio web de la revista, se complementaron los datos con métricas  de impacto obtenidas a través de la API pública de Semantic Scholar, y se realizó una clasificación temática automática de los artículos mediante un modelo de lenguaje (LLM) ejecutado localmente con Ollama. Toda la información recolectada fue almacenada en una base de datos SQLite para su posterior 
+consulta y análisis.
+
+# Fuentes de datos y scrapping
+
+## Implementación {.tabset}
+
+La principal fuente de datos es el sitio web del [JSS](https://www.jstatsoft.org), cuyo
+contenido se organiza en tres niveles jerárquicos de páginas, cada uno alojado en URLs
+independientes. El proceso de extracción sigue esta misma estructura, usando la URL de cada
+página como hilo conductor para conectar un nivel con el siguiente.
+
+La información extraída cubre cinco aspectos: el número identificador de cada volumen, su
+año de publicación y URL; los títulos y URLs de los artículos por volumen; el abstract, fecha
+de publicación, DOI y autores de cada artículo; las métricas de impacto de cada publicación;
+y el listado de referencias de cada artículo. La información de autoría (nombre y dirección
+ORCID) se almacenó de forma separada para facilitar la construcción de la base de datos
+relacional.
+
+Dado que la página del JSS es completamente estática, el proceso se implementó en R usando
+principalmente los paquetes `rvest`, `xml2` y `httr`. A continuación se listan los paquetes
+utilizados y su función dentro del script:
+
+```{r eval=FALSE, code=readLines("scrapping.R")[15:22]}
+```
+
+### Volúmenes del journal
+
+El punto de entrada es el archivo general de la revista, alojado en
+[`https://www.jstatsoft.org/issue/archive`](https://www.jstatsoft.org/issue/archive). Esta
+página lista todos los volúmenes publicados y es la única a la que se accede de forma directa.
+De ella se extrae el número identificador de cada volumen, su año de publicación y,
+crucialmente, la **URL individual de cada volumen**, que es la variable que permite pasar al
+siguiente nivel de extracción.
+
+```{r, eval=FALSE, code=readLines("scrapping.R")[41:78]}
+```
+
+Este paso produce la tabla `vol`, cuyas columnas son `id`, `order`, `year` y `url`. El campo
+`id` actuará como clave primaria en la base de datos y `url` como llave de acceso al siguiente
+nivel.
+
+### Identificación de artículos
+
+Cada volumen tiene su propia página dentro del JSS, accesible a través de las URLs extraídas
+en el paso anterior. Estas páginas listan todos los artículos publicados en ese volumen. De
+cada una se extrae el título, el número de issue y la **URL individual de cada artículo**,
+que es la variable que conecta con el siguiente nivel.
+
+```{r, eval=FALSE, code=readLines("scrapping.R")[94:122]}
+```
+
+El resultado de este paso es una tabla intermedia que contiene `vol.id`, `title`, `issue` y
+`url`. El campo `vol.id` hereda el identificador de `vol`, estableciendo desde esta etapa la
+relación entre artículos y volúmenes. La `url` de cada artículo es la llave de acceso al
+siguiente nivel.
+
+### Artículos
+
+La página individual de cada artículo, accesible a través de las URLs del paso anterior,
+contiene la información detallada de la publicación: abstract, fecha de publicación, DOI y
+datos de autoría. El **DOI** es la variable que cierra la cadena de scrapping del sitio del
+JSS, ya que permite consultar métricas de impacto y referencias en fuentes externas.
+
+```{r, eval=FALSE, code=readLines("scrapping.R")[147:192]}
+```
+
+Este paso produce dos tablas en lugar de una, con el fin de normalizar la información de
+autoría:
+
+- `articles`: contiene `vol.id`, `title`, `issue`, `url`, `abstract`, `date` y `DOI`. El
+`DOI` actuará como clave primaria de los artículos en la base de datos.
+- `art.aut.assoc`: tabla intermedia que relaciona cada autor con el artículo correspondiente
+mediante su `ORCID` y el `DOI` del artículo. Esta tabla dará lugar a la tabla puente
+`authorship` en la base de datos relacional.
+
+### Métricas de impacto
+
+Dado que el JSS no expone directamente ninguna métrica de impacto, la cantidad de citas, el
+número de referencias y el conteo de citas influyentes se obtuvieron a través de la API
+pública de [Semantic Scholar](https://www.semanticscholar.org/), consultando cada artículo
+mediante su DOI.
+
+El *influential citation count* es una métrica que, a diferencia del simple conteo de citas,
+busca identificar cuáles son realmente significativas para el trabajo que las referencia.
+Para ello emplea un modelo de clasificación supervisado que analiza el contexto textual en
+que aparece cada cita, determinando si el trabajo referenciado fue utilizado o extendido de
+forma sustancial. El enfoque metodológico fue presentado por Valenzuela et al. (2015) en
+[*Identifying Meaningful Citations*](https://api.semanticscholar.org/CorpusID:2538517),
+publicado en el *AAAI Workshop on Scholarly Big Data*.
+
+Las consultas se realizan de forma individual por DOI y el script incluye un mecanismo de
+reintento automático para manejar el límite de tasa (*rate limit*) de la API pública.
+
+```{r, eval=FALSE, code=readLines("scrapping.R")[234:283]}
+```
+
+Este paso no genera una tabla nueva sino que incorpora tres columnas adicionales directamente
+sobre `articles`: `citations`, `references` e `influential citations`. La tabla `articles`
+queda así como la tabla central del esquema relacional, referenciable desde cualquier otra
+tabla a través del `DOI`.
+
+### Extracción de referencias
+
+Si bien el endpoint de métricas de Semantic Scholar incluye un conteo de referencias, solo
+devuelve como máximo 100 por consulta. Para obtener el listado completo se usa el endpoint
+`/references`, que permite paginar los resultados en bloques de 100 hasta agotar todas las
+referencias de cada artículo.
+
+```{r, eval=FALSE, code=readLines("scrapping.R")[349:419]}
+```
+
+Este paso produce la tabla `references`, con tres columnas: `DOI.origin` (DOI del artículo
+que referencia), `DOI.reference` (DOI del artículo referenciado, cuando está disponible) y
+`paperId` (identificador interno de Semantic Scholar). Se incluye el `paperId` como respaldo
+dado que el DOI de una referencia no siempre está disponible en Semantic Scholar. En la base
+de datos, esta tabla se relaciona con `articles` mediante `DOI.origin`.
+
+### Funcionamiento principal
+
+El proceso se ejecuta de forma general para todos los años con publicaciones en el journal,
+por lo que puede tardar entre 10 y 30 minutos (con variaciones adicionales según la velocidad
+del modelo de Ollama en la máquina local). Por esa razón se incluyeron mensajes de avance a
+lo largo del script. En principio, el script completo debe correrse mediante `source()`:
+
+```{r eval=FALSE}
+source('scrapping.R')
+```
+
+Una vez finalizado, el log en consola debería verse así:
+
+```
+------------ JSS Articles Scraping ------------
+This process may take a while. Sound cues will
+play after each step and upon completion.
+
+Note: Article classification requires the
+ollama3.2:3b model running locally to work.
+
+* Retrieving volumes info: CHECK ✅     
+
+* Retrieving articles URLs: CHECK ✅              
+
+* Retrieving articles info: CHECK ✅              
+
+* Retrieving articles metrics: CHECK ✅
+
+* Classifying articles: CHECK ✅  
+
+* Retrieving references: CHECK ✅  
+
+------------ Scrapping complete ------------
+```
+
+Al finalizar el proceso estarán disponibles en el entorno las tablas `vol`, `articles`,
+`authors`, `authorship` y `references`, que conforman el esquema relacional que se
+describirá en la siguiente sección.
+
+**NOTA:** El proceso de clasificación también se incluye dentro del script `scrapping.R`,
+pero se discute en detalle en la sección [Clasificación temática].
+
+## {-} 
+
+## Limitaciones
+
+El sitio web del JSS no expone directamente ninguna métrica de impacto asociada a sus
+artículos: ni cantidad de citas, ni número de referencias, ni ningún indicador de relevancia
+dentro de la comunidad. Ante esto, dichas métricas se obtuvieron desde la API pública de
+Semantic Scholar. Sin embargo, esta fuente puede presentar discrepancias con respecto a otras
+plataformas como Google Scholar, particularmente en el conteo total de citaciones, por lo que
+la importancia real de un artículo podría no quedar adecuadamente reflejada en las métricas
+extraídas. A pesar de ello, dado que el *influential citation count* está estrechamente
+relacionado con el volumen total de citas, se optó por usar esta fuente de forma exclusiva
+para mantener la coherencia interna de las métricas.
+
+Del mismo modo, la dirección ORCID de los autores no se encuentra disponible en el sitio del
+JSS para artículos publicados antes del primer volumen de 2020, lo que limita la trazabilidad
+de la autoría en publicaciones más antiguas.
+
+# Construcción de la base SQLite
+
+A pesar de que la estrcutura de la que se ha dotado a los datos deberíoa prestarse para la definición de una base de datos relacionales. Se presumieron cosas desde un inicio que realmente no eran ciertas: 
+
+- Todos los autores no tienen ORCID por ende no debería usarse como ID
+- Hay errores en la relación de [ORCID y autor](https://www.jstatsoft.org/article/view/v101i02), en ocasiones varios autores en el mismo autor tienden a tener el mismo ORCID
+
+Por estas razones, solamente se crean tablas sin relaciones entre ellas y se poblan con la información que se obtuvo mediante el scrapping. No se tiene en cuenta el año 2019 en algunas de las preguntas principalmente porque los autores no tenían ORCID en las versiones iniciales de los artículos.
+
+```{r eval=FALSE,code=readLines('sql build.R')[17:137]}
+```
+
+Si bien la información de los autores podría completarse con otras fuentes (como Semantic Scholar) por el momento simplemente continuaremos con la información de la página del journal.
+
+```{r code=readLines('main.R')[8:10]}
+```
+
+
+# Consultas SQL
+
+> **¿Cuál es el número promedio de autores por paper?**
+>
+>  Debido a como se organizo la tabla de autores y autoría, simplemente con agrupar por DOI en la tabla authorship y contar la cantidad de elementos. Además de hacer left joins para identificar de qué año son los conteos.
+>
+> **En 2025 se tienen alrededor de 2.9 autores por artículo**
+
+## {.tabset}
+
+###  Consulta
+```{r code=readLines('main.R')[21:38]}
+```
+
+### Tabla
+
+```{r echo=FALSE}
+kableExtra::kable(avg_authors, col.names = c('Año', 'Autores promedio'))
+```
+### Gráfico
+
+```{r echo=FALSE, fig.align='center', fig.dim=c(8, 6)}
+plot(avg_authors,
+     type = 'l', main = 'Número promedio de autores por artículo',
+     xlab = "Año", ylab = 'Autores')
+
+rect(par("usr")[1], par("usr")[3], par("usr")[2], par("usr")[4],
+     col = "grey90", border = NA)
+grid(col = 'white')
+
+lines(avg_authors, lty = 'dashed', col = 'darkred', lwd = 2)
+```
+
+## {-}
+
+
+> **¿Cuántos artículos están relacionados con Machine Learning?**
+>
+> **De los 43 artículos escritos en 2025 solamente 3 presentaron aportes nuevos al campo del machine learning.**
+
+## {.tabset}
+
+###  Consulta
+```{r code=readLines('main.R')[43:54]}
+```
+
+### Tabla
+
+```{r echo=FALSE}
+kableExtra::kable(ml_count, col.names = c('Año', 'Artículos ML'))
+```
+
+### Gráfico
+
+```{r echo=FALSE, fig.align='center', fig.dim=c(8, 6)}
+plot(ml_count,
+     type = 'l', main = 'Artículos con aportes\nal campo de ML',
+     xlab = "Año", ylab = 'Artículos')
+
+rect(par("usr")[1], par("usr")[3], par("usr")[2], par("usr")[4],
+     col = "grey90", border = NA)
+grid(col = 'white')
+
+lines(ml_count, lty = 'dashed', col = 'darkred', lwd = 2)
+```
+
+## {-}
+
+> **¿Cuántos artículos están relacionados con IA generativa?**
+>
+> **De los 43 artículos escritos en 2025 ningunó presentó aportes nuevos al campo de la IA generativa**
+
+## {.tabset}
+
+###  Consulta
+```{r code=readLines('main.R')[57:66]}
+```
+
+### Tabla
+
+```{r echo=FALSE}
+kableExtra::kable(gen_count, col.names = c('Año', 'Artículos de IA generativa'))
+```
+
+## {-}
+
+> **¿Cuántos artículos están relacionados con otros temas estadísticos?**
+>
+> **De los 43 artículos escritos en 2025, 18 presentaron aportes nuevos a otros campos de la estadística.**
+
+## {.tabset}
+
+###  Consulta
+```{r code=readLines('main.R')[71:80]}
+```
+
+### Tabla
+
+```{r echo=FALSE}
+kableExtra::kable(sta_count, col.names = c('Año', 'Artículos Estadística'))
+```
+
+### Gráfico
+
+```{r echo=FALSE, fig.align='center', fig.dim=c(8, 6)}
+plot(sta_count,
+     type = 'l', main = 'Artículos con aportes\na otras temáticas estadísticas',
+     xlab = "Año", ylab = 'Artículos')
+
+rect(par("usr")[1], par("usr")[3], par("usr")[2], par("usr")[4],
+     col = "grey90", border = NA)
+grid(col = 'white')
+
+lines(sta_count, lty = 'dashed', col = 'darkred', lwd = 2)
+```
+
+## {-}
+
+> **¿Cuál es el número total de citaciones importantes de los artículos publicados en 2025?**
+>
+> **Los 43 articulos fueron usados un total de 33 veces como eje principal de otros artículos**
+
+## {.tabset}
+
+###  Consulta
+```{r code=readLines('main.R')[84:89]}
+```
+
+### Tabla
+
+```{r echo=FALSE}
+kableExtra::kable(infl_cites, col.names = c('Año', 'Citas influyentes'))
+```
+
+### Gráfico
+
+```{r echo=FALSE, fig.align='center', fig.dim=c(8, 6)}
+plot(infl_cites,
+     type = 'l', main = 'Citas influenciales por año',
+     xlab = "Año", ylab = 'No. de citas')
+
+rect(par("usr")[1], par("usr")[3], par("usr")[2], par("usr")[4],
+     col = "grey90", border = NA)
+grid(col = 'white')
+
+lines(infl_cites, lty = 'dashed', col = 'darkred', lwd = 2)
+```
+
+## {-}
+
+> **¿Cuál es el número promedio de referencias por artículo?**
+>
+> **Para el año 2025, se referenciaron en promedio 39 artículos.**
+
+## {.tabset}
+
+###  Consulta
+```{r code=readLines('main.R')[93:102]}
+```
+
+### Tabla
+
+```{r echo=FALSE}
+kableExtra::kable(avg_references, col.names = c('Año', 'Promedio de referencias'))
+```
+
+### Gráfico
+
+```{r echo=FALSE, fig.align='center', fig.dim=c(8, 6)}
+plot(infl_cites,
+     type = 'l', main = 'Promedio de referencias por año',
+     xlab = "Año", ylab = 'No. promedio de referencias')
+
+rect(par("usr")[1], par("usr")[3], par("usr")[2], par("usr")[4],
+     col = "grey90", border = NA)
+grid(col = 'white')
+
+lines(infl_cites, lty = 'dashed', col = 'darkred', lwd = 2)
+```
+
+## {-}
+
+
+
+> **¿Cuál es la referencia que más se repite en todos los artículos?**
+>
+> **Para los años 2022, 2024 y 2025 la referencia que se usa con más frecuencia es el artículo [ggplot2 - Elegant Graphics for Data Analysis](https://www.jstatsoft.org/article/view/v077b02) mientras que para los años 2019, 2020, 2021 y 2023 es el artículo [Rcpp: Seamless R and C++ Integration](https://www.jstatsoft.org/article/view/v040i08)**
+
+## {.tabset}
+
+###  Consulta
+```{r code=readLines('main.R')[107:135]}
+```
+
+### Tabla
+
+```{r echo=FALSE}
+kableExtra::kable(top_reference, col.names = c('Año', 'Referencia', 'Cantidad de citas'))
+```
+## {-}
+
+> **¿Cuál es el promedio de citas por artículo?**
+>
+> **Para el año 2025, se tienen en promedio 8 citas por artículo.**
+
+## {.tabset}
+
+###  Consulta
+```{r code=readLines('main.R')[139:147]}
+```
+
+### Tabla
+
+```{r echo=FALSE}
+kableExtra::kable(avg_citations, col.names = c('Año', 'Citas promedio'))
+```
+
+### Gráfico
+
+```{r echo=FALSE, fig.align='center', fig.dim=c(8, 6)}
+plot(avg_citations,
+     type = 'l', main = 'Citas promedio por año',
+     xlab = "Año", ylab = 'No. de citas')
+
+rect(par("usr")[1], par("usr")[3], par("usr")[2], par("usr")[4],
+     col = "grey90", border = NA)
+grid(col = 'white')
+
+lines(avg_citations, lty = 'dashed', col = 'darkred', lwd = 2)
+```
+
+## {-}
+
+> **¿Cuál es el paper con más citas?**
+>
+> **Para el año 2025, el paper Parsimoniously Fitting Large Multivariate Random Effects in glmmTMB dentro de la categoría Estadística ha sido el paper con más citaciones (198)**
+
+## {.tabset}
+
+###  Consulta
+```{r code=readLines('main.R')[151:162]}
+```
+
+### Tabla
+
+```{r echo=FALSE}
+kableExtra::kable(top_cited_by_year, col.names = c('Año', 'Artículo', 'Citas'))
+```
+
+## {-}
+
+
+
+> **¿Cuál es el paper relacionado con Machine Learning, IA generativa o Estadística con más citas?**
+>
+> **Para el año 2025, el paper Parsimoniously Fitting Large Multivariate Random Effects in glmmTMB dentro de la categoría Estadística ha sido el paper con más citaciones (198)**
+
+## {.tabset}
+
+###  Consulta
+```{r code=readLines('main.R')[167:180]}
+```
+
+### Tabla
+
+```{r echo=FALSE}
+kableExtra::kable(top_cited_topic, col.names = c('Año', 'Clasificación', 'Artículo', 'Citas'))
+```
+
+## {-}
+
+
+> **¿Cuál es el paper relacionado con Machine Learning, IA generativa o Estadística con más citas influyentes?**
+>
+> **Para el año 2025, el paper Parsimoniously Fitting Large Multivariate Random Effects in glmmTMB dentro de la categoría Estadística ha sido el paper con más citaciones influyenyes (24)**
+
+## {.tabset}
+
+###  Consulta
+```{r code=readLines('main.R')[185:198]}
+```
+
+### Tabla
+
+```{r echo=FALSE}
+kableExtra::kable(top_downloaded_topic, col.names = c('Año', 'Clasificación', 'Artículo', 'Citas influyentes'))
+```
+
+## {-}
+
+# Clasificación temática 
+
+# Clasificación temática
+
+La clasificación temática de los artículos se realizó de forma automática mediante un modelo 
+de lenguaje grande (LLM) ejecutado localmente con [Ollama](https://ollama.com/), evitando así 
+el envío de información a servicios externos y eliminando la dependencia de APIs de pago.
+
+El modelo empleado fue `llama3.2:3b`, una versión compacta y eficiente adecuada para tareas 
+de clasificación de texto. Cada artículo fue clasificado en una de cuatro categorías 
+mutuamente excluyentes a partir de su abstract:
+
+- **Machine Learning:** artículos relacionados con metodología de ML, incluyendo clustering, 
+clasificación, predicción, redes neuronales, aprendizaje supervisado/no supervisado e 
+implementaciones de software de algoritmos de ML.
+- **IA Generativa:** artículos relacionados con modelos generativos, incluyendo LLMs, 
+generación de texto e imágenes, modelos de difusión, GANs y transformers.
+- **Estadística:** artículos relacionados con metodología estadística, incluyendo inferencia, 
+pruebas de hipótesis, regresión, diseño experimental, modelos estadísticos y sus 
+implementaciones en software.
+- **Otro:** artículos que aplican métodos existentes a un dominio específico sin contribución 
+metodológica propia.
+
+El proceso se implementó dentro del script `scrapping.R` y puede resumirse así:
+
+```{r eval=FALSE, code=readLines("scrapping.R")[287:333]}
+```
+
+Para cada abstract, el modelo recibía un *system prompt* con instrucciones precisas que le 
+pedían responder en un formato estructurado, extrayendo un razonamiento explícito antes de 
+emitir la categoría final. Esto permite reproducir y auditar las decisiones de clasificación. 
+La temperatura se fijó en `0` y la semilla en `0513` para garantizar la reproducibilidad de 
+los resultados.
+
+El script verifica automáticamente que Ollama esté en ejecución y que el modelo 
+`llama3.2:3b` esté instalado antes de iniciar el proceso; en caso contrario, descarga el 
+modelo o solicita al usuario que inicie el servicio. La categoría asignada a cada artículo 
+quedó almacenada en la columna `topic` de la tabla `articles`, y fue utilizada posteriormente 
+en las consultas SQL para filtrar y comparar artículos según su área temática.
+
+# Conclusión
+
+El ejercicio permitió construir un pipeline completo de extracción, almacenamiento y análisis 
+de información bibliométrica sobre el JSS, integrando scrapping web, consultas a una API 
+externa y clasificación automática mediante un LLM local. Sin embargo, el proceso evidenció 
+algunas limitaciones que vale la pena destacar.
+
+En cuanto a las métricas de impacto, si bien Semantic Scholar ofrece una cobertura amplia y 
+una API de acceso libre, las cifras de citación que reporta difieren de forma notable de las 
+de otras plataformas como Google Scholar. Esto implica que las conclusiones derivadas de 
+dichas métricas deben interpretarse con cautela, ya que podrían no reflejar con precisión la 
+relevancia real de los artículos dentro de la comunidad. En futuros ejercicios sería 
+recomendable contrastar las métricas entre fuentes o justificar explícitamente la elección de 
+una sobre otra.
+
+Por otro lado, la ausencia de DOI en algunos artículos del sitio del JSS dificultó la 
+construcción de la base de datos relacional, dado que el DOI actúa como clave primaria de la 
+tabla `articles` y como punto de entrada a Semantic Scholar. Para subsanar esto, sería 
+necesario modificar parcialmente el esquema de scrapping, ya sea incorporando un identificador 
+alternativo o complementando la información desde otras fuentes.
+
+Respecto a los patrones temáticos, los resultados son coherentes con la naturaleza del journal: 
+al tratarse de una revista especializada en software estadístico, es esperable que artículos 
+como los de `ggplot2` y `Rcpp` sean los más referenciados, dada su importancia central en el 
+ecosistema de R y su uso transversal en el desarrollo de nuevos paquetes. Sin embargo, los 
+artículos con mayor número de citas en cada año raramente corresponden a desarrollos de 
+software para R; en cambio, tienden a abordar metodologías de mayor alcance, como modelos 
+jerárquicos o análisis de texto. Esto sugiere que, a diferencia de lo que podría ocurrir en otros journals, el impacto medido por citaciones en el JSS no necesariamente recae sobre las contribuciones de software más utilizadas, sino sobre aquellas con mayor proyección metodológica.
