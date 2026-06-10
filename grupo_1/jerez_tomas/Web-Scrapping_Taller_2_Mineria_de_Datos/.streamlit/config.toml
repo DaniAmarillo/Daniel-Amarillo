@@ -1,0 +1,14 @@
+# Configuración de Streamlit — tema cyberpunk neón morado
+[theme]
+base = "dark"
+primaryColor = "#bd00ff"
+backgroundColor = "#0a0612"
+secondaryBackgroundColor = "#1a0d2e"
+textColor = "#e8d8ff"
+font = "monospace"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
