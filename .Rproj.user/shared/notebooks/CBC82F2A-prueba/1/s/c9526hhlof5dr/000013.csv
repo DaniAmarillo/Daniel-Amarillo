@@ -1,0 +1,6 @@
+"0","dbGetQuery(con, """
+"0","  SELECT title, citations"
+"0","  FROM papers"
+"0","  ORDER BY citations DESC"
+"0","  LIMIT 1"
+"0",""")"

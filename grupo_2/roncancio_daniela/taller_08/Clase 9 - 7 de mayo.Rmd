@@ -1,0 +1,250 @@
+---
+title: 'Clase 9: 7 de mayo'
+author: "Daniela Roncancio Gomez"
+date: "2026-05-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+install.packages("tidyverse")
+install.packages("tidymodels")
+
+library(tidyverse)
+library(tidymodels)
+library(moments)
+```
+
+
+
+## Ejercicio 1: ¿es normal la distribución de notas?
+
+Antes de responder estas preguntas es importante conocer el data set, para ello se va a explorar la dimensión, variables, tipos y  valores faltantes.
+
+```{r}
+set.seed(2025)
+
+n <- 400
+estudiantes <- tibble(
+  id         = 1:n,
+  programa   = sample(c("Estadística","Sistemas","Economía","Matemáticas"),
+                      n, replace = TRUE, prob = c(.3,.3,.25,.15)),
+  semestre   = sample(1:10, n, replace = TRUE),
+  sexo       = sample(c("Mujer","Hombre"), n, replace = TRUE),
+  nota_final = round(rnorm(n, mean = 3.5, sd = 0.7), 1) |> pmin(5) |> pmax(0),
+  horas_sem  = round(rnorm(n, mean = 18, sd = 5)),
+  beca       = sample(c("Sí","No"), n, replace = TRUE, prob = c(.3,.7))
+)
+```
+
+```{r}
+# Dimensiones
+dim(estudiantes)
+
+# Tipos de variables y valores faltantes
+str(estudiantes)
+```
+
+El dataset contiene 400 estudiantes con 7 variables sin valores faltantes. Incluye 3 variables categóricas (programa, sexo, beca) y 4 numéricas (id, semestre, nota_final, horas_sem).
+
+```{r}
+# Resumen estadístico
+summary(estudiantes)
+
+# Valores faltantes por variable
+colSums(is.na(estudiantes))
+```
+No tiene valores faltantes. El dataset está completo ya que fue generado sintéticamente con sample y rnorm.
+
+Se aplica una prueba formal de normalidad a nota_final para cada programa por separado.
+
+
+```{r}
+# Prueba de Shapiro-Wilk por programa
+estudiantes |>
+  group_by(programa) |>
+  summarise(
+    W       = shapiro.test(nota_final)$statistic,
+    p_valor = shapiro.test(nota_final)$p.value
+  )
+```
+
+1. ¿En qué programas se rechaza normalidad con alpha = 0.05?
+
+En todos los programas se acepta la normalidad de las notas finales con un nivel de significancia de 0.05.
+
+2. Construye el QQ-plot para el programa con el p-valor más bajo. ¿Qué patrón ves en las colas?
+
+```{r}
+estudiantes |>
+  filter(programa == "Matemáticas") |>
+  ggplot(aes(sample = nota_final)) +
+  stat_qq() +
+  stat_qq_line() +
+  labs(title = "QQ-plot - Matemáticas",
+       x = "Cuantiles teóricos",
+       y = "Cuantiles observados")
+```
+
+Las colas se desvían ligeramentede la línea diagonal.La mayoría de puntos en la cola izquierda están por encima de la línea, lo que indica que las notas bajas no son tan extremas, solo unas cuantas se comportan de esta forma.Por otro lado, en la cola derecha los puntos están por encima de la línea también, lo que indica que las notas altas son más extremas de lo esperado. 
+
+3. Si la distribución no es normal, ¿qué implicaciones tiene para pruebas de hipótesis posteriores?
+
+Las pruebas paramétricas como t-test o ANOVA asumen normalidad. Si se viola este supuesto los p-valores y los intervalos de confianza pueden ser incorrectos, llevando a conclusiones erróneas sobre diferencias entre grupos.
+
+Sin embargo, con muestras grandes como esta (n=400) el Teorema del Límite Central garantiza que las medias se distribuyen normalmente sin importar la distribución original, lo que hace que pruebas como ANOVA sean robustas.
+
+## Ejercicio 2: estadísticos robustos y sesgo
+
+Construye una tabla que compare estimadores clásicos y robustos de centralidad y dispersión.
+
+
+```{r}
+estudiantes |>
+  group_by(programa) |>
+  summarise(
+    media       = mean(nota_final),
+    mediana     = median(nota_final),
+    media_recortada = mean(nota_final, trim = 0.1),  # trim 10%
+    mad         = mad(nota_final),                   # desv. absoluta mediana
+    cv          = sd(nota_final) / mean(nota_final), # coef. variación
+    asimetria   = (mean(nota_final) - median(nota_final)) / sd(nota_final)
+  )
+```
+
+1. ¿Qué programa muestra mayor discrepancia entre media y media recortada? ¿Qué indica?
+
+Matemáticas muestra la mayor discrepancia entre media (3.587) y media recortada (3.568), una diferencia de 0.019. Esto indica que hay algunos valores extremos en los extremos de la distribución que están jalando la media hacia arriba. La media recortada elimina el 10% de los valores más altos y más bajos, por lo que si difiere de la media es señal de que hay valores atípicos o asimetría en los datos.
+
+2. Interpreta el coeficiente de asimetría de Pearson: ¿en qué dirección sesga cada distribución?
+
+```{r}
+pearson <- estudiantes |>
+  group_by(programa) |>
+  summarise(
+    asimetria = skewness(nota_final)
+  )
+pearson
+```
+
+Los programas de Economía,Estadística y Sistemas tienen  un sesgo negativo, luego la cola izquierda es más larga, luego hay más estudiantes con notas altas y pocos con notas muy bajas. Mientras que en Matemáticas hay un sesgo positivo o qque hace que la cola derecha sea más larga, e indica que hay más estudiantes con notas bajas y pocos con notas muy altas. La media es mayor que la mediana.
+
+3. ¿Cuándo preferirías reportar la MAD en lugar de la desviación estándar?
+
+Preferiría reportar la MAD (Desviación Absoluta Mediana) en lugar de las desviación estándar cuando haya valores atípicos en los datos. La desviación estándar eleva las diferencias al cuadrado, lo que hace que los outliers la inflen artificialmente. La MAD usa la mediana y valores absolutos, siendo mucho más resistente a esos extremos.
+
+## Ejercicio 3: valores atípicos
+
+Compara dos criterios de detección de outliers y discute sus diferencias.
+
+```{r}
+detectar_outliers <- function(x) {
+  q1  <- quantile(x, 0.25); q3 <- quantile(x, 0.75)
+  iqr <- q3 - q1
+  z   <- (x - mean(x)) / sd(x)
+  tibble(
+    valor      = x,
+    outlier_iqr = x < (q1 - 1.5 * iqr) | x > (q3 + 1.5 * iqr),
+    outlier_z   = abs(z) > 3
+  )
+}
+
+estudiantes |>
+  group_by(programa) |>
+  reframe(detectar_outliers(nota_final)) |>
+  summarise(n_iqr = sum(outlier_iqr), n_z = sum(outlier_z))
+```
+
+1. ¿Coinciden los dos criterios? ¿Cuándo podría el criterio Z fallar con muestras pequeñas?
+
+Sí, en este caso ambos coinciden con 0 outliers, lo que confirma que las notas finales están bien distribuidas sin valores extremos en ningún programa. El criterio Z usa la media y desviación estándar, que son sensibles a outliers. Con muestras pequeñas esto genera un problema llamado enmascaramiento.
+
+2. Visualiza los outliers detectados por IQR vs Z sobre un boxplot con geom_point() en color rojo.
+
+
+```{r}
+estudiantes |>
+  group_by(programa) |>
+  reframe(detectar_outliers(nota_final)) |>
+  pivot_longer(cols = c(outlier_iqr, outlier_z),
+               names_to = "metodo",
+               values_to = "es_outlier") |>
+  ggplot(aes(x = programa, y = valor)) +
+  geom_boxplot() +
+  geom_point(aes(color = es_outlier), size = 2) +
+  scale_color_manual(values = c("FALSE" = "gray", "TRUE" = "red")) +
+  facet_wrap(~metodo) +
+  labs(title = "Comparación de métodos de detección de outliers",
+       x = "Programa", y = "Nota final",
+       color = "Outlier")
+```
+
+3. ¿Eliminarías esos puntos del análisis? Justifica estadísticamente? 
+
+No eliminaría ningún punto porque ambos criterios detectaron 0 outliers. Además las notas están acotadas entre 0 y 5 por construcción, lo que impide valores extremos. Si existieran outliers solo los eliminaría si fueran errores de captura, no si representan estudiantes reales, ya que eliminarlos introduciría sesgo en el análisis.
+
+## Ejercicio 4: correlación y su significancia
+
+Analiza la relación entre horas de estudio y nota final usando dos coeficientes.
+
+```{r}
+# Pearson (asume linealidad y normalidad) vs Spearman (no paramétrico)
+estudiantes |>
+  group_by(programa) |>
+  summarise(
+    r_pearson  = cor(horas_sem, nota_final, method = "pearson"),
+    r_spearman = cor(horas_sem, nota_final, method = "spearman"),
+    p_pearson  = cor.test(horas_sem, nota_final, method = "pearson")$p.value,
+    p_spearman = cor.test(horas_sem, nota_final, method = "spearman", exact = FALSE)$p.value
+  )
+```
+1. ¿En qué programas hay correlación significativa? ¿Pearson y Spearman coinciden?
+
+Solo Estadística y Matemáticas muestran correlación significativa entre horas de estudio y nota final. Además, ambos coinciden en todos los programas. Donde uno es significativo el otro también lo es, y donde uno no lo es el otro tampoco. Esto sugiere que la relación entre horas y nota es lineal y sin outliers influyentes, ya que si hubiera no linealidad o outliers Spearman daría resultados diferentes a Pearson.
+
+2. Si Spearman > Pearson en algún programa, ¿qué sugiere sobre la forma de la relación?
+
+Pearson mide relaciones estrictamente lineales, Spearman mide relaciones monótonas en general, es decir que cuando una variable sube la otra también sube, pero no necesariamente de forma proporcional. Luego, si Spearman es mayor que Pearson sugiere que la relación entre horas de estudio y nota final es monótona pero no lineal.
+
+3. Grafica el dispersograma con geom_smooth(method = “lm”) separado por programa con facet_wrap().
+
+```{r}
+estudiantes |>
+  ggplot(aes(x = horas_sem, y = nota_final)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~programa) +
+  labs(title = "Dispersograma separado por programa",
+         x = "Horas semanales", y = "Nota final",
+  )
+  
+```
+
+## Ejercicio 5: comparación de grupos con tamaño del efecto
+
+Prueba si las notas difieren entre programas y cuantifica qué tan grande es esa diferencia.
+
+
+```{r}
+# Kruskal-Wallis (no paramétrico, no asume normalidad)
+kruskal.test(nota_final ~ programa, data = estudiantes)
+
+# Tamaño del efecto: eta-cuadrado de Kruskal-Wallis
+# eta^2 = (H - k + 1) / (n - k)  donde H es el estadístico y k el número de grupos
+H <- kruskal.test(nota_final ~ programa, data = estudiantes)$statistic
+k <- n_distinct(estudiantes$programa)
+n <- nrow(estudiantes)
+eta2 <- (H - k + 1) / (n - k)
+eta2
+```
+
+1. ¿Se rechaza la hipótesis nula? Interpreta el p-valor en contexto.
+
+Como el p-valor (0.7784) > 0,05 se tiene que las notas finales son iguales en todos los programas. No hay evidencia estadística suficiente para concluir que las notas difieren entre programas.
+
+2. Interpreta eta-cuadrado: ¿el efecto es pequeño (< 0.06), mediano (0.06-0.14) o grande (> 0.14)?
+
+El tamaño del efecto (eta^2) es -0.005, que es prácticamente cero y negativo, lo que confirma que no hay ninguna diferencia entre grupos.
+
+3. Si hay diferencias, aplica Dunn con corrección de Bonferroni para identificar qué pares difieren.
+
+No tiene séntido aplicar Dunn porque no hay diferencias significativas entre programas.
