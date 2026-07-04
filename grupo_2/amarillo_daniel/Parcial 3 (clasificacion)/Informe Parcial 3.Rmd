@@ -1,0 +1,50 @@
+---
+title: "Informe Parcial 3"
+author: "Daniel Eduardo Amarillo Echeverry"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Inconsistencias
+- Beneficiarios con 2 sexos diferentes, de tipos diferentes
+- Beneficiarios con fechas de nacimientos mayores que el 2026 y de 120 años o más 
+- Edad y genero no informado en agunas ocaciones
+
+#Predicción 
+
+### Regresión Logística (Con sobremuestreo)
+
+* se elimina la variable con numero de procedimientos por ser combinacion lineal de los tipos de especialidad a los que ha accedido
+
+* Variables con vif alto por poca confiabilidad 
+
+VALOR_PROCEDIMENTO_TOTAL      14.194152  1        3.767513
+TIPO_UNIDADE_PREST_HOSPITALAR 45.535066 28        1.070566
+UF_CNES_PREST_HOSPITALAR      21.236812 27        1.058219
+SEXO_BENEFICIARIO             35.953940  3        1.816733
+TIPO_BENEFICIARIO             43.597699  9        1.233336
+
+* se elminino la variable TIPO_UNIDADE_PREST_HOSPITALAR debido a la cantidad de niveles que no se repiten (o algo asi)
+
+## Metricas del modelo
+---- Resumen de metricas en TEST ----
+Accuracy:       0.9046 
+Sensibilidad:   0.6442 
+Especificidad:  0.9048 
+F1-score:       0.0085 #BAJISIMO
+ROC-AUC:        0.8411 
+PR-AUC:         0.0072 #BAJISIMO
+
+## XGBOOSt
+
+---- Resumen de metricas en TEST (XGBoost) ----
+Accuracy:       0.9996 
+Sensibilidad:   0.5 
+Especificidad:  0.9999 
+F1-score:       0.6228 
+ROC-AUC:        0.9814 
+PR-AUC:         0.6942 
