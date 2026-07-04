@@ -48,3 +48,12 @@ Especificidad:  0.9999
 F1-score:       0.6228 
 ROC-AUC:        0.9814 
 PR-AUC:         0.6942 
+
+## Random Forest
+---- Resumen de metricas en TEST (Random Forest) ----
+Accuracy:       0.9996 
+Sensibilidad:   0.6346 
+Especificidad:  0.9998 
+F1-score:       0.6471 
+ROC-AUC:        0.9798 
+PR-AUC:         0.7189 

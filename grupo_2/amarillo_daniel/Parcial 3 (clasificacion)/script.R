@@ -1,8 +1,10 @@
 paquetes <- c(
   "tidyverse","lubridate","hrbrthemes","forcats","scales","car","PRROC","pROC","caret","xgboost","Matrix",
-  "SHAPforxgboost"
+  "SHAPforxgboost","ranger","pdp","vip"
   
 )
+
+ 
 instalados <- rownames(installed.packages())
 pendientes <- setdiff(paquetes, instalados)
 
@@ -13,7 +15,7 @@ if (length(pendientes) > 0) {
 lapply(paquetes, library, character.only = TRUE)
 
 
-db_2026 <- read.csv("C:/Users/User/Downloads/db_2026.csv")
+db_2026 <- read.csv("C:/Users/juanc/Downloads/db_2026.csv")
 db_2026$DT_NASCIMENTO_BENEFICIARIO <- ymd(db_2026$DT_NASCIMENTO_BENEFICIARIO) 
 db_2026$DT_UTILIZACAO <- ymd(db_2026$DT_UTILIZACAO)
 db_2026$CID <- str_squish(db_2026$CID)
@@ -27,8 +29,8 @@ view(x)
 anx <- db_2026[c("CHAVE_FUNCIONAL","CID")] |> filter(str_detect(CID,"F41\\.*"))
 pc_anx <- unique(anx$CHAVE_FUNCIONAL)
 # CREACIÓN variable objetivo
-table(db_2026$ANSIEDADE)
 db_2026$ANSIEDADE <- as.integer(db_2026$CHAVE_FUNCIONAL %in% pc_anx)
+table(db_2026$ANSIEDADE)
 
 
 df_benef <- unique(db_2026[c("CHAVE_FUNCIONAL","DT_NASCIMENTO_BENEFICIARIO","ANSIEDADE")])
@@ -287,7 +289,7 @@ colnames(df_benef)[colnames(df_benef) == "Internação"] <- "Internacao"
 
 set.seed(2016325)  # semilla fija 
 
-## ---- 2. Verificaciones previas a modelar ----
+## ---- REGRESIÓN LOGÍSTICA----
 
 # 2.1 Verificar que ANSIEDADE es binaria y no tiene NA
 stopifnot(all(df_benef$ANSIEDADE %in% c(0, 1)))
@@ -449,7 +451,7 @@ resultados_logit <- tibble(
 )
 ##### XGBOOST ####
 
-## ---- 1. Punto de partida ----
+## ---- XGBoost ----
 # Se reutilizan train_data y test_data del script 03 (ANTES del upSample,
 # ya que XGBoost maneja el desbalance internamente via scale_pos_weight,
 # sin necesidad de duplicar observaciones).
@@ -707,3 +709,215 @@ resultados_xgb_solo <- tibble(
   pr_auc        = pr_auc_xgb,
   umbral        = umbral_optimo_xgb
 )
+## ---- Random Forest ----
+str(train_data$ANSIEDADE)  # debe ser factor "No"/"Si"
+
+## ---- 2. Manejo del desbalance de clases ----
+
+# class.weights: se asigna mas peso a la clase minoritaria, en el mismo
+# espiritu que 'pesos' en la logistica y 'scale_pos_weight' en XGBoost
+prop_clases <- prop.table(table(train_data$ANSIEDADE))
+pesos_clase <- c("No" = 1 / prop_clases[["No"]], "Si" = 1 / prop_clases[["Si"]])
+pesos_clase <- pesos_clase / sum(pesos_clase)  # normalizar
+print(pesos_clase)
+
+## ---- 3. Validacion cruzada para tuning de hiperparametros ----
+
+# Grid reducido y razonable; ajustar segun tiempo de computo disponible
+grid_params <- expand.grid(
+  mtry          = c(floor(sqrt(ncol(train_data) - 1)),
+                    floor((ncol(train_data) - 1) / 3),
+                    floor((ncol(train_data) - 1) / 2)),
+  min.node.size = c(1, 5, 10),
+  num.trees     = c(500)
+)
+grid_params <- distinct(grid_params)
+
+k <- 5
+folds <- createFolds(train_data$ANSIEDADE, k = k, list = TRUE, returnTrain = FALSE)
+
+resultados_cv <- list()
+
+for (i in seq_len(nrow(grid_params))) {
+  
+  pr_auc_folds <- numeric(k)
+  
+  for (f in seq_len(k)) {
+    idx_val   <- folds[[f]]
+    fold_train <- train_data[-idx_val, ]
+    fold_val   <- train_data[idx_val, ]
+    
+    modelo_fold <- ranger(
+      formula        = ANSIEDADE ~ .,
+      data           = fold_train,
+      num.trees      = grid_params$num.trees[i],
+      mtry           = grid_params$mtry[i],
+      min.node.size  = grid_params$min.node.size[i],
+      class.weights  = pesos_clase,
+      probability    = TRUE,     # necesario para obtener probabilidades
+      importance     = "none",   # se calcula solo en el modelo final
+      seed           = 2016325
+    )
+    
+    pred_val <- predict(modelo_fold, data = fold_val)$predictions[, "Si"]
+    
+    pr_fold <- pr.curve(
+      scores.class0 = pred_val[fold_val$ANSIEDADE == "Si"],
+      scores.class1 = pred_val[fold_val$ANSIEDADE == "No"],
+      curve = FALSE
+    )
+    pr_auc_folds[f] <- pr_fold$auc.integral
+  }
+  
+  resultados_cv[[i]] <- tibble(
+    mtry          = grid_params$mtry[i],
+    min.node.size = grid_params$min.node.size[i],
+    num.trees     = grid_params$num.trees[i],
+    pr_auc_cv     = mean(pr_auc_folds)
+  )
+  
+  cat("Config", i, "de", nrow(grid_params), "- PR-AUC promedio:",
+      round(mean(pr_auc_folds), 4), "\n")
+}
+
+tabla_cv <- bind_rows(resultados_cv) %>% arrange(desc(pr_auc_cv))
+print(tabla_cv)
+
+mejor_config <- tabla_cv %>% slice(1)
+print(mejor_config)   #  mtry min.node.size num.trees pr_auc_cv
+                       #  1     5             1       500     0.706
+
+## ---- 4. Entrenamiento del modelo final con los mejores hiperparametros ----
+
+modelo_rf <- ranger(
+  formula        = ANSIEDADE ~ .,
+  data           = train_data,
+  num.trees      = mejor_config$num.trees,
+  mtry           = mejor_config$mtry,
+  min.node.size  = mejor_config$min.node.size,
+  class.weights  = pesos_clase,
+  probability    = TRUE,
+  importance     = "permutation",  # importancia mas confiable que Gini
+  seed           = 2016325
+)
+
+print(modelo_rf)
+
+## ---- 5. Seleccion de umbral optimo (mismo criterio que los otros modelos) ----
+
+pred_prob_train_rf <- predict(modelo_rf, data = train_data)$predictions[, "Si"]
+
+roc_train_rf <- roc(response = train_data$ANSIEDADE, predictor = pred_prob_train_rf,
+                    levels = c("No", "Si"), direction = "<")
+
+umbral_optimo_rf <- coords(roc_train_rf, "best", best.method = "youden")$threshold
+cat("Umbral optimo Random Forest (train):", umbral_optimo_rf, "\n")
+
+## ---- 6. Evaluacion en TEST ----
+
+pred_prob_test_rf  <- predict(modelo_rf, data = test_data)$predictions[, "Si"]
+pred_clase_test_rf <- factor(ifelse(pred_prob_test_rf >= umbral_optimo_rf, "Si", "No"),
+                             levels = c("No", "Si"))
+
+matriz_conf_rf <- confusionMatrix(pred_clase_test_rf, test_data$ANSIEDADE, positive = "Si")
+print(matriz_conf_rf)
+
+accuracy_rf      <- matriz_conf_rf$overall["Accuracy"]
+sensibilidad_rf  <- matriz_conf_rf$byClass["Sensitivity"]
+especificidad_rf <- matriz_conf_rf$byClass["Specificity"]
+f1_rf            <- matriz_conf_rf$byClass["F1"]
+
+roc_test_rf <- roc(response = test_data$ANSIEDADE, predictor = pred_prob_test_rf,
+                   levels = c("No", "Si"), direction = "<")
+roc_auc_rf  <- auc(roc_test_rf)
+
+pr_test_rf <- pr.curve(
+  scores.class0 = pred_prob_test_rf[test_data$ANSIEDADE == "Si"],
+  scores.class1 = pred_prob_test_rf[test_data$ANSIEDADE == "No"],
+  curve = TRUE
+)
+pr_auc_rf <- pr_test_rf$auc.integral
+
+cat("\n---- Resumen de metricas en TEST (Random Forest) ----\n")
+cat("Accuracy:      ", round(accuracy_rf, 4), "\n")
+cat("Sensibilidad:  ", round(sensibilidad_rf, 4), "\n")
+cat("Especificidad: ", round(especificidad_rf, 4), "\n")
+cat("F1-score:      ", round(f1_rf, 4), "\n")
+cat("ROC-AUC:       ", round(roc_auc_rf, 4), "\n")
+cat("PR-AUC:        ", round(pr_auc_rf, 4), "\n")
+
+# Referencia: PR-AUC esperado bajo azar = prevalencia de la clase positiva
+prevalencia_test <- mean(test_data$ANSIEDADE == "Si")
+cat("PR-AUC baseline (azar):", round(prevalencia_test, 4), "\n")
+
+## ---- 7. Curvas ROC y PR ----
+
+plot(roc_test_rf, main = "Curva ROC - Random Forest (TEST)")
+plot(pr_test_rf, main = "Curva Precision-Recall - Random Forest (TEST)")
+
+## ---- 8. Interpretacion: importancia de variables ----
+
+# 8.1 Importancia por permutacion (nativa del modelo)
+importancia_rf <- sort(modelo_rf$variable.importance, decreasing = TRUE)
+print(head(importancia_rf, 15))
+
+vip(modelo_rf, num_features = 15,
+    geom = "col", aesthetics = list(fill = "steelblue")) +
+  ggtitle("Importancia de variables - Random Forest (permutacion)")
+
+# 8.2 Grafico de dependencia parcial (PDP) para la variable mas importante
+variable_top_rf <- names(importancia_rf)[1]
+
+# pdp::partial requiere una funcion de prediccion que devuelva un vector numerico
+pred_wrapper <- function(object, newdata) {
+  predict(object, data = newdata)$predictions[, "Si"]
+}
+
+pdp_rf <- partial(
+  modelo_rf,
+  pred.var    = variable_top_rf,
+  train       = train_data,
+  pred.fun    = pred_wrapper,
+  grid.resolution = 20
+)
+
+plotPartial(pdp_rf, main = paste("Dependencia parcial -", variable_top_rf))
+
+## ---- 9. Comparacion train vs test (chequeo de sobreajuste) ----
+
+pred_clase_train_rf <- factor(ifelse(pred_prob_train_rf >= umbral_optimo_rf, "Si", "No"),
+                              levels = c("No", "Si"))
+matriz_conf_train_rf <- confusionMatrix(pred_clase_train_rf, train_data$ANSIEDADE, positive = "Si")
+
+cat("\nAccuracy TRAIN:", round(matriz_conf_train_rf$overall["Accuracy"], 4),
+    " | Accuracy TEST:", round(accuracy_rf, 4), "\n")
+# Random Forest tiende a sobreajustar menos que arboles individuales,
+# pero revisa esta brecha de todas formas.
+
+## ---- 10. Comparacion final: Logistica vs XGBoost vs Random Forest ----
+
+resultados_rf <- tibble(
+  modelo        = "Random Forest",
+  accuracy      = accuracy_rf,
+  sensibilidad  = sensibilidad_rf,
+  especificidad = especificidad_rf,
+  f1_score      = f1_rf,
+  roc_auc       = as.numeric(roc_auc_rf),
+  pr_auc        = pr_auc_rf,
+  umbral        = umbral_optimo_rf
+)
+
+# Si ya existe una tabla de comparacion previa (logistica + xgboost), se anexa
+if (exists("tabla_comparacion")) {
+  tabla_comparacion <- bind_rows(tabla_comparacion, resultados_rf)
+} else if (exists("resultados_logit")) {
+  tabla_comparacion <- bind_rows(resultados_logit, resultados_rf)
+} else {
+  tabla_comparacion <- resultados_rf
+}
+
+print(tabla_comparacion)
+
+
+
+
