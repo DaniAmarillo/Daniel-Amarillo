@@ -1,6 +1,6 @@
 paquetes <- c(
   "tidyverse","lubridate","hrbrthemes","forcats","scales","car","PRROC","pROC","caret","xgboost","Matrix",
-  "SHAPforxgboost","ranger","pdp","vip"
+  "SHAPforxgboost","ranger","pdp","vip","MASS","broom","car","moments","splines","janitor","patchwork"
   
 )
 
@@ -15,7 +15,7 @@ if (length(pendientes) > 0) {
 lapply(paquetes, library, character.only = TRUE)
 
 
-db_2026 <- read.csv("C:/Users/juanc/Downloads/db_2026.csv")
+db_2026 <- read.csv("C:/Users/User/Downloads/db_2026.csv")
 db_2026$DT_NASCIMENTO_BENEFICIARIO <- ymd(db_2026$DT_NASCIMENTO_BENEFICIARIO) 
 db_2026$DT_UTILIZACAO <- ymd(db_2026$DT_UTILIZACAO)
 db_2026$CID <- str_squish(db_2026$CID)
@@ -45,7 +45,17 @@ find_mode <- function(x) {
   u <- unique(x)
   u[which.max(tabulate(match(x, u)))]
 }
+#funcion agrupar
+agrupar_categorias_raras <- function(x, min_freq = 30) {
+  frecuencias <- table(x)
+  categorias_raras <- names(frecuencias[frecuencias < min_freq])
+  x <- as.character(x)
+  x[x %in% categorias_raras] <- "Outro"
+  factor(x)
+}
 #####MODA DE CADA VARIABLE A NIVEL BENEFICIARIO QUE SE REPITE#######
+
+
 df_benef <-  db_2026 %>%
   group_by(CHAVE_FUNCIONAL) %>%
   summarise(
@@ -59,6 +69,7 @@ df_benef <- df_benef %>%
                                         "IGNORADO" ~ "Não Informado",
                                         .default = TIPO_BENEFICIARIO # Mantiene igual todo lo demás
   ))
+ # Mantiene igual todo lo demás
 df_benef <-  db_2026 %>%
   group_by(CHAVE_FUNCIONAL) %>%
   summarise(
@@ -84,6 +95,9 @@ df_benef <-  db_2026 %>%
     TIPO_UNIDADE_PREST_HOSPITALAR = find_mode(TIPO_UNIDADE_PREST_HOSPITALAR),
     .groups = "drop"                 # Drop grouping metadata
   ) |> left_join(df_benef)
+df_benef <- df_benef %>%
+  mutate(across(c(TIPO_UNIDADE_PREST_HOSPITALAR),
+                ~ agrupar_categorias_raras(.x, min_freq = 30)))
 ###ANÁLISIS DESCRIPTIVO####
 df_anx <- db_2026 |> filter(ANSIEDADE == 1)
 #Número de beneficiarios 
@@ -226,7 +240,7 @@ table(unique(db_2026[c("ANSIEDADE","CHAVE_FUNCIONAL")])$ANSIEDADE) #     0:65321
       VALOR_PROCEDIMENTO_TOTAL = sum(VALOR_UTILIZACAO),
       .groups = "drop"                 # Drop grouping metadata
     ) |> left_join(df_benef)
-##### VALOR DE PROCEDIMIENTO TOTAL #####
+##### NÚMERO DE PROCEDIMIENTO TOTAL #####
   df_benef <- db_2026 %>%
     group_by(CHAVE_FUNCIONAL) %>%
     summarise(
@@ -280,14 +294,13 @@ table(unique(db_2026[c("ANSIEDADE","CHAVE_FUNCIONAL")])$ANSIEDADE) #     0:65321
       N_DIAGNOSTICOS_DIFERENTES = length(unique(CID)),
       .groups = "drop"                 # Drop grouping metadata
     ) |> left_join(df_benef)
-  
 
 colnames(df_benef)[colnames(df_benef) == "Internação"] <- "Internacao"
 
 ##### FASE DE PREDICCION #####
 #####Regresión Logística #####
 
-set.seed(2016325)  # semilla fija 
+set.seed(12345) # semilla fija 
 
 ## ---- REGRESIÓN LOGÍSTICA----
 
@@ -921,3 +934,352 @@ print(tabla_comparacion)
 
 
 
+
+
+## ---- ESTIMACIÓN DE COSTO ----
+##
+## Se UTILIZAN LOS DATOS nivel de UTILIZACION (CHAVE_FUNCIONAL +
+## DT_UTILIZACAO) en vez de procedimiento individual o beneficiario,
+## porque:
+##   - A nivel de PROCEDIMIENTO se pierde el contexto de la atencion
+##     completa (una consulta puede tener varios procedimientos).
+##   - A nivel de BENEFICIARIO se mezclan utilizaciones de distinta
+##     naturaleza (una internacion cara con varias consultas baratas),
+##     lo que distorsiona el "costo tipico de una atencion".
+##   - A nivel de UTILIZACION se obtiene una unidad clinicamente
+##     interpretable: "cuanto cuesta en promedio una atencion a un
+##     beneficiario con esta enfermedad".
+##
+## Ajusta esta decision si tu enfoque conceptual es distinto, pero
+## DOCUMENTA Y JUSTIFICA la eleccion en tu taller_3.Rmd.
+
+# Filtrar solo utilizaciones de beneficiarios con la enfermedad seleccionada
+# (ajustar el filtro segun como identifiques la utilizacion especifica:
+# aqui se asume que se cuenta con el CID a nivel de transaccion)
+
+# Agregar a nivel de utilizacion (CHAVE_FUNCIONAL + DT_UTILIZACAO)
+# sumando el costo de todos los procedimientos de esa atencion, y
+# tomando el resto de caracteristicas como la moda/max de la atencion
+df_benef_costo<- df_benef |> 
+  filter(MEDIA_VALOR_PROCEDIMENTO > 0 & ANSIEDADE ==1)  # excluir registros de costo 0/negativo
+
+cat("Numero de utilizaciones analizadas:", nrow(df_benef_costo), "\n")
+
+## ---- 2. Analisis descriptivo del costo ----
+
+resumen_costo <- df_benef_costo %>%
+  summarise(
+    n            = n(),
+    media        = mean(MEDIA_VALOR_PROCEDIMENTO),
+    mediana      = median(MEDIA_VALOR_PROCEDIMENTO),
+    sd           = sd(MEDIA_VALOR_PROCEDIMENTO),
+    cv           = sd / mean(MEDIA_VALOR_PROCEDIMENTO),  # coef. de variacion
+    p25          = quantile(MEDIA_VALOR_PROCEDIMENTO, 0.25),
+    p75          = quantile(MEDIA_VALOR_PROCEDIMENTO, 0.75),
+    p95          = quantile(MEDIA_VALOR_PROCEDIMENTO, 0.95),
+    minimo       = min(MEDIA_VALOR_PROCEDIMENTO),
+    maximo       = max(MEDIA_VALOR_PROCEDIMENTO),
+    asimetria    = skewness(MEDIA_VALOR_PROCEDIMENTO),
+    curtosis     = kurtosis(MEDIA_VALOR_PROCEDIMENTO)
+  )
+
+print(resumen_costo)
+# Un coeficiente de variacion alto (>1) y asimetria positiva fuerte son
+# tipicos en datos de costos en salud: pocos casos muy costosos (colas
+# largas a la derecha) dominan la variabilidad. Esto justifica NO usar
+# un modelo lineal simple sobre el costo bruto.
+
+## ---- 3. Visualizacion de la distribucion ----
+ggplot(df_benef_costo, aes(x = MEDIA_VALOR_PROCEDIMENTO)) +
+  geom_histogram(bins = 50, fill = "steelblue", color = "white") +
+  labs(title = "Distribucion del costo por utilizacion",
+       x = "Costo (VALOR_UTILIZACAO agregado)", y = "Frecuencia")
+
+ggplot(df_benef_costo, aes(x = log1p(MEDIA_VALOR_PROCEDIMENTO))) +
+  geom_histogram(bins = 50, fill = "darkorange", color = "white") +
+  labs(title = "Distribucion del costo (escala log)",
+       x = "log(1 + costo)", y = "Frecuencia")
+# Si la version log se ve mucho mas simetrica, respalda usar un modelo
+# log-lineal o GLM Gamma con enlace log (ver seccion 5).
+
+## ---- 4. Analisis de valores extremos (outliers) ----
+
+# Metodo IQR para identificar outliers
+q1 <- quantile(df_benef_costo$MEDIA_VALOR_PROCEDIMENTO, 0.25)
+q3 <- quantile(df_benef_costo$MEDIA_VALOR_PROCEDIMENTO, 0.75)
+iqr <- q3 - q1
+limite_superior <- q3 + 1.5 * iqr
+
+n_outliers <- sum(df_benef_costo$MEDIA_VALOR_PROCEDIMENTO > limite_superior)
+pct_outliers <- n_outliers / nrow(df_benef) * 100
+
+cat("Limite superior (IQR):", round(limite_superior, 2), "\n")
+cat("Numero de outliers:", n_outliers, "(", round(pct_outliers, 2), "% )\n")
+
+# IMPORTANTE: en costos de salud, los "outliers" suelen ser casos reales
+# (internaciones largas, UCI, cirugias complejas), NO errores de datos.
+# No se recomienda eliminarlos sin evidencia de error; en su lugar, se
+# modelan explicitamente (ver GLM Gamma, que maneja bien colas largas).
+
+# Comparar caracteristicas de outliers vs no-outliers
+df_benef_costo %>%
+  mutate(es_outlier = MEDIA_VALOR_PROCEDIMENTO > limite_superior) %>%
+  group_by(es_outlier) %>%
+  summarise(
+    edad_promedio  = mean(EDADE, na.rm = TRUE),
+    costo_total_promedio = mean(MEDIA_VALOR_PROCEDIMENTO)
+  )
+# Si los outliers tienen mucha mayor tasa de UTI/internacion, confirma
+# que son casos clinicamente distintos y no errores -> se deben MODELAR,
+# no eliminar.
+
+## ---- 5. Modelo de costo esperado ----
+##
+## Se usa un GLM Gamma con enlace log en vez de regresion lineal simple,
+## porque:
+##   - El costo es estrictamente positivo (Gamma respeta ese soporte).
+##   - La varianza crece con la media (heterocedasticidad tipica de
+##     costos en salud) -> Gamma la modela naturalmente.
+##   - El enlace log da coeficientes interpretables como efectos
+##     multiplicativos (%) sobre el costo esperado.
+
+# Preparar variables predictoras (excluir identificadores)
+costo_modelo <- df_benef_costo %>%
+  mutate(across(where(is.character), as.factor)) %>%
+  mutate(across(where(is.factor), droplevels))  %>%  # por si quedan niveles vacios
+  dplyr::select(- CHAVE_FUNCIONAL,-ANSIEDADE,-N_PROCEDIMENTOS,-VALOR_PROCEDIMENTO_TOTAL,-MAX_VALOR_PROCEDIMENTO,-N_PROCEDIMENTOS_DIFERENTES)
+costo_modelo <- costo_modelo %>% filter(!is.na(EDADE))
+costo_modelo <- costo_modelo %>%
+  filter(TIPO_BENEFICIARIO != "Não Informado")
+
+# Recien ahora particionar
+
+idx_train_costo <- sample(seq_len(nrow(costo_modelo)),
+                          size = 0.75 * nrow(costo_modelo))
+train_costo <- costo_modelo[idx_train_costo, ]
+test_costo  <- costo_modelo[-idx_train_costo, ]
+
+modelo_costo <- glm(
+  MEDIA_VALOR_PROCEDIMENTO ~ . ,
+  data   = train_costo,
+  family = Gamma(link = "log"),
+  control = glm.control(maxit = 100, epsilon = 1e-8)  # default es maxit=25
+)
+
+
+summary(modelo_costo)
+# Verificar multicolinealidad
+print(vif(modelo_costo))
+
+## ---- 6. Evaluacion del modelo de costo ----
+
+pred_costo_test <- predict(modelo_costo, newdata = test_costo, type = "response")
+
+# Metricas de error tipicas para modelos de costo
+mae  <- mean(abs(pred_costo_test - test_costo$MEDIA_VALOR_PROCEDIMENTO))
+rmse <- sqrt(mean((pred_costo_test - test_costo$MEDIA_VALOR_PROCEDIMENTO)^2))
+mape <- mean(abs((pred_costo_test - test_costo$MEDIA_VALOR_PROCEDIMENTO) /
+                   test_costo$MEDIA_VALOR_PROCEDIMENTO)) * 100
+
+# R2 pseudo (correlacion al cuadrado entre observado y predicho)
+r2_pseudo <- cor(pred_costo_test, test_costo$MEDIA_VALOR_PROCEDIMENTO)^2
+
+cat("\n---- Metricas del modelo de costo (TEST) ----\n")
+cat("MAE:  ", round(mae, 2), "\n")
+cat("RMSE: ", round(rmse, 2), "\n")
+cat("MAPE: ", round(mape, 2), "%\n")
+cat("Pseudo R2:", round(r2_pseudo, 4), "\n")
+
+# Grafico observado vs predicho
+ggplot(data.frame(observado = test_costo$MEDIA_VALOR_PROCEDIMENTO,
+                  predicho  = pred_costo_test),
+       aes(x = observado, y = predicho)) +
+  geom_point(alpha = 0.4) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Costo observado vs. predicho",
+       x = "Costo observado", y = "Costo predicho")
+## ---- 7. Interpretacion: variables asociadas al costo ----
+
+coeficientes_costo <- tidy(modelo_costo) %>%
+  filter(term != "(Intercept)") %>%
+  mutate(
+    efecto_multiplicativo = exp(estimate),          # interpretacion directa
+    cambio_pct            = (efecto_multiplicativo - 1) * 100
+  ) %>%
+  arrange(p.value)
+
+print(coeficientes_costo, n = Inf)
+# Interpretacion: un coeficiente con cambio_pct = +35 significa que,
+# manteniendo las demas variables constantes, esa condicion incrementa
+# el costo esperado en un 35% en promedio (enlace log = efecto
+# multiplicativo). Reportar solo terminos con p.value < 0.05 como
+# "significativos", pero discutir tambien la magnitud practica.
+
+## ---- 8. Costo esperado bajo distintos perfiles ----
+##
+## Se construyen perfiles representativos (ej. paciente ambulatorio vs
+## paciente internado en UCI) para ilustrar el rango de costo esperado.
+
+perfiles <- test_costo %>%
+  distinct( TIPO_BENEFICIARIO,SEXO_BENEFICIARIO,
+           TIPO_UNIDADE_PREST_HOSPITALAR, UF_CNES_PREST_HOSPITALAR, .keep_all = TRUE) %>%
+  mutate(
+    edad = median(costo_modelo$EDADE, na.rm = TRUE),
+    n_procedimientos = 1
+  )
+
+# Ejemplo explicito de perfiles contrastantes (ajustar niveles segun tus datos)
+perfil_leve <- test_costo[1, ] %>%
+  mutate(UTI = factor("No", levels = levels(test_costo$UTI)),
+         INTERNADO = factor("No", levels = levels(test_costo$INTERNADO)),
+         edad = 40, n_procedimientos = 1)
+
+perfil_severo <- test_costo[1, ] %>%
+  mutate(UTI = factor("Si", levels = levels(test_costo$UTI)),
+         INTERNADO = factor("Si", levels = levels(test_costo$INTERNADO)),
+         edad = 70, n_procedimientos = 5)
+
+perfiles_comparacion <- bind_rows(
+  perfil_leve    %>% mutate(perfil = "Ambulatorio, sin UCI, 40 anios"),
+  perfil_severo  %>% mutate(perfil = "Internado con UCI, 70 anios")
+)
+
+perfiles_comparacion$costo_esperado <- predict(
+  modelo_costo, newdata = perfiles_comparacion, type = "response"
+)
+
+perfiles_comparacion %>%
+  select(perfil, costo_esperado) %>%
+  print()
+# Esta comparacion ilustra directamente como UCI, internacion y edad
+# modifican el costo esperado, cumpliendo el requisito de "estimar el
+# costo esperado bajo diferentes perfiles o condiciones".
+
+## ---- 9. Costo promedio general para reportar ----
+
+costo_promedio_reportar <- resumen_costo$media
+costo_mediana_reportar  <- resumen_costo$mediana
+
+cat("\nCosto promedio de una utilizacion asociada a la enfermedad:",
+    round(costo_promedio_reportar, 2), "\n")
+cat("Costo mediano (mas robusto ante colas largas):",
+    round(costo_mediana_reportar, 2), "\n")
+# Se recomienda reportar AMBOS: la media (para calculo de costo total
+# esperado / presupuestal) y la mediana (para describir el "caso tipico",
+# menos sensible a los outliers costosos).
+
+df_benef_costo %>%
+  filter(MEDIA_VALOR_PROCEDIMENTO > 30, MEDIA_VALOR_PROCEDIMENTO < 45) %>%
+  count(Terapia,N_PROCEDIMENTOS,MEDIA_VALOR_PROCEDIMENTO) %>%
+  arrange(desc(n))
+## ---- 10. Limitaciones a documentar en el Markdown ----
+## - El modelo Gamma asume una relacion multiplicativa entre predictoras
+##   y costo; si hay interacciones fuertes (ej. UCI x edad), el modelo
+##   simple puede subestimarlas -> considerar terminos de interaccion
+##   si el MAPE es alto.
+## - Los "outliers" de costo son casos reales de alta severidad; su
+##   inclusion es correcta para el objetivo, pero aumenta la varianza
+##   de las predicciones.
+## - El costo esta influenciado por politicas de precios/tarifas del
+##   prestador y la region (UF), lo que puede no generalizar a otros
+##   periodos o localidades fuera de la muestra.
+## - No se incluyen costos indirectos (perdida de productividad,
+##   transporte, etc.), solo el valor facturado en VALOR_UTILIZACAO.
+
+#---- MODELO POR DOS PARTES ----#
+#1. Definir que es un "caso complejo" vs "caso simple"
+# Ajusta el umbral segun lo que confirmes al inspeccionar el pico del histograma
+# (ej. todo lo que no sea consulta simple de 1 procedimiento)
+
+costo_modelo_2p <- costo_modelo %>%
+  mutate(
+    caso_complejo = case_when(
+      Internacao > 0 | `Pronto Socorro` > 0 ~ "Si",
+      Exame > pmax(Consulta,Outros,Terapia) ~ "Si",
+      Terapia > pmax(Consulta,Outros)  ~ "No",   # tarifa estandarizada
+      Consulta > pmax(Terapia,Outros)  ~ "No",
+      T ~ "Si" # tarifa estandarizada
+    ),
+    caso_complejo = factor(caso_complejo, levels = c("No", "Si"))
+  )
+
+
+table(costo_modelo_2p$caso_complejo)
+prop.table(table(costo_modelo_2p$caso_complejo))
+## ---- Particion train/test (misma particion para ambas partes) ----
+
+idx_train_2p <- sample(seq_len(nrow(costo_modelo_2p)), size = 0.75 * nrow(costo_modelo_2p))
+train_2p <- costo_modelo_2p[idx_train_2p, ]
+test_2p  <- costo_modelo_2p[-idx_train_2p, ]
+
+## ---- PARTE 1: Clasificar caso_complejo ----
+
+modelo_parte1 <- glm(
+  caso_complejo ~ EDADE + SEXO_BENEFICIARIO + TIPO_BENEFICIARIO +
+    TIPO_UNIDADE_PREST_HOSPITALAR + UF_CNES_PREST_HOSPITALAR +
+    N_DIAGNOSTICOS_DIFERENTES,
+  data   = train_2p,
+  family = binomial
+)
+
+summary(modelo_parte1)
+
+prob_complejo_test <- predict(modelo_parte1, newdata = test_2p, type = "response")
+
+## ---- PARTE 2a: Costo esperado si es caso SIMPLE ----
+## (probablemente casi constante - la tarifa fija que viste en el pico)
+
+train_simple <- train_2p %>% filter(caso_complejo == "No")
+
+costo_esperado_simple <- mean(train_simple$MEDIA_VALOR_PROCEDIMENTO)
+cat("Costo esperado (caso simple):", round(costo_esperado_simple, 2), "\n")
+
+# Si quieres algo mas fino que un promedio constante, un GLM simple
+# con pocas variables tambien funciona:
+modelo_parte2a <- glm(
+  MEDIA_VALOR_PROCEDIMENTO ~ EDADE + SEXO_BENEFICIARIO + Terapia + Consulta,
+  data = train_simple, family = Gamma(link = "log")
+)
+
+## ---- PARTE 2b: Costo esperado si es caso COMPLEJO ----
+## (aqui SI vale la pena el modelo mas rico, porque ya es un subconjunto
+## mas homogeneo en naturaleza -internacion, UCI, multiples procedimientos-)
+
+train_complejo <- train_2p %>% filter(caso_complejo == "Si")
+
+modelo_parte2b <- glm(
+  MEDIA_VALOR_PROCEDIMENTO ~ EDADE + Internacao + `Pronto Socorro` +
+    N_UTILIZACAO + TIPO_UNIDADE_PREST_HOSPITALAR + UF_CNES_PREST_HOSPITALAR,
+  data    = train_complejo,
+  family  = Gamma(link = "log"),
+  control = glm.control(maxit = 100)
+)
+
+summary(modelo_parte2b)
+
+## ---- Combinar ambas partes para predecir sobre TEST ----
+
+# Prediccion condicional de cada parte
+pred_costo_si_simple   <- predict(modelo_parte2a, newdata = test_2p, type = "response")
+pred_costo_si_complejo <- predict(modelo_parte2b, newdata = test_2p, type = "response")
+
+# Prediccion final = promedio ponderado por la probabilidad de cada rama
+# E[costo] = P(complejo)*E[costo|complejo] + P(simple)*E[costo|simple]
+pred_costo_2p <- prob_complejo_test * pred_costo_si_complejo +
+  (1 - prob_complejo_test) * pred_costo_si_simple
+
+## ---- Evaluar el modelo combinado ----
+
+mae_2p  <- mean(abs(pred_costo_2p - test_2p$MEDIA_VALOR_PROCEDIMENTO))
+rmse_2p <- sqrt(mean((pred_costo_2p - test_2p$MEDIA_VALOR_PROCEDIMENTO)^2))
+r2_2p   <- cor(pred_costo_2p, test_2p$MEDIA_VALOR_PROCEDIMENTO)^2
+
+cat("\n---- Metricas modelo en 2 partes (TEST) ----\n")
+cat("MAE: ", round(mae_2p, 2), "\n")
+cat("RMSE:", round(rmse_2p, 2), "\n")
+cat("R2:  ", round(r2_2p, 4), "\n")
+
+# Comparar directamente contra tu modelo de una sola parte
+cat("\n--- Comparacion con modelo unico ---\n")
+cat("MAE  - unico:", round(mae, 2), " | dos partes:", round(mae_2p, 2), "\n")
+cat("RMSE - unico:", round(rmse, 2), " | dos partes:", round(rmse_2p, 2), "\n")

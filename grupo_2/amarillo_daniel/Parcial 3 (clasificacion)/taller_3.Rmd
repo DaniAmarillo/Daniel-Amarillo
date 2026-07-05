@@ -1,0 +1,663 @@
+---
+title: "Taller 3 - Minería de Datos"
+subtitle: "Predicción de trastornos de ansiedad (CID F41) y estimación de costo asociado"
+author: "Daniel Eduardo Amarillo Echeverry"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+Sys.setlocale("LC_ALL", "ES_ES.UTF-8") # En Windows a veces funciona "Spanish"
+options(encoding = "UTF-8")
+```
+
+```{r librerias, include=FALSE}
+paquetes <- c(
+  "tidyverse","lubridate","hrbrthemes","forcats","scales","car","PRROC","pROC",
+  "caret","xgboost","Matrix","SHAPforxgboost","ranger","patchwork","pdp","vip","MASS","broom","moments","splines","janitor"
+)
+invisible(lapply(paquetes, library, character.only = TRUE))
+```
+
+# Introducción y objetivo
+
+Este informe documenta el desarrollo completo del Taller 3 de Minería de
+Datos, aplicado a la base real de utilización de servicios de salud
+proporcionada para el curso. El objetivo fue seleccionar una condición
+clínica identificable por código CID, construir una variable objetivo
+binaria a nivel de beneficiario, entrenar y comparar modelos de
+clasificación, interpretar sus resultados y estimar el costo esperado
+asociado a la enfermedad.
+
+A lo largo del trabajo se tomaron numerosas decisiones metodológicas —de
+limpieza, de especificación de modelos y de tratamiento de problemas
+numéricos— que se documentan explícitamente en cada sección, junto con
+su justificación, siguiendo el espíritu del enunciado de que "todas las
+decisiones tomadas [...] deberán ser documentadas y justificadas".
+
+## Enfermedad seleccionada
+
+Se seleccionó **ansiedad**, identificada mediante los códigos CID
+pertenecientes al grupo **F41** (Otros trastornos de ansiedad), de
+acuerdo con la Clasificación Internacional de Enfermedades
+(CIE-10/ICD-10) de la OMS. La elección se registró en la planilla
+compartida del curso para evitar duplicidad con otros compañeros.
+
+```{r seleccion-cid, eval=FALSE}
+db_2026$CID <- str_squish(db_2026$CID)
+
+anx <- db_2026[c("CHAVE_FUNCIONAL","CID")] |>
+  filter(str_detect(CID, "F41\\.*"))
+
+pc_anx <- unique(anx$CHAVE_FUNCIONAL)
+
+db_2026$ANSIEDADE <- as.integer(db_2026$CHAVE_FUNCIONAL %in% pc_anx)
+table(db_2026$ANSIEDADE)
+```
+
+Siguiendo la regla de construcción de la variable objetivo indicada en
+el enunciado, **todo beneficiario con al menos una transacción cuyo CID
+pertenezca al grupo F41 recibe la etiqueta `1`**; el resto recibe `0`.
+Esto arrojó **419 beneficiarios positivos** de un total de **653,631**,
+es decir, una prevalencia de apenas **0.064%**. Esta cifra es el dato
+más importante de todo el taller, porque condiciona prácticamente cada
+decisión posterior: qué métricas usar, cómo tratar el desbalance, y cómo
+interpretar el desempeño de los modelos.
+
+# Comprensión y calidad de los datos
+
+## Inconsistencias identificadas
+
+Durante la exploración inicial se confirmó que la base, al ser real,
+efectivamente presenta los problemas de calidad que anticipaba el
+enunciado:
+
+- **Beneficiarios con más de un sexo registrado** en distintas
+  transacciones (por ejemplo, un mismo `CHAVE_FUNCIONAL` apareciendo
+  como "M" en un registro y como otro valor en otro).
+- **Beneficiarios con más de un `TIPO_BENEFICIARIO`** a lo largo de su
+  historial.
+- **Fechas de nacimiento inválidas**: existen beneficiarios cuya fecha
+  de nacimiento implicaría una edad de 120 años o más, o incluso
+  posterior al año 2026, lo cual es físicamente imposible.
+- **Categorías mal codificadas**: valores equivalentes escritos de forma
+  distinta (p. ej. `"MASCULINO"` vs `"M"`, o `"MAE"`/`"FILHO"` como
+  variantes de `"TITULAR"`/`"DEPENDENTE"`).
+- **Valores faltantes**: sexo y tipo de beneficiario "No informado" en
+  una proporción menor pero no despreciable de registros, y 302
+  beneficiarios sin fecha de nacimiento válida (edad faltante).
+
+## Estrategia de tratamiento
+
+Para resolver el problema de "un beneficiario, múltiples valores", se
+decidió usar la **moda** de cada variable categórica dentro de cada
+`CHAVE_FUNCIONAL` en lugar de simplemente tomar el primer o último
+registro, porque la moda representa mejor el valor "más probablemente
+correcto" cuando existen errores de captura dispersos:
+
+```{r funcion-moda, eval=FALSE}
+find_mode <- function(x) {
+  x <- x[!is.na(x)]
+  if (length(x) == 0) return(NA)
+  u <- unique(x)
+  u[which.max(tabulate(match(x, u)))]
+}
+```
+
+Las categorías equivalentes se unificaron explícitamente (`"MASCULINO"`
+→ `"M"`, `"MAE"` → `"TITULAR"`, `"FILHO"` → `"DEPENDENTE"`, `"IGNORADO"`
+→ `"Não Informado"`), y las categorías de baja frecuencia en variables
+de alta cardinalidad (como `TIPO_UNIDADE_PREST_HOSPITALAR`) se agruparon
+en una categoría `"Outro"` para evitar coeficientes inestables en los
+modelos posteriores:
+
+```{r funcion-agrupar, eval=FALSE}
+agrupar_categorias_raras <- function(x, min_freq = 30) {
+  frecuencias <- table(x)
+  categorias_raras <- names(frecuencias[frecuencias < min_freq])
+  x <- as.character(x)
+  x[x %in% categorias_raras] <- "Outro"
+  factor(x)
+}
+```
+
+Respecto a las 302 edades faltantes: se decidió **excluirlas** del
+modelo de clasificación en lugar de imputarlas, porque representan solo
+el **0.047%** del total de beneficiarios y, adicionalmente, ninguno de
+esos 302 registros tiene ansiedad diagnosticada — por lo que su
+exclusión no sesga la variable objetivo ni reduce de forma relevante el
+tamaño de muestra disponible.
+
+# Construcción de variables a nivel de beneficiario
+
+Dado que la unidad de análisis del modelo de clasificación es el
+**beneficiario** (`CHAVE_FUNCIONAL`), fue necesario agregar toda la
+información transaccional en una sola fila por beneficiario. Se
+construyeron las siguientes variables:
+
+| Variable | Descripción |
+|------------------------------------|------------------------------------|
+| `EDADE` | Edad calculada a partir de la fecha de nacimiento |
+| `SEXO_BENEFICIARIO`, `TIPO_BENEFICIARIO` | Moda por beneficiario, con recodificación de categorías |
+| `VALOR_PROCEDIMENTO_TOTAL` | Suma de `VALOR_UTILIZACAO` de todo el historial |
+| `MEDIA_VALOR_PROCEDIMENTO` | Promedio de `VALOR_UTILIZACAO` por procedimiento |
+| `MAX_VALOR_PROCEDIMENTO` | Valor máximo de un procedimiento individual |
+| `N_UTILIZACAO` | Número de fechas distintas de utilización |
+| `N_PROCEDIMENTOS` / `N_PROCEDIMENTOS_DIFERENTES` | Conteo total y de procedimientos distintos |
+| `N_DIAGNOSTICOS_DIFERENTES` | Número de CID distintos registrados |
+| `Consulta`, `Exame`, `Terapia`, `Internacao`, `Pronto Socorro`, `Outros` | Frecuencia de cada tipo de atención (`CETIPO`), obtenida mediante `pivot_wider` |
+| `TIPO_UNIDADE_PREST_HOSPITALAR`, `UF_CNES_PREST_HOSPITALAR` | Moda por beneficiario |
+
+Es importante remarcar que **`N_DIAGNOSTICOS_DIFERENTES` cuenta CID
+distintos en general**, no el CID F41 usado para construir la etiqueta —
+de esta forma se evita fuga de información (*data leakage*) directa. El
+CID, la `CHAVE_FUNCIONAL` y las fechas crudas se excluyeron
+explícitamente de las variables predictoras.
+
+# Análisis descriptivo
+
+- Beneficiarios totales: **653,631**; con ansiedad: **419** (0.064%).
+- Utilizaciones totales: **9,345,278**; de beneficiarios con ansiedad:
+  **6,608**.
+- Procedimientos totales (combinación única `CHAVE_FUNCIONAL` +
+  `DT_UTILIZACAO`
+  - `CD_PROCEDIMENTO`, para evitar conteos duplicados): **6,627,032**;
+    de beneficiarios con ansiedad: **5,134**.
+    
+![Comparación de distribución etaria entre beneficiarios y beneficiarios con ansiedad](D:/Documentos/Daniel/Repo Mineria de Datos/Daniel-Amarillo/grupo_2/amarillo_daniel/Parcial 3 (clasificacion)/Imagenes/Histograma_edades.png)
+
+- La edad promedio de la población general es de 38 años, mientras que
+  en el subgrupo con ansiedad la edad promedio es de 2 años , lo cual sugiere que la ansiedad
+  diagnosticada en esta base no se distribuye uniformemente entre grupos
+  etarios.
+  
+
+
+
+![Comparación de la distribución sexual entre beneficiarios y beneficiarios con ansiedad](D:/Documentos/Daniel/Repo Mineria de Datos/Daniel-Amarillo/grupo_2/amarillo_daniel/Parcial 3 (clasificacion)/Imagenes/Histograma_sexo.png)
+
+El hallazgo más determinante de todo el análisis descriptivo, sin
+embargo, es simplemente la **prevalencia**: con menos de 7 casos por
+cada 10,000 beneficiarios, cualquier modelo de clasificación enfrenta un
+desbalance extremo, lo cual se discute en detalle en la siguiente
+sección.
+
+- La distribución por sexo en el subgrupo con ansiedad (F: 227, M: 185,
+  No informado: 7) es proporcionalmente distinta a la de la población
+  general (F: 360,143, M: 263,627, No informado: 30,386), lo que sugiere
+  una posible mayor prevalencia relativa en mujeres, consistente con la
+  literatura epidemiológica sobre trastornos de ansiedad.
+  
+
+
+
+![Comparación de la consulta por especialidad entre beneficiarios y beneficiarios con ansiedad](D:/Documentos/Daniel/Repo Mineria de Datos/Daniel-Amarillo/grupo_2/amarillo_daniel/Parcial 3 (clasificacion)/Imagenes/Histograma_consultas.png)
+
+# Modelamiento predictivo
+
+## Estrategia general
+
+Se entrenaron y compararon **tres modelos de clasificación**: Regresión
+Logística, XGBoost y Random Forest. En los tres casos se usó una
+partición estratificada 75/25 (`createDataPartition`), se excluyeron
+variables con riesgo de fuga de información, y se seleccionó el umbral
+de clasificación mediante el índice de Youden sobre el conjunto de
+entrenamiento, en lugar de usar el valor por defecto de 0.5, dado el
+desbalance de clases.
+
+Dada la prevalencia de 0.064%, se decidió que **la métrica principal
+para comparar modelos sería el PR-AUC** (área bajo la curva
+Precisión-Recall) en lugar de Accuracy o incluso ROC-AUC. La razón es
+que, con un desbalance tan extremo, el Accuracy es trivialmente alto
+para cualquier modelo que prediga mayoritariamente "No" (bastaría con
+clasificar todo como negativo para obtener \>99.9% de accuracy), y el
+ROC-AUC puede verse artificialmente alto incluso cuando el modelo genera
+muchos falsos positivos en términos absolutos. El PR-AUC, en cambio, es
+sensible precisamente a ese problema.
+
+## Regresión logística
+
+Para la regresión logística se optó por **sobremuestreo** (`upSample`)
+del conjunto de entrenamiento, de forma que la clase minoritaria quedara
+representada en igual proporción que la mayoritaria antes de ajustar el
+modelo.
+
+Durante la construcción del modelo se detectó un problema de
+**colinealidad exacta**: la variable de número de procedimientos totales
+resultó ser combinación lineal de las columnas de frecuencia por tipo de
+especialidad (`Consulta`, `Exame`, `Terapia`, etc.), por lo que se
+eliminó del conjunto de predictoras. Adicionalmente, el diagnóstico de
+`alias()` reveló que `TIPO_BENEFICIARIO = "Não Informado"` coincidía
+perfectamente, registro a registro, con
+`SEXO_BENEFICIARIO = "Não Informado"` — es decir, ambas columnas
+codificaban la misma ausencia de información. Se optó por **excluir esos
+registros** del modelo de clasificación, dado que representan datos
+genuinamente incompletos del beneficiario.
+
+También se revisó el VIF (ajustado por grados de libertad para las
+variables categóricas, usando `GVIF^(1/(2*Df))`) y se encontró que, si
+bien algunas variables categóricas mostraban GVIF crudo elevado
+(`TIPO_UNIDADE_PREST_HOSPITALAR`: 45.5, `UF_CNES_PREST_HOSPITALAR`:
+21.2), sus valores ajustados eran en realidad aceptables — un
+recordatorio de que el GVIF crudo no es directamente comparable al
+umbral clásico de 5-10 cuando hay factores con múltiples niveles. Aun
+así, se decidió eliminar `TIPO_UNIDADE_PREST_HOSPITALAR` del modelo
+logístico por la gran cantidad de niveles con muy pocas observaciones,
+que generaban inestabilidad en los coeficientes.
+
+```{r logistica, eval=FALSE}
+set.seed(12345)
+
+vars_excluir <- c("CHAVE_FUNCIONAL", "CID", "DT_UTILIZACAO",
+                   "DT_NASCIMENTO_BENEFICIARIO", "N_PROCEDIMENTOS",
+                   "TIPO_UNIDADE_PREST_HOSPITALAR")
+
+df_modelo <- df_benef %>% select(-any_of(vars_excluir))
+df_modelo <- df_modelo %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.x), median(.x, na.rm = TRUE), .x)))
+
+idx_train  <- createDataPartition(df_modelo$ANSIEDADE, p = 0.75, list = FALSE)
+train_data <- df_modelo[idx_train, ]
+test_data  <- df_modelo[-idx_train, ]
+
+train_bal <- upSample(x = train_data %>% select(-ANSIEDADE),
+                       y = train_data$ANSIEDADE, yname = "ANSIEDADE")
+
+modelo_logit <- glm(ANSIEDADE ~ ., data = train_bal, family = binomial)
+
+pred_prob_train <- predict(modelo_logit, newdata = train_bal, type = "response")
+roc_train <- roc(train_bal$ANSIEDADE, pred_prob_train, levels = c("No","Si"), direction = "<")
+umbral_optimo <- coords(roc_train, "best", best.method = "youden")$threshold
+```
+
+**Métricas obtenidas en TEST:**
+
+| Métrica       | Valor      |
+|---------------|------------|
+| Accuracy      | 0.9046     |
+| Sensibilidad  | 0.6442     |
+| Especificidad | 0.9048     |
+| **F1-score**  | **0.0085** |
+| ROC-AUC       | 0.8411     |
+| **PR-AUC**    | **0.0072** |
+
+Este resultado es, en sí mismo, el hallazgo más informativo de esta
+sección: el ROC-AUC (0.84) sugiere una discriminación razonable, pero el
+F1 y el PR-AUC son casi nulos. Esto ocurre porque, dada la prevalencia
+de 0.064%, incluso una especificidad "buena" en términos relativos (90%)
+implica un número absoluto enorme de falsos positivos frente a los
+escasos verdaderos positivos, lo que hunde la precisión y, con ella, el
+F1 y el PR-AUC. El Accuracy alto es, en este contexto, prácticamente
+irrelevante como indicador de calidad del modelo.
+
+## XGBoost
+
+Para XGBoost se abandonó el sobremuestreo y se optó por
+**`scale_pos_weight`**, que ajusta el gradiente de aprendizaje sin
+duplicar observaciones — una alternativa más apropiada para modelos de
+árboles. Se realizó una búsqueda de hiperparámetros por validación
+cruzada de 5 folds, optimizando directamente sobre PR-AUC, sobre una
+grilla de `max_depth`, `eta` y `min_child_weight`. La mejor
+configuración encontrada fue `max_depth = 7`, `eta = 0.1`,
+`min_child_weight = 1`, con 200 iteraciones óptimas.
+
+```{r xgboost, eval=FALSE}
+train_matrix <- sparse.model.matrix(ANSIEDADE ~ . - 1, data = train_data)
+test_matrix  <- sparse.model.matrix(ANSIEDADE ~ . - 1, data = test_data)
+
+label_train <- ifelse(train_data$ANSIEDADE == "Si", 1, 0)
+label_test  <- ifelse(test_data$ANSIEDADE  == "Si", 1, 0)
+
+scale_pos_weight <- sum(label_train == 0) / sum(label_train == 1)
+
+dtrain <- xgb.DMatrix(data = train_matrix, label = label_train)
+dtest  <- xgb.DMatrix(data = test_matrix,  label = label_test)
+
+params_finales <- list(
+  objective = "binary:logistic", eval_metric = "aucpr",
+  max_depth = 7, eta = 0.1, min_child_weight = 1,
+  subsample = 0.8, colsample_bytree = 0.8,
+  scale_pos_weight = scale_pos_weight
+)
+
+modelo_xgb <- xgb.train(params = params_finales, data = dtrain, nrounds = 200,
+                         evals = list(train = dtrain, test = dtest), verbose = 0)
+```
+
+**Métricas obtenidas en TEST:**
+
+| Métrica       | Valor  |
+|---------------|--------|
+| Accuracy      | 0.9996 |
+| Sensibilidad  | 0.5000 |
+| Especificidad | 0.9999 |
+| F1-score      | 0.6228 |
+| ROC-AUC       | 0.9814 |
+| PR-AUC        | 0.6942 |
+
+## Random Forest
+
+Se usó el paquete `ranger` en lugar de `randomForest`, principalmente
+porque maneja de forma nativa variables categóricas de alta cardinalidad
+sin necesidad de construir matrices dummy, evitando así los errores de
+"niveles nuevos" (`new levels`) que sí se presentaron al trabajar con
+matrices dispersas en XGBoost. El desbalance se trató mediante
+`class.weights`, calculado como el inverso de la proporción de cada
+clase. Se realizó una búsqueda de hiperparámetros (`mtry`,
+`min.node.size`) por validación cruzada manual de 5 folds, optimizando
+PR-AUC.
+
+```{r random-forest, eval=FALSE}
+prop_clases <- prop.table(table(train_data$ANSIEDADE))
+pesos_clase <- c("No" = 1/prop_clases[["No"]], "Si" = 1/prop_clases[["Si"]])
+pesos_clase <- pesos_clase / sum(pesos_clase)
+
+modelo_rf <- ranger(
+  formula = ANSIEDADE ~ ., data = train_data,
+  num.trees = 500, mtry = 5, min.node.size = 1,
+  class.weights = pesos_clase, probability = TRUE,
+  importance = "permutation", seed = 2016325
+)
+```
+
+**Métricas obtenidas en TEST:**
+
+| Métrica       | Valor  |
+|---------------|--------|
+| Accuracy      | 0.9996 |
+| Sensibilidad  | 0.6346 |
+| Especificidad | 0.9998 |
+| F1-score      | 0.6471 |
+| ROC-AUC       | 0.9798 |
+| PR-AUC        | 0.7189 |
+
+## Comparación de modelos
+
+| Modelo | Accuracy | Sensibilidad | Especificidad | F1 | ROC-AUC | **PR-AUC** |
+|-----------|-----------|-----------|-----------|-----------|-----------|-----------|
+| Regresión Logística (upsample) | 0.9046 | 0.6442 | 0.9048 | 0.0085 | 0.8411 | 0.0072 |
+| XGBoost (scale_pos_weight) | 0.9996 | 0.5000 | 0.9999 | 0.6228 | 0.9814 | 0.6942 |
+| **Random Forest** | 0.9996 | 0.6346 | 0.9998 | **0.6471** | 0.9798 | **0.7189** |
+
+Tomando PR-AUC como criterio principal (justificado por el desbalance
+extremo de la variable objetivo), **Random Forest** resultó el mejor
+modelo, seguido muy de cerca por XGBoost, y muy por delante de la
+regresión logística. Ambos modelos de ensamble superan holgadamente el
+umbral de 85% en ROC-AUC que sugiere el enunciado como referencia
+positiva, aunque —como se explica en la sección de interpretación— el
+ROC-AUC no es la métrica más relevante en este problema.
+
+# Interpretación de resultados
+
+## Por qué la regresión logística falló y los ensambles no
+
+La diferencia de desempeño entre la regresión logística y los modelos de
+árboles no es un accidente de ajuste de hiperparámetros: la logística
+asume una relación lineal (en la escala del logit) entre cada predictora
+y la probabilidad de ansiedad. Es razonable pensar que el riesgo real
+depende de **interacciones** entre variables (por ejemplo, el efecto de
+la edad puede ser distinto según si el beneficiario ha sido internado, o
+el efecto del número de especialidades distintas consultadas puede
+depender del tipo de beneficiario). Random Forest y XGBoost capturan
+estas interacciones de forma automática, lo que explica la mejora
+sustancial en F1 y PR-AUC sin necesidad de que el analista especifique
+manualmente cada interacción relevante.
+
+## Variables más influyentes
+
+En Random Forest, la importancia por permutación (más confiable que la
+importancia por impureza de Gini cuando las variables tienen distinta
+cardinalidad) señaló como más relevantes las variables relacionadas con
+la **frecuencia de utilización de servicios de salud mental**
+(especialidades consultadas, número de utilizaciones, número de
+diagnósticos distintos), lo cual es clínicamente coherente: un
+beneficiario que interactúa con más frecuencia y diversidad con el
+sistema de salud tiene más oportunidades de recibir (y de que quede
+registrado) un diagnóstico de ansiedad.
+
+## Análisis de errores y limitaciones del modelo
+
+La sensibilidad de los tres modelos se mantiene en un rango de
+0.50-0.64, es decir, incluso el mejor modelo deja sin detectar entre un
+tercio y la mitad de los verdaderos casos de ansiedad. Esto es
+consistente con una limitación estructural de los datos administrativos
+de utilización: **el registro de un CID depende de que el evento haya
+sido diagnosticado y codificado correctamente**, por lo que es esperable
+que existan beneficiarios con ansiedad no diagnosticada (falsos
+negativos por definición del *gold standard*, no necesariamente errores
+del modelo). Esto debe entenderse como un límite de la fuente de datos,
+no solo del algoritmo.
+
+# Estimación del costo asociado a la enfermedad
+
+## Definición de la unidad de análisis
+
+Se decidió estimar el costo usando **`MEDIA_VALOR_PROCEDIMENTO`** (el
+promedio de `VALOR_UTILIZACAO` por procedimiento, a nivel de
+beneficiario) como variable respuesta, calculada únicamente sobre los
+419 beneficiarios con ansiedad diagnosticada. Es importante ser
+transparentes sobre la limitación de esta elección: al trabajar con el
+**promedio** por procedimiento en lugar del **costo total** acumulado,
+la variable no refleja cuántos procedimientos tuvo cada beneficiario,
+sino el "precio típico" de sus atenciones — dos beneficiarios con el
+mismo promedio pueden tener cargas de atención (y costo total real para
+el sistema) muy distintas. Esta es una limitación reconocida del
+análisis, discutida más adelante.
+
+```{r filtro-costo, eval=FALSE}
+df_benef_costo <- df_benef %>%
+  filter(MEDIA_VALOR_PROCEDIMENTO > 0 & ANSIEDADE == 1)
+```
+
+## Análisis descriptivo del costo
+
+El costo promedio por procedimiento en la población con ansiedad muestra
+un **coeficiente de variación alto y asimetría positiva marcada**: la
+mayoría de los procedimientos se concentran en valores bajos (dominados
+por un pico muy pronunciado alrededor de 35, que se identificó como la
+**tarifa estandarizada de las sesiones de terapia**), mientras que una
+minoría de casos —asociados a internación y UCI— alcanza valores mucho
+más altos, generando una cola larga a la derecha en la distribución.
+
+Al clasificar los registros como *outliers* mediante el criterio de
+rango intercuartílico, se encontró que representan un **12.65%** del
+total —una proporción demasiado alta para tratarse de errores de
+captura. El grupo "outlier" mostró una edad promedio de 33.4 años frente
+a 21.7 años en el resto, y un costo promedio casi 18 veces mayor (7,720
+frente a 420). Esta evidencia respalda que los valores extremos son
+**casos clínicamente distintos** (posiblemente de mayor severidad o
+edad), no ruido, y por tanto no se eliminaron sino que se modelaron
+explícitamente.
+
+## Modelo de costo
+
+Se ajustó un **GLM Gamma con enlace log**, apropiado para una variable
+respuesta estrictamente positiva y con varianza creciente en la media,
+como es típico en costos de salud. El proceso de especificación del
+modelo requirió resolver varios problemas encontrados en el camino:
+
+1.  **Colinealidad exacta** entre `TIPO_BENEFICIARIO = "Não Informado"`
+    y `SEXO_BENEFICIARIO = "Não Informado"` (la misma detectada en el
+    modelo de clasificación): se resolvió excluyendo esos registros.
+2.  **VIF alto (23.6) en `N_PROCEDIMENTOS_DIFERENTES`**, redundante con
+    las variables de frecuencia por tipo de atención (`Exame`,
+    `Terapia`, etc.): se eliminó del modelo, lo que redujo también el
+    VIF de `Exame` (de 19.7 a 2.2) y de `N_UTILIZACAO` (de 7.3 a 5.8).
+3.  **Falta de convergencia del algoritmo**
+    (`glm.fit: algorithm did not converge`), resuelta aumentando el
+    número máximo de iteraciones (`glm.control(maxit = 100)`).
+
+```{r modelo-costo, eval=FALSE}
+costo_modelo <- df_benef_costo %>%
+  mutate(across(where(is.character), as.factor)) %>%
+  mutate(across(where(is.factor), droplevels)) %>%
+  dplyr::select(-CHAVE_FUNCIONAL, -ANSIEDADE, -N_PROCEDIMENTOS,
+                -VALOR_PROCEDIMENTO_TOTAL, -MAX_VALOR_PROCEDIMENTO,
+                -N_PROCEDIMENTOS_DIFERENTES) %>%
+  filter(!is.na(EDADE), TIPO_BENEFICIARIO != "Não Informado")
+
+idx_train_costo <- sample(seq_len(nrow(costo_modelo)), size = 0.75 * nrow(costo_modelo))
+train_costo <- costo_modelo[idx_train_costo, ]
+test_costo  <- costo_modelo[-idx_train_costo, ]
+
+modelo_costo <- glm(
+  MEDIA_VALOR_PROCEDIMENTO ~ .,
+  data = train_costo, family = Gamma(link = "log"),
+  control = glm.control(maxit = 100, epsilon = 1e-8)
+)
+```
+
+### Evaluación y el trade-off sesgo-varianza
+
+Una primera versión del modelo (que incluía un spline de edad con
+boundary knots ajustados solo al rango del conjunto de entrenamiento, y
+categorías de baja frecuencia sin agrupar) alcanzó un pseudo $R^2$
+aparentemente alto (0.5711), pero al evaluarlo se descubrió que generaba
+**predicciones absurdas**: para un caso con costo real de 33,625, el
+modelo predijo **3,465,273** — un factor de sobreestimación de \~103
+veces. La causa fue identificada como la combinación de una categoría de
+unidad hospitalaria con muy pocas observaciones en entrenamiento y una
+extrapolación inestable del spline de edad fuera del rango observado,
+potenciadas mutuamente por el efecto multiplicativo del enlace log.
+
+Al **agrupar las categorías raras** de `TIPO_UNIDADE_PREST_HOSPITALAR` y
+`UF_CNES_PREST_HOSPITALAR` (categorías con menos de 30 observaciones
+recodificadas como `"Outro"`), el modelo se volvió estable
+(`modelo_costo$converged == TRUE`) y la predicción extrema desapareció,
+pero a costa de un pseudo $R^2$ más modesto (0.2229).
+
+**Métricas comparadas:**
+
+| Métrica      | Modelo inicial (inestable) | Modelo final (estable) |
+|--------------|----------------------------|------------------------|
+| MAE          | 39,284.92                  | 2,529.65               |
+| RMSE         | 340,502.60                 | 15,190.70              |
+| MAPE         | 198.34%                    | 129.40%                |
+| Pseudo $R^2$ | 0.5711                     | 0.2229                 |
+
+Esta comparación es, en mi opinión, uno de los hallazgos más valiosos de
+todo el ejercicio: el modelo con mayor $R^2$ aparente en realidad estaba
+**memorizando** categorías raras del entrenamiento en lugar de
+generalizar, y por eso colapsaba al enfrentar datos nuevos. El modelo
+final, con un $R^2$ más bajo, es sustancialmente más confiable para
+predicción fuera de muestra (MAE y RMSE se redujeron entre 10 y 20
+veces). Esto ilustra de forma muy concreta el trade-off sesgo-varianza:
+"mejor ajuste a los datos observados" no es sinónimo de "mejor modelo".
+
+Cabe señalar que tanto el MAPE final $(129%)$ como el pseudo
+$R^2 = (0.22)$ siguen siendo modestos en términos absolutos. Esto es, en
+parte, esperable dado el tamaño de muestra reducido (419 beneficiarios)
+y la naturaleza inherentemente heterogénea del costo en salud, y se
+retoma como limitación en la sección final.
+
+## Intento de modelo en dos partes
+
+Al observar en el histograma en escala logarítmica una **masa puntual
+muy pronunciada** alrededor de un valor específico (correspondiente a la
+tarifa estandarizada de terapia), se planteó la hipótesis de que el
+costo no sigue una única distribución continua, sino una mezcla de
+"regímenes de precio" (tarifas fijas de terapia/consulta frente a costos
+variables de exámenes, urgencias e internación). Para poner a prueba
+esta hipótesis se implementó un **modelo en dos partes**: (1) un modelo
+logístico que clasifica cada beneficiario como "caso simple" o "caso
+complejo" según el tipo de atención predominante, y (2) dos modelos
+Gamma independientes —uno para cada subgrupo— cuya predicción se combina
+ponderando por la probabilidad estimada en la primera etapa.
+
+```{r modelo-dos-partes, eval=FALSE}
+costo_modelo_2p <- costo_modelo %>%
+  mutate(
+    caso_complejo = case_when(
+      Internacao > 0 | `Pronto Socorro` > 0        ~ "Si",
+      Exame > pmax(Consulta, Outros, Terapia)       ~ "Si",
+      Terapia > pmax(Consulta, Outros)              ~ "No",
+      Consulta > pmax(Terapia, Outros)              ~ "No",
+      TRUE                                           ~ "Si"
+    ),
+    caso_complejo = factor(caso_complejo, levels = c("No", "Si"))
+  )
+```
+
+**Resultado:** el modelo en dos partes **empeoró** el desempeño en todas
+las métricas frente al modelo único (MAE $+54%$, RMSE $+221%$, pseudo
+$R^2 = 0.092)$. La explicación más plausible es que, al dividir una
+muestra ya pequeña (419 beneficiarios) en dos subgrupos, cada submodelo
+quedó con muy pocas observaciones para estimar coeficientes de forma
+estable, y el error de clasificación de la primera etapa se propaga y
+amplifica en la combinación final. Se decidió **descartar este enfoque**
+y conservar el GLM Gamma único como modelo final de costo, dejando el
+modelo de dos partes documentado como un experimento razonable que no
+funcionó con el tamaño de muestra disponible — y como posible línea de
+trabajo futuro si se dispusiera de más datos.
+
+## Costo esperado bajo distintos perfiles
+
+Usando el modelo final, se estimó el costo esperado para dos perfiles
+contrastantes: un beneficiario ambulatorio de 40 años sin UCI ni
+internación, y un beneficiario de 70 años internado y con paso por UCI.
+Como es de esperar dado el análisis de outliers, el segundo perfil
+presenta un costo esperado sustancialmente mayor, consistente con el
+hallazgo de que edad, internación y UCI son los factores más asociados
+al incremento del costo.
+
+# Conclusiones, limitaciones y trabajos futuros
+
+**¿Qué tan bien se logró identificar a los beneficiarios con ansiedad?**
+Razonablemente bien en términos de discriminación general (ROC-AUC \>
+0.97 en los modelos de ensamble), pero de forma más modesta si se exige
+buena precisión (PR-AUC $\approx$ 0.72 con Random Forest). La
+sensibilidad limitada $(~0.63)$ sugiere que una parte no trivial de los
+casos reales de ansiedad no son capturados por el modelo, probablemente
+por una combinación de subdiagnóstico real en la base y de solapamiento
+de patrones de utilización con otras condiciones de salud mental o
+crónicas.
+
+**¿Qué variables están más relacionadas con la enfermedad?**
+Principalmente la intensidad y diversidad de la utilización de servicios
+de salud (número de utilizaciones, diagnósticos distintos,
+especialidades consultadas), más que variables puramente demográficas.
+
+**¿Qué tan confiable es el modelo construido?** El modelo de
+clasificación (Random Forest) es razonablemente confiable para tareas de
+discriminación, pero su utilidad práctica directa como herramienta de
+tamizaje individual es limitada por su sensibilidad moderada. El modelo
+de costo, en su versión final, es estable y generalizable, aunque
+explica solo una fracción moderada de la variabilidad total del costo
+($pseudo R^2 = 0.22$).
+
+**¿Qué limitaciones tiene la base de datos?** Prevalencia extremadamente
+baja de la enfermedad seleccionada (0.064%), inconsistencias de captura
+(sexo y tipo de beneficiario contradictorios, fechas de nacimiento
+inválidas), categorías con muy pocas observaciones en variables de alta
+cardinalidad (unidad hospitalaria, estado), y ausencia de información
+sobre severidad clínica más allá de proxies administrativos (UTI,
+internación).
+
+**¿Qué limitaciones tiene la estrategia de modelamiento?** El uso del
+**promedio** de valor por procedimiento en lugar del costo total
+acumulado subestima la carga real de atención de beneficiarios con
+muchas utilizaciones. El modelo de costo, al agrupar categorías raras
+para ganar estabilidad, pierde parte de la señal específica de esas
+categorías. El modelo en dos partes no resultó viable con el tamaño de
+muestra disponible.
+
+**¿Qué mejoras podrían realizarse en un trabajo futuro?** (1) Repetir la
+estimación de costo usando el costo total acumulado por beneficiario o
+por utilización, en lugar del promedio por procedimiento, para capturar
+mejor la carga real sobre el sistema. (2) Revisar el modelo en dos
+partes con una muestra de mayor tamaño, donde cada submodelo tenga
+suficientes observaciones para estimarse con estabilidad. (3) Incorporar
+interacciones explícitas (edad × internación, por ejemplo) en el modelo
+de costo, dado que se sospechó mediación entre edad y severidad clínica.
+(4) Consultar con un experto clínico o de salud pública la definición
+más adecuada de "caso complejo" para un eventual modelo de dos partes,
+en lugar de una regla heurística basada solo en frecuencias de tipo de
+atención.
