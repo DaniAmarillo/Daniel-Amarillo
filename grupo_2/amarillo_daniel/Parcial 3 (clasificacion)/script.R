@@ -1128,33 +1128,6 @@ perfiles <- test_costo %>%
     n_procedimientos = 1
   )
 
-# Ejemplo explicito de perfiles contrastantes (ajustar niveles segun tus datos)
-perfil_leve <- test_costo[1, ] %>%
-  mutate(UTI = factor("No", levels = levels(test_costo$UTI)),
-         INTERNADO = factor("No", levels = levels(test_costo$INTERNADO)),
-         edad = 40, n_procedimientos = 1)
-
-perfil_severo <- test_costo[1, ] %>%
-  mutate(UTI = factor("Si", levels = levels(test_costo$UTI)),
-         INTERNADO = factor("Si", levels = levels(test_costo$INTERNADO)),
-         edad = 70, n_procedimientos = 5)
-
-perfiles_comparacion <- bind_rows(
-  perfil_leve    %>% mutate(perfil = "Ambulatorio, sin UCI, 40 anios"),
-  perfil_severo  %>% mutate(perfil = "Internado con UCI, 70 anios")
-)
-
-perfiles_comparacion$costo_esperado <- predict(
-  modelo_costo, newdata = perfiles_comparacion, type = "response"
-)
-
-perfiles_comparacion %>%
-  select(perfil, costo_esperado) %>%
-  print()
-# Esta comparacion ilustra directamente como UCI, internacion y edad
-# modifican el costo esperado, cumpliendo el requisito de "estimar el
-# costo esperado bajo diferentes perfiles o condiciones".
-
 ## ---- 9. Costo promedio general para reportar ----
 
 costo_promedio_reportar <- resumen_costo$media

@@ -180,9 +180,10 @@ explícitamente de las variables predictoras.
   etarios.
   
 
-
-
 ![Comparación de la distribución sexual entre beneficiarios y beneficiarios con ansiedad](D:/Documentos/Daniel/Repo Mineria de Datos/Daniel-Amarillo/grupo_2/amarillo_daniel/Parcial 3 (clasificacion)/Imagenes/Histograma_sexo.png)
+
+- El tipo de especialidad más frecuentado por la población general es el examen y luego la internación con Terapia una de las ultimas especialidades consultadas, en cambio para la población con ansiedad se consulta con mayor frecuencia los servicios de Terapia, lo cual es congruente con el tipo de enfermedad psicologica como es la ansiedad.
+
 
 El hallazgo más determinante de todo el análisis descriptivo, sin
 embargo, es simplemente la **prevalencia**: con menos de 7 casos por
@@ -200,6 +201,8 @@ sección.
 
 
 ![Comparación de la consulta por especialidad entre beneficiarios y beneficiarios con ansiedad](D:/Documentos/Daniel/Repo Mineria de Datos/Daniel-Amarillo/grupo_2/amarillo_daniel/Parcial 3 (clasificacion)/Imagenes/Histograma_consultas.png)
+
+- La distribución de las especialidades accedidas por la población general comparada a la distribución de los servicios accedidos por la población diagnosticada con ansiedad es coherente, pues al ser una enfermedad mental se entiende que va a existir una prevalencia mayor en los servicios de terapia ofrecidos por el prestador.
 
 # Modelamiento predictivo
 
