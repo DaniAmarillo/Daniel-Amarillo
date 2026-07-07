@@ -1,0 +1,537 @@
+---
+title: "Taller Parcial 1 - Extracción y análisis bibliométrico de Big Data and Cognitive Computing"
+author: "Luisa Fernanda Guerrero Ordoñez"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+paquetes <- c("dplyr", "stringr", "readr", "DBI", "RSQLite", "knitr", "ggplot2", "tidyr")
+
+for (p in paquetes) {
+  if (!requireNamespace(p, quietly = TRUE)) {
+    install.packages(p, repos = "https://cloud.r-project.org")
+  }
+}
+
+library(dplyr)
+library(stringr)
+library(readr)
+library(DBI)
+library(RSQLite)
+library(knitr)
+library(ggplot2)
+library(tidyr)
+
+DIR_SALIDA <- "output"
+
+archivo_articulos <- file.path(DIR_SALIDA, "bdcc_articulos_2025.csv")
+archivo_referencias <- file.path(DIR_SALIDA, "bdcc_referencias_2025.csv")
+archivo_sqlite <- file.path(DIR_SALIDA, "bdcc_2025.sqlite")
+archivo_consultas <- file.path(DIR_SALIDA, "bdcc_2025_consultas.sql")
+archivo_schema <- file.path(DIR_SALIDA, "bdcc_2025_schema.sql")
+
+if (!file.exists(archivo_articulos)) stop("No se encontró bdcc_articulos_2025.csv en la carpeta output.")
+if (!file.exists(archivo_referencias)) stop("No se encontró bdcc_referencias_2025.csv en la carpeta output.")
+if (!file.exists(archivo_sqlite)) stop("No se encontró bdcc_2025.sqlite en la carpeta output.")
+
+papers_df <- read_csv(archivo_articulos, show_col_types = FALSE)
+df_referencias <- read_csv(archivo_referencias, show_col_types = FALSE)
+con <- dbConnect(SQLite(), archivo_sqlite)
+```
+
+# 1. Introducción
+
+El presente taller tiene como propósito realizar un proceso de extracción, organización, almacenamiento y análisis de información bibliográfica proveniente de una revista científica indexada. Para este caso se seleccionó la revista *Big Data and Cognitive Computing*, debido a que sus publicaciones están relacionadas con temas actuales de minería de datos, inteligencia artificial, aprendizaje automático, análisis estadístico y sistemas basados en datos.
+
+La actividad permitió aplicar un flujo completo de trabajo en minería de datos: identificación de la fuente, extracción automatizada, limpieza inicial, clasificación temática, almacenamiento en una base de datos SQLite y análisis mediante consultas SQL. Además, se documentaron las decisiones metodológicas tomadas durante el proceso, especialmente aquellas relacionadas con las restricciones de acceso del sitio web original y el uso de fuentes alternativas de metadatos académicos.
+
+# 2. Revista seleccionada
+
+La revista seleccionada fue *Big Data and Cognitive Computing (BDCC)*, publicada por MDPI. Esta revista fue escogida porque sus artículos se relacionan directamente con áreas de interés para el curso, como ciencia de datos, inteligencia artificial, machine learning, big data, procesamiento de lenguaje natural y análisis computacional.
+
+| Elemento | Información |
+|---|---|
+| Revista | Big Data and Cognitive Computing |
+| Editorial | MDPI |
+| ISSN | 2504-2289 |
+| Año analizado | 2025 |
+| Fuente final de metadatos | CrossRef API |
+| Formatos generados | CSV, JSON, SQLite y SQL |
+
+La elección de esta revista resulta apropiada porque contiene artículos recientes y variados sobre técnicas modernas de análisis de datos y permite observar tendencias actuales en áreas como Machine Learning e IA Generativa.
+
+# 3. Fuente de datos y estrategia de extracción
+
+Inicialmente se intentó realizar el scraping directamente desde las páginas de MDPI. Para esto se construyeron enlaces de artículos y se intentó extraer el título, DOI, autores, resumen y referencias desde el HTML de cada página. Sin embargo durante las pruebas se presentó un problema que era que aunque las URL de los artículos sí eran encontradas al intentar leer cada página desde R el campo del título no se extraía correctamente y aparecía el mensaje “No se pudo extraer título válido”.
+
+Este problema no significaba que los artículos no existieran sino que la respuesta obtenida desde R no contenía los metadatos de forma estable. Esto podia ser por restricciones del sitio web, mecanismos anti-bot, carga dinámica de contenido o diferencias entre lo que ve un navegador y lo que recibe una solicitud automatizada. Debido a esto el scraping directo desde MDPI no resultó suficientemente confiable para construir la base final.
+
+Por esta razón se uso CrossRef como fuente principal de extracción. Ya que CrossRef funciona como una fuente web estructurada de metadatos académicos y permite consultar información bibliográfica mediante solicitudes HTTP. En lugar de depender del HTML visual de MDPI, se extrajeron los datos desde una API pública lo cual hizo el proceso más reproducible, estable y verificable.
+
+
+La consulta final se realizó usando los siguientes filtros:
+
+| Criterio | Valor usado |
+|---|---|
+| ISSN | 2504-2289 |
+| Fecha inicial | 2025-01-01 |
+| Fecha final | 2025-12-31 |
+| Tipo de documento | journal-article |
+| Fuente | CrossRef API |
+
+El uso de CrossRef permitió obtener una extracción más estable, reproducible y menos dependiente de la estructura visual del sitio web de MDPI.
+
+## 3.1 Archivos generados
+
+Como resultado del proceso de extracción y almacenamiento se generaron los siguientes archivos:
+
+```{r archivos-generados, echo=FALSE}
+archivos_tabla <- data.frame(
+  Archivo = c(
+    "bdcc_articulos_2025.csv",
+    "bdcc_articulos_2025.json",
+    "bdcc_referencias_2025.csv",
+    "bdcc_2025.sqlite",
+    "bdcc_2025_schema.sql",
+    "bdcc_2025_consultas.sql"
+  ),
+  Descripcion = c(
+    "Archivo tabular con los metadatos principales de los artículos",
+    "Versión JSON de los metadatos principales",
+    "Archivo tabular con las referencias bibliográficas extraídas",
+    "Base de datos SQLite construida a partir de los datos",
+    "Archivo SQL con la estructura de creación de tablas",
+    "Archivo SQL con las consultas solicitadas en el taller"
+  )
+)
+
+kable(archivos_tabla, caption = "Archivos generados durante el desarrollo del taller")
+```
+
+# 4. Descripción del conjunto de datos
+
+La extracción final permitió recuperar información de artículos publicados en la revista durante el año 2025. La base principal contiene información bibliográfica como título, DOI, autores, fecha de publicación, resumen, número de citas, número de referencias y categoría temática.
+
+```{r resumen-general, echo=FALSE}
+resumen_general <- data.frame(
+  Indicador = c(
+    "Artículos recuperados",
+    "Referencias recuperadas",
+    "Promedio de autores por artículo",
+    "Promedio de referencias por artículo",
+    "Promedio de citas por artículo"
+  ),
+  Valor = c(
+    nrow(papers_df),
+    nrow(df_referencias),
+    round(mean(papers_df$n_authors, na.rm = TRUE), 2),
+    round(mean(papers_df$n_references, na.rm = TRUE), 2),
+    round(mean(papers_df$citations, na.rm = TRUE), 2)
+  )
+)
+
+kable(resumen_general, caption = "Resumen general de los datos recuperados")
+```
+
+## 4.1 Variables principales
+
+```{r variables-principales, echo=FALSE}
+variables_tabla <- data.frame(
+  Variable = c(
+    "journal_name", "title", "publication_date", "year", "doi", "url",
+    "abstract", "authors_raw", "n_authors", "citations", "downloads",
+    "n_references", "topic_label"
+  ),
+  Descripcion = c(
+    "Nombre de la revista",
+    "Título del artículo",
+    "Fecha de publicación",
+    "Año de publicación",
+    "Identificador DOI",
+    "URL asociada al DOI",
+    "Resumen del artículo",
+    "Autores en formato texto",
+    "Cantidad de autores",
+    "Número de citas reportadas por CrossRef",
+    "Número de descargas",
+    "Cantidad de referencias bibliográficas",
+    "Clasificación temática del artículo"
+  )
+)
+
+kable(variables_tabla, caption = "Descripción de variables de la tabla principal")
+```
+
+## 4.2 Calidad de datos y valores faltantes
+
+```{r calidad-datos, echo=FALSE}
+calidad <- papers_df %>%
+  summarise(across(everything(), ~sum(is.na(.)))) %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Valores_faltantes") %>%
+  mutate(Porcentaje_faltante = round(Valores_faltantes / nrow(papers_df) * 100, 2))
+
+kable(calidad, caption = "Valores faltantes por variable en la tabla de artículos")
+```
+
+La variable `downloads` presenta valores faltantes porque CrossRef no proporciona esta métrica. Aunque el enunciado del taller solicita trabajar con descargas o una métrica equivalente en esta fuente la métrica disponible de forma estable fue el número de citas. Por esta razón las descargas se conservaron como campo dentro del modelo de datos pero quedaron registradas como valores nulos.
+
+# 5. Clasificación temática
+
+Cada artículo fue clasificado en una de las categorías solicitadas: Machine Learning, IA Generativa, Estadística u Otros. La clasificación se realizó mediante reglas reproducibles basadas en palabras clave presentes en el título y el resumen del artículo.
+
+```{r tabla-clasificacion, echo=FALSE}
+tabla_clasificacion <- papers_df %>%
+  count(topic_label, name = "Cantidad") %>%
+  mutate(Porcentaje = round(Cantidad / sum(Cantidad) * 100, 2)) %>%
+  arrange(desc(Cantidad))
+
+kable(tabla_clasificacion, caption = "Distribución temática de los artículos")
+```
+
+```{r grafico-clasificacion, echo=FALSE, fig.width=7, fig.height=4}
+ggplot(tabla_clasificacion, aes(
+  x = reorder(topic_label, Cantidad),
+  y = Cantidad,
+  fill = topic_label
+)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_manual(
+    values = c(
+      "Machine Learning" = "#4E79A7",
+      "IA Generativa" = "#F28E2B",
+      "Estadística" = "#59A14F",
+      "Otros" = "#B07AA1"
+    )
+  ) +
+  labs(
+    title = "Distribución temática de artículos",
+    x = "Categoría temática",
+    y = "Cantidad dess artículos",
+    fill = "Categoría"
+  ) +
+  theme_minimal()
+```
+
+Con la clasificación temática se observa que la mayor parte de los artículos recuperados pertenecen a la categoría de Machine Learning. También se identifica una presencia importante de trabajos relacionados con IA Generativa, lo cual es coherente con las tendencias actuales de investigación en modelos de lenguaje, generación automática de contenido y sistemas basados en inteligencia artificial.
+
+La categoría de Estadística tiene una menor cantidad de artículos, mientras que la categoría Otros agrupa publicaciones que, aunque pertenecen a la revista, no se ajustan directamente a las palabras clave definidas para las tres categorías principales.
+# 6. Construcción de la base de datos SQLite
+
+La información fue almacenada en una base de datos SQLite llamada `bdcc_2025.sqlite`. 
+
+El modelo de datos utilizado contiene dos tablas principales:
+
+| Tabla | Descripción |
+|---|---|
+| papers | Almacena los metadatos principales de cada artículo |
+| references_table | Almacena las referencias bibliográficas extraídas de los artículos |
+
+```{r resumen-sqlite, echo=FALSE}
+resumen_sqlite <- data.frame(
+  Tabla = c("papers", "references_table"),
+  Registros = c(
+    dbGetQuery(con, "SELECT COUNT(*) AS n FROM papers")$n,
+    dbGetQuery(con, "SELECT COUNT(*) AS n FROM references_table")$n
+  )
+)
+
+kable(resumen_sqlite, caption = "Cantidad de registros en la base de datos SQLite")
+```
+
+# 7. Preguntas respondidas con SQL
+
+A continuación se presentan las consultas SQL solicitadas, sus resultados y una interpretación breve de cada respuesta.
+
+## 7.1 Número promedio de autores por paper
+
+```{sql, eval=FALSE}
+SELECT ROUND(AVG(n_authors), 2) AS promedio_autores_por_paper
+FROM papers;
+```
+
+```{r consulta1, echo=FALSE}
+consulta_1 <- dbGetQuery(con, "
+SELECT ROUND(AVG(n_authors), 2) AS promedio_autores_por_paper
+FROM papers;
+")
+kable(consulta_1, caption = "Promedio de autores por paper")
+```
+
+En promedio, cada artículo fue escrito por aproximadamente cuatro autores. Esto muestra que la producción científica de la revista tiene un componente colaborativo importante.
+
+## 7.2 Artículos relacionados con Machine Learning
+
+```{sql, eval=FALSE}
+SELECT COUNT(*) AS articulos_machine_learning
+FROM papers
+WHERE topic_label = 'Machine Learning';
+```
+
+```{r consulta2, echo=FALSE}
+consulta_2 <- dbGetQuery(con, "
+SELECT COUNT(*) AS articulos_machine_learning
+FROM papers
+WHERE topic_label = 'Machine Learning';
+")
+kable(consulta_2, caption = "Artículos relacionados con Machine Learning")
+```
+
+Machine Learning fue la categoría más frecuente. Esto confirma que la revista tiene una fuerte orientación hacia técnicas de aprendizaje automático y modelos predictivos.
+
+## 7.3 Artículos relacionados con IA Generativa
+
+```{sql, eval=FALSE}
+SELECT COUNT(*) AS articulos_ia_generativa
+FROM papers
+WHERE topic_label = 'IA Generativa';
+```
+
+```{r consulta3, echo=FALSE}
+consulta_3 <- dbGetQuery(con, "
+SELECT COUNT(*) AS articulos_ia_generativa
+FROM papers
+WHERE topic_label = 'IA Generativa';
+")
+kable(consulta_3, caption = "Artículos relacionados con IA Generativa")
+```
+
+La IA Generativa tuvo una presencia considerable, especialmente por trabajos relacionados con LLM, ChatGPT, RAG, modelos generativos y sistemas basados en lenguaje.
+
+## 7.4 Artículos relacionados con Estadística
+
+```{sql, eval=FALSE}
+SELECT COUNT(*) AS articulos_estadistica
+FROM papers
+WHERE topic_label = 'Estadística';
+```
+
+```{r consulta4, echo=FALSE}
+consulta_4 <- dbGetQuery(con, "
+SELECT COUNT(*) AS articulos_estadistica
+FROM papers
+WHERE topic_label = 'Estadística';
+")
+kable(consulta_4, caption = "Artículos relacionados con Estadística")
+```
+
+La categoría Estadística tuvo menor frecuencia frente a Machine Learning e IA Generativa. Sin embargo, varios artículos incluyen métodos estadísticos dentro de aplicaciones de ciencia de datos.
+
+## 7.5 Número total de descargas de artículos publicados en 2025
+
+```{sql, eval=FALSE}
+SELECT SUM(downloads) AS total_descargas_2025
+FROM papers
+WHERE year = 2025;
+```
+
+```{r consulta5, echo=FALSE}
+consulta_5 <- dbGetQuery(con, "
+SELECT SUM(downloads) AS total_descargas_2025
+FROM papers
+WHERE year = 2025;
+")
+kable(consulta_5, caption = "Total de descargas de artículos publicados en 2025")
+```
+
+El resultado aparece como `NA`, ya que CrossRef no proporciona información sobre descargas. Esta limitación fue documentada y el campo se mantuvo en la base de datos para conservar la estructura solicitada.
+
+## 7.6 Número promedio de referencias por artículo
+
+```{sql, eval=FALSE}
+SELECT ROUND(AVG(n_references), 2) AS promedio_referencias_por_articulo
+FROM papers;
+```
+
+```{r consulta6, echo=FALSE}
+consulta_6 <- dbGetQuery(con, "
+SELECT ROUND(AVG(n_references), 2) AS promedio_referencias_por_articulo
+FROM papers;
+")
+kable(consulta_6, caption = "Promedio de referencias por artículo")
+```
+
+El promedio de referencias por artículo fue alto, lo que indica que los trabajos publicados suelen apoyarse en una base bibliográfica amplia.
+
+## 7.7 Referencia más repetida entre todos los artículos
+
+```{sql, eval=FALSE}
+SELECT reference_text_normalized AS referencia,
+       COUNT(*) AS veces_repetida
+FROM references_table
+WHERE reference_text_normalized IS NOT NULL
+GROUP BY reference_text_normalized
+ORDER BY veces_repetida DESC
+LIMIT 1;
+```
+
+```{r consulta7, echo=FALSE}
+consulta_7 <- dbGetQuery(con, "
+SELECT reference_text_normalized AS referencia,
+       COUNT(*) AS veces_repetida
+FROM references_table
+WHERE reference_text_normalized IS NOT NULL
+GROUP BY reference_text_normalized
+ORDER BY veces_repetida DESC
+LIMIT 1;
+")
+kable(consulta_7, caption = "Referencia más repetida entre los artículos")
+```
+
+La referencia más repetida aparece 23 veces. Esto sugiere la existencia de trabajos base que son recurrentemente citados en investigaciones relacionadas con inteligencia artificial y análisis de datos.
+
+## 7.8 Promedio de citas por artículo
+
+```{sql, eval=FALSE}
+SELECT ROUND(AVG(citations), 2) AS promedio_citas_por_articulo
+FROM papers;
+```
+
+```{r consulta8, echo=FALSE}
+consulta_8 <- dbGetQuery(con, "
+SELECT ROUND(AVG(citations), 2) AS promedio_citas_por_articulo
+FROM papers;
+")
+kable(consulta_8, caption = "Promedio de citas por artículo")
+```
+
+El promedio de citas fue moderado, lo cual es esperable porque se trata de artículos publicados en 2025 y muchos todavía no han acumulado un número alto de citaciones.
+
+## 7.9 Paper con más citas
+
+```{sql, eval=FALSE}
+SELECT title, doi, citations, topic_label
+FROM papers
+WHERE citations IS NOT NULL
+ORDER BY citations DESC
+LIMIT 1;
+```
+
+```{r consulta9, echo=FALSE}
+consulta_9 <- dbGetQuery(con, "
+SELECT title, doi, citations, topic_label
+FROM papers
+WHERE citations IS NOT NULL
+ORDER BY citations DESC
+LIMIT 1;
+")
+kable(consulta_9, caption = "Artículo con mayor número de citas")
+```
+
+El artículo más citado fue *LLM Fine-Tuning: Concepts, Opportunities, and Challenges*, perteneciente a la categoría IA Generativa. Esto refleja la relevancia actual de los modelos de lenguaje y sus procesos de ajuste fino.
+
+## 7.10 Paper de Machine Learning, IA Generativa o Estadística con más citas
+
+```{sql, eval=FALSE}
+SELECT title, doi, citations, topic_label
+FROM papers
+WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+  AND citations IS NOT NULL
+ORDER BY citations DESC
+LIMIT 1;
+```
+
+```{r consulta10, echo=FALSE}
+consulta_10 <- dbGetQuery(con, "
+SELECT title, doi, citations, topic_label
+FROM papers
+WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+  AND citations IS NOT NULL
+ORDER BY citations DESC
+LIMIT 1;
+")
+kable(consulta_10, caption = "Artículo de las categorías principales con mayor número de citas")
+```
+
+El resultado coincide con el artículo más citado de toda la base, lo que indica que los trabajos sobre IA Generativa se encuentran entre los más visibles del conjunto analizado.
+
+## 7.11 Paper de Machine Learning, IA Generativa o Estadística con más descargas
+
+```{sql, eval=FALSE}
+SELECT title, doi, downloads, topic_label
+FROM papers
+WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+  AND downloads IS NOT NULL
+ORDER BY downloads DESC
+LIMIT 1;
+```
+
+```{r consulta11, echo=FALSE}
+consulta_11 <- dbGetQuery(con, "
+SELECT title, doi, downloads, topic_label
+FROM papers
+WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')
+  AND downloads IS NOT NULL
+ORDER BY downloads DESC
+LIMIT 1;
+")
+
+if (nrow(consulta_11) == 0) {
+  consulta_11 <- data.frame(Resultado = "No hay información de descargas disponible en CrossRef")
+}
+
+kable(consulta_11, caption = "Artículo con mayor número de descargas")
+```
+
+No fue posible responder esta pregunta con un valor numérico porque la fuente final de datos no entrega descargas.
+
+# 8. Artículos más citados
+
+```{r top-citados, echo=FALSE}
+top_citados <- dbGetQuery(con, "
+SELECT title, doi, citations, topic_label
+FROM papers
+WHERE citations IS NOT NULL
+ORDER BY citations DESC
+LIMIT 10;
+")
+
+kable(top_citados, caption = "Top 10 artículos con mayor número de citas")
+```
+
+Los artículos más citados se relacionan principalmente con IA Generativa, Machine Learning y aplicaciones de inteligencia artificial. Esto permite observar que los temas con mayor visibilidad están asociados con modelos de lenguaje, aprendizaje profundo y sistemas inteligentes.
+
+# 9. Hallazgos
+
+A partir de los resultados obtenidos se identificaron varios hallazgos relevantes:
+
+| Hallazgo | Explicación |
+|---|---|
+| Predominio de Machine Learning | Fue la categoría con mayor número de artículos, con 169 registros. |
+| Presencia importante de IA Generativa | Se identificaron 73 artículos relacionados con modelos generativos, LLM y ChatGPT. |
+| Baja proporción de artículos puramente estadísticos | Solo 18 artículos fueron clasificados directamente como Estadística. |
+| Alta densidad bibliográfica | El promedio de referencias fue de 44.75 por artículo. |
+| Artículo más citado relacionado con LLM | El paper más citado fue sobre fine-tuning de modelos de lenguaje. |
+
+Estos resultados muestran que la revista durante 2025 estuvo orientada mas que todo hacia temas de inteligencia artificial aplicada, especialmente Machine Learning e IA Generativa.
+
+# 10. Limitaciones
+
+| Limitación | Explicación | Impacto |
+|---|---|---|
+| Restricciones de MDPI | El scraping directo sobre MDPI no devolvía de forma estable el contenido HTML necesario. | Se cambió la fuente principal a CrossRef. |
+| Descargas no disponibles | CrossRef no proporciona métricas de descargas. | Las consultas relacionadas con descargas retornan NA o sin registros. |
+| Clasificación por palabras clave | La clasificación temática se hizo con reglas simples. | Algunos artículos podrían pertenecer a más de una categoría. |
+| Resúmenes con etiquetas XML | Algunos abstracts contienen marcas como `<jats:p>`. | No afecta las consultas, pero sí requiere limpieza adicional para presentación. |
+
+
+# 11. Conclusiones
+
+El taller permitió construir un flujo completo de extracción, almacenamiento y análisis de datos bibliográficos utilizando R, CrossRef, SQLite y SQL.
+
+Se logró recuperar información de 334 artículos publicados en 2025 en la revista *Big Data and Cognitive Computing*, junto con 14.948 referencias bibliográficas. Esta información fue almacenada en una base de datos SQLite y posteriormente consultada mediante SQL para responder las preguntas planteadas.
+
+Los resultados evidencian que Machine Learning fue la categoría predominante dentro de la revista, seguida por IA Generativa. Esto coincide con las tendencias actuales de investigación en ciencia de datos e inteligencia artificial.
+
+También se identificó que el artículo más citado está relacionado con el ajuste fino de modelos de lenguaje, lo que confirma la importancia reciente de los LLM dentro de la producción académica.
+
+Finalmente aunque no fue posible obtener información sobre descargas esta limitación fue documentada y tratada dentro del informe.
+
+```{r cierre, echo=FALSE}
+dbDisconnect(con)
+```
