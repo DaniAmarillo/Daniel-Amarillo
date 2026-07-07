@@ -1,26 +1,98 @@
-# Cómo usar esto (flujo de 2 pasos)
+# Uso del proyecto
 
-## Paso 1 — Entrenar (una sola vez, o cuando cambies datos/modelos)
+El flujo de trabajo se divide en dos etapas:
 
-Desde una terminal, en la carpeta donde tengas `entrenar.py`:
+1. Entrenamiento del modelo.
+2. Generación del reporte.
+
+---
+
+# 1. Entrenamiento del modelo
+
+Ejecutar desde una terminal ubicada en el directorio del proyecto:
 
 ```bash
 python entrenar.py
 ```
 
-- Ajusta primero la ruta del CSV en la línea `PATH = r"C:\Users\johan\Downloads\db_2026.csv"` si cambia.
-- **El tuning de Random Forest (`RandomizedSearchCV`, 200 fits, ~4 horas) NO se vuelve a correr por defecto.** El script ya trae hardcodeados los hiperparámetros óptimos que esa búsqueda encontró (`MEJORES_PARAMS_RF`, en la sección 0 del script), así que por defecto solo entrena el modelo final con esos parámetros — toma segundos.
-  - El código completo de la búsqueda sigue ahí (sección 9, dentro de `if RUN_TUNING: ...`), documentado y sin borrar, por si el profesor quiere ver exactamente cómo se hizo el tuning.
-  - Si cambias las variables/features o el CSV y quieres verificar/refrescar el tuning, pon `RUN_TUNING = True` en la sección 0 y vuelve a correr — ahí sí tomará varias horas, y al final te dirá los nuevos mejores parámetros para que actualices `MEJORES_PARAMS_RF`.
-- El resto del script (limpieza, features, comparación de 7 modelos, CV repetida, importancia de variables, GLM de costo) sí corre siempre — es rápido en comparación con el tuning.
-- Al terminar, vas a tener una carpeta `artifacts/` al lado del script, con todas las tablas (`.csv`), métricas (`.json`), figuras (`.png` en `artifacts/figuras/`) y el modelo entrenado (`modelo_final.pkl`).
+Antes de ejecutar, verificar la ruta del conjunto de datos en la variable:
 
-## Paso 2 — Renderizar el reporte (rápido, cuantas veces quieras)
+```python
+PATH = r"C:\Users\johan\Downloads\db_2026.csv"
+```
 
-Copia `taller3_cancer_mama.qmd` **a la misma carpeta** donde quedó `artifacts/` (o mueve `artifacts/` junto al `.qmd`), y corre:
+y actualizarla si el archivo CSV se encuentra en otra ubicación.
+
+## Ajuste de hiperparámetros (Random Forest)
+
+El ajuste mediante `RandomizedSearchCV` **no se ejecuta por defecto**.
+
+La búsqueda original (200 ajustes, aproximadamente 4 horas de ejecución) ya fue realizada y los mejores hiperparámetros obtenidos se encuentran definidos en:
+
+```python
+MEJORES_PARAMS_RF
+```
+
+(Sección 0 de `entrenar.py`).
+
+Por esta razón, la ejecución normal del script únicamente entrena el modelo final utilizando dichos parámetros, reduciendo el tiempo de ejecución a unos pocos segundos.
+
+El código completo utilizado para el ajuste permanece en el archivo (`Sección 9`), dentro del bloque:
+
+```python
+if RUN_TUNING:
+```
+
+Si se modifican las variables, el proceso de ingeniería de características o el conjunto de datos, puede ejecutarse nuevamente el ajuste cambiando:
+
+```python
+RUN_TUNING = True
+```
+
+Una vez finalizado el proceso, los nuevos hiperparámetros obtenidos deberán reemplazar el contenido de `MEJORES_PARAMS_RF`.
+
+## Salidas generadas
+
+Al finalizar la ejecución se crea automáticamente el directorio:
+
+```
+artifacts/
+```
+
+con la siguiente estructura:
+
+```
+artifacts/
+├── modelo_final.pkl
+├── *.csv
+├── *.json
+└── figuras/
+    └── *.png
+```
+
+Este directorio contiene:
+
+* Modelo entrenado.
+* Tablas en formato CSV.
+* Métricas en formato JSON.
+* Figuras utilizadas posteriormente en el reporte.
+
+---
+
+# 2. Generación del reporte
+
+Ubicar el archivo:
+
+```
+taller3_cancer_mama.qmd
+```
+
+en el mismo directorio donde se encuentra la carpeta `artifacts/`.
+
+Posteriormente ejecutar:
 
 ```bash
 quarto render taller3_cancer_mama.qmd
 ```
 
-Esto debería tomar **segundos**, porque el `.qmd` no entrena nada — solo lee lo que ya está en `artifacts/`.
+El documento Quarto no realiza entrenamiento de modelos; únicamente carga la información previamente generada en `artifacts/`, por lo que el proceso de renderizado toma únicamente unos segundos.
