@@ -756,3 +756,4 @@ ggplot(importancia_iso %>% slice_max(caida, n = 15),
     y        = "Caída en ROC-AUC"
   ) +
   theme_minimal()
+

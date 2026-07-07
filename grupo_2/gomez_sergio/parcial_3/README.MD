@@ -195,12 +195,7 @@ persona y variedad moderada en el catálogo de procedimientos.
 
 ### 3.2 Distribución de la variable objetivo
 
-
-```r
-  OBJETIVO       n  Etiqueta    Porcentaje
-         0  648976  Sin COVID-19      ~100
-         1      14  COVID-19          0.00
-```
+![alt text](image.png)
 
 La variable objetivo presenta un **desbalance extremo**: solo **14 beneficiarios
 (0,002 %)** cuentan con al menos un registro asociado a los códigos CID `U07.1` o
@@ -217,12 +212,7 @@ balanceo de clases (SMOTE, submuestreo, pesos por clase) durante el entrenamient
 
 ### 3.3 Distribución por sexo
 
-```r
-  SEXO       n    Porcentaje
-  F     357002          55.0
-  M     261774          40.3
-  OUTROS  30214           4.7
-```
+![alt text](image-1.png)
 
 La mayoría de los beneficiarios son de sexo femenino (**55 %**), seguidos por masculino
 (**40,3 %**). Un **4,7 %** quedó clasificado como `OUTROS` al no contar con información
@@ -232,15 +222,7 @@ de sexo confiable, lo cual fue documentado en la etapa de preparación.
 
 ### 3.4 Distribución por grupo de edad
 
-```r
-  grupo_edad       n    pct
-  0-17        137892   21.2
-  18-29        88419   13.6
-  30-44       173749   26.8
-  45-59       129064   19.9
-  60-74        78605   12.1
-  75+          41261    6.4
-```
+![alt text](image-2.png)
 
 El grupo de edad más representado es el de **30 a 44 años (26,8 %)**, seguido por los
 grupos de **0 a 17 años (21,2 %)** y **45 a 59 años (19,9 %)**. Los adultos mayores de
@@ -252,18 +234,7 @@ grupos de mayor edad como los de mayor riesgo de severidad.
 
 ### 3.5 Distribución por tipo de beneficiario
 
-```r
-  TIPO_BENEFICIARIO       n    pct
-  TITULAR            335978   51.8
-  DEPENDENTE         269492   41.5
-  OUTROS              35249    5.4
-  AGREGADO             5874    0.9
-  FILHO                1107    0.2
-  CONJUGE              1104    0.2
-  IGNORADO              184    0.0
-  MAE                     1    0.0
-  TUTELADO                1    0.0
-```
+![alt text](image-3.png)
 
 Más de la mitad de los beneficiarios son **titulares (51,8 %)** y el **41,5 %** son
 dependientes, lo que es consistente con la estructura típica de un plan de salud
@@ -275,14 +246,7 @@ construcción de variables para el modelo.
 
 ### 3.6 Distribución por estado de atención (top 5)
 
-```r
-  UF_CNES_PREST_HOSPITALAR        n    pct
-  SP                         4391852   51.6
-  no_clasificado             2381444   28.0
-  PE                          521911    6.1
-  MT                          420373    4.9
-  RJ                          314716    3.7
-```
+![alt text](image-4.png)
 
 El estado de **São Paulo (SP)** concentra más de la mitad de los registros (**51,6 %**),
 lo que sugiere que la población asegurada se encuentra mayoritariamente en esa región.
@@ -294,14 +258,7 @@ cualquier análisis geográfico.
 
 ### 3.7 Distribución por especialidad médica (top 5)
 
-```r
-  DESC_ESPECIALIDADE                         n    pct
-  no_clasificado                       6214506   84.7
-  MEDICO CLINICO                        595887    8.1
-  PATOLOGIA CLINICA MEDICINA LABORATORIAL 192846  2.6
-  ANALISES CLINICAS DIVERSAS            169532    2.3
-  CLINICA MEDICA                        163924    2.2
-```
+![alt text](image-5.png)
 
 El **84,7 %** de los registros no cuenta con especialidad identificada, lo que constituye
 la limitación más severa de esta variable. Esto se debe en parte a que muchos registros
@@ -530,10 +487,7 @@ El RF submuestreo se reporta como mejor modelo supervisado de referencia.
 
 **Isolation Forest (modelo seleccionado)**
 
-|                   | Predicho negativo | Predicho positivo |
-| ----------------- | ----------------- | ----------------- |
-| **Real negativo** | 117.183 (VN)      | 12.608 (FP)       |
-| **Real positivo** | 2 (FN)            | 5 (VP)            |
+![alt text](image-8.png)
 
 - Sensibilidad = 5/7 = **0,714** detecta 5 de 7 casos reales de coronavirus.
 - Especificidad = 117.183/129.791 = **0,903** clasifica correctamente el 90,3 % de
@@ -545,10 +499,7 @@ El RF submuestreo se reporta como mejor modelo supervisado de referencia.
 
 **RF submuestreo (mejor supervisado)**
 
-|                   | Predicho negativo | Predicho positivo |
-| ----------------- | ----------------- | ----------------- |
-| **Real negativo** | 129.236 (VN)      | 555 (FP)          |
-| **Real positivo** | 6 (FN)            | 1 (VP)            |
+![alt text](image-6.png)
 
 - Sensibilidad = 1/7 = **0,143** detecta solo 1 de 7 casos reales.
 - Especificidad = 129.236/129.791 = **0,996**.
@@ -590,6 +541,8 @@ que el modelo no la utiliza de forma significativa.
 El ROC-AUC base del Isolation Forest sobre el conjunto de test es **0,869**.
 
 #### 4.6.1 Resultados
+
+![alt text](image-7.png)
 
 A partir del perfil de caídas se identifican tres grupos:
 
