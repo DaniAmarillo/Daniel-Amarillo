@@ -1,0 +1,259 @@
+---
+title: "Taller_clase_18"
+author: "Sebastian Tabares Segovia"
+date: "2026-07-04"
+output: html_document
+---
+
+# Taller Clase 18: K-means
+
+## Ejercicio de práctica
+
+**Contexto:** La autoridad ambiental entrega indicadores de 300 municipios colombianos: cobertura de acueducto (%), cobertura de alcantarillado (%), IRCA, población y altitud (msnm). No existe una variable objetivo, por lo que se requiere aplicar técnicas de aprendizaje no supervisado para identificar grupos naturales de municipios.
+
+
+```{r}
+library(tidyverse)
+library(dbscan)
+library(arules)
+library(solitude)
+library(cluster)
+
+# --- Simulación de los datos (no contamos con los datos reales) ---
+set.seed(123)
+n <- 300
+municipios <- tibble(
+  cobertura_acueducto = c(rnorm(n / 2, 85, 6),     rnorm(n / 2, 45, 8)),
+  alcantarillado      = c(rnorm(n / 2, 78, 7),     rnorm(n / 2, 38, 9)),
+  irca                = c(rnorm(n / 2, 14, 5),     rnorm(n / 2, 56, 8)),
+  poblacion           = c(rlnorm(n / 2, 10.6, 0.6), rlnorm(n / 2, 9.0, 0.7)),
+  altitud             = c(rnorm(n / 2, 1200, 400),  rnorm(n / 2, 600, 300))
+)
+datos_esc <- scale(municipios) #Acá los datos ya están escalados
+municipios$cluster_kmeans <- kmeans(datos_esc, centers = 3, nstart = 25)$cluster
+
+# Transacciones simuladas de una cooperativa de compras agrícolas
+items <- c("semilla", "fertilizante", "fungicida", "abono", "guantes", "manguera")
+set.seed(456)
+transacciones_lista <- lapply(1:200, function(i) {
+  canasta <- sample(items, sample(1:3, 1))
+  if ("semilla" %in% canasta) canasta <- union(canasta, "fertilizante")
+  unique(canasta)
+})
+trans <- as(transacciones_lista, "transactions")
+
+# A partir de aquí: datos_esc, municipios y trans son su punto de partida.
+# Complete usted las cuatro tareas del ejercicio.
+```
+
+
+```{r}
+## Datos
+
+head(municipios)
+
+knitr::kable(head(municipios), digits = 2)
+```
+
+## 1 Estandarice las variables y aplique el método del codo y el coeficiente de silueta para K=2,…,8. Justifique su elección del K
+
+
+### Método de codo
+
+```{r}
+## Método del codo
+
+set.seed(123)
+
+wss <- numeric(7)
+
+for(i in 2:8){
+  modelo <- kmeans(datos_esc,
+                   centers = i,
+                   nstart = 25)
+  
+  wss[i-1] <- modelo$tot.withinss
+}
+
+plot(2:8,
+     wss,
+     type = "b",
+     pch = 19,
+     xlab = "Número de clusters (K)",
+     ylab = "Inercia (WSS)",
+     main = "Método del codo")
+```
+
+
+### Coeficiente de silueta
+
+```{r}
+## Coeficiente de silueta
+
+
+silueta <- numeric(7)
+
+for(i in 2:8){
+
+  modelo <- kmeans(datos_esc,
+                   centers = i,
+                   nstart = 25)
+
+  sil <- silhouette(modelo$cluster,
+                    dist(datos_esc))
+
+  silueta[i-1] <- mean(sil[,3])
+}
+
+plot(2:8,
+     silueta,
+     type = "b",
+     pch = 19,
+     xlab = "Número de clusters (K)",
+     ylab = "Silueta promedio",
+     main = "Coeficiente de silueta")
+```
+
+
+### Tabla de comparación}
+
+```{r}
+## Comparación
+
+comparacion_k <- data.frame(
+  K = 2:8,
+  WSS = round(wss,2),
+  Silueta = round(silueta,3)
+)
+
+knitr::kable(comparacion_k)
+```
+
+
+### Interpretación del punto 1
+
+Para seleccionar el número adecuado de clústeres se utilizaron dos criterios: el método del codo y el coeficiente de silueta.
+
+El método del codo muestra que la inercia (WSS) disminuye a medida que aumenta el número de clústeres. Sin embargo, la reducción más importante ocurre al pasar de \(K = 2\) a \(K = 3\); posteriormente las mejoras son cada vez menores, lo que indica un punto de inflexión alrededor de \(K = 2\).
+
+Por otra parte, el coeficiente de silueta alcanza su valor máximo en \(K = 2\), con un promedio de **0.649**. A partir de este punto la silueta disminuye progresivamente, indicando que los grupos son menos compactos y están menos separados.
+
+Dado que ambos criterios coinciden en señalar que **\(K = 2\)** proporciona la mejor estructura de agrupamiento, este será el número de clústeres utilizado en el resto del ejercicio.
+
+
+Adicionalmente cabe acotar que el código esqueleto establece un valor \(K = 3\) pero encontramos un valor que mejor se ajusta. \(K = 2\) Por tanto, cambiaremos el valor del K. 
+
+```{r}
+centers = 2
+```
+
+
+## 2. Ajustar K-means con el valor de \(K\) seleccionado y calcular la inercia final
+
+Con base en los resultados obtenidos mediante el método del codo y el coeficiente de silueta, se seleccionó **\(K = 2\)** como el número óptimo de clústeres. A continuación, se ajusta nuevamente el algoritmo K-means utilizando este valor y un número elevado de inicializaciones (`nstart = 25`) para reducir la probabilidad de obtener un mínimo local.
+
+
+```{r}
+## Ajuste final de K-means
+
+set.seed(123)
+
+modelo_kmeans <- kmeans(
+  datos_esc,
+  centers = 2,
+  nstart = 25
+)
+
+modelo_kmeans
+```
+```{r}
+## Asignar el cluster a cada municipio
+
+municipios$cluster_kmeans <- modelo_kmeans$cluster
+
+head(municipios)
+
+knitr::kable(head(municipios), digits = 2)
+```
+
+```{r}
+## Inercia final del modelo
+
+modelo_kmeans$tot.withinss
+```
+
+### Interpretación del punto 2
+
+
+La inercia total obtenida fue de **497.72**, la cual representa la suma de las distancias cuadráticas de las observaciones a los centroides de sus respectivos clústeres. Un valor menor de inercia indica que las observaciones dentro de cada grupo son más similares entre sí y que el agrupamiento es más compacto.
+
+Este modelo será utilizado en los siguientes puntos para caracterizar el perfil de cada clúster y proponer recomendaciones de política pública.
+
+## 3. Construir el perfil de cada cluster (promedios por variable) y proponer un nombre descriptivo a cada grupo
+
+Una vez ajustado el modelo K-means, se calculan los promedios de cada variable para caracterizar los municipios pertenecientes a cada clúster. Estos perfiles permiten interpretar las diferencias entre grupos y asignarles un nombre representativo.
+
+
+```{r}
+## Perfil de cada cluster
+
+perfil_clusters <- municipios %>%
+  group_by(cluster_kmeans) %>%
+  summarise(
+    Cobertura_Acueducto = mean(cobertura_acueducto),
+    Alcantarillado = mean(alcantarillado),
+    IRCA = mean(irca),
+    Poblacion = mean(poblacion),
+    Altitud = mean(altitud),
+    Municipios = n()
+  )
+
+knitr::kable(perfil_clusters, digits = 2)
+```
+
+```{r}
+## Comparación de perfiles
+
+perfil_clusters
+```
+
+
+
+### Interpretación del punto 3
+
+Los perfiles obtenidos muestran que el algoritmo K-means logró separar los municipios en **dos grupos claramente diferenciados**, cada uno con características propias.
+
+#### Cluster 1: Municipios con mayor vulnerabilidad en servicios públicos
+
+Este grupo presenta una **baja cobertura de acueducto (45.75%)** y de **alcantarillado (38.58%)**, acompañadas de un **IRCA promedio de 56.50**, lo que indica un mayor riesgo en la calidad del agua para consumo humano. Además, corresponde a municipios con una **menor población promedio (10 443 habitantes)** y una **altitud promedio de 623 msnm**.
+
+Por estas características, este grupo puede denominarse:
+
+**"Municipios con déficit de infraestructura y mayor riesgo sanitario".**
+
+#### Cluster 2: Municipios con infraestructura consolidada
+
+Los municipios de este grupo presentan una **alta cobertura de acueducto (84.85%)** y **alcantarillado (77.68%)**, junto con un **IRCA promedio de 13.86**, lo que refleja una mejor calidad del agua. Asimismo, corresponden a municipios con una **mayor población promedio (51 155 habitantes)** y una **altitud promedio de 1 177 msnm**.
+
+Por lo tanto, este grupo puede denominarse:
+
+**"Municipios con infraestructura consolidada y menor riesgo sanitario".**
+
+En ambos clústeres se identificaron **150 municipios**, lo que indica que el algoritmo dividió la muestra en dos grupos de igual tamaño, diferenciados principalmente por la cobertura de los servicios públicos y la calidad del agua.
+
+## 4. Recomendación de política pública
+
+Con base en los perfiles obtenidos mediante el algoritmo K-means, se propone una recomendación de política pública dirigida a mejorar las condiciones de los municipios con mayores necesidades.
+
+El grupo que requiere **inversión prioritaria** es el **Cluster 1**, denominado **"Municipios con déficit de infraestructura y mayor riesgo sanitario"**. Este grupo presenta una cobertura promedio de acueducto de apenas **45.75%**, una cobertura de alcantarillado de **38.58%** y un **IRCA promedio de 56.50**, lo que evidencia mayores deficiencias en la prestación de los servicios públicos y un riesgo considerable para la calidad del agua destinada al consumo humano.
+
+En contraste, el **Cluster 2** presenta mejores indicadores en todas las variables analizadas: altas coberturas de acueducto y alcantarillado, un IRCA significativamente menor y una mayor población promedio, lo que sugiere una infraestructura más consolidada y mejores condiciones de acceso al agua potable.
+
+Por lo tanto, se recomienda que la autoridad ambiental priorice los municipios del **Cluster 1** mediante programas de inversión orientados a:
+
+- Ampliar la cobertura de acueducto y alcantarillado.
+- Fortalecer los sistemas de tratamiento y monitoreo de la calidad del agua.
+- Implementar programas de vigilancia sanitaria para reducir los niveles de IRCA.
+- Desarrollar proyectos de infraestructura que garanticen un acceso seguro y continuo al agua potable.
+
+Esta estrategia permitiría reducir las brechas existentes entre ambos grupos de municipios y mejorar las condiciones de salud pública, especialmente en aquellas zonas donde el acceso a servicios básicos y la calidad del agua son más limitados.
