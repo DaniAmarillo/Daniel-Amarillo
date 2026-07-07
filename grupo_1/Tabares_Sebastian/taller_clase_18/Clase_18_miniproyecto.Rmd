@@ -1,0 +1,191 @@
+---
+title: "Clae_18_miniproyecto"
+output: html_document
+date: "2026-06-11"
+---
+
+Taller en clase, clase 18 Sebastian Tabares Segovia
+
+```{r}
+tabpfn_sk_xDbS8lgr2dF7sPMrPVmZv11J3DVRSTQ87vntqLPT4gs
+```
+
+BASE DE DATOS ACTUALIZADA
+
+ApisTox is a dataset focusing on the toxicity of pesticides to honey bees (Apis mellifera). This dataset combines and leverages data from existing sources such as ECOTOX and PPDB, providing an extensive, consistent, and curated collection that surpasses the previous datasets. ApisTox incorporates a wide array of data, including toxicity levels for chemicals, details such as time of their publication in literature, and identifiers linking them to external chemical databases. This dataset may serve as an important tool for environmental and agricultural research, but also can support the development of policies and practices aimed at minimizing harm to bee populations. Finally, ApisTox offers a unique resource for benchmarking molecular property prediction methods on agrochemical compounds, facilitating advancements in both environmental science and cheminformatics. Code used to produce the dataset is available at https://github.com/j-adamczyk/apis_tox_dataset
+
+
+```{r}
+# 0. Token antes de cargar tabpfn
+Sys.setenv(TABPFN_TOKEN = "tabpfn_sk_xDbS8lgr2dF7sPMrPVmZv11J3DVRSTQ87vntqLPT4gs")
+
+cat("R ve el token:", Sys.getenv("TABPFN_TOKEN") != "", "\n")
+cat("Longitud token:", nchar(Sys.getenv("TABPFN_TOKEN")), "\n")
+
+# 1. Cargar paquetes
+library(reticulate)
+library(tabpfn)
+library(dplyr)
+library(rsample)
+library(yardstick)
+library(tibble)
+
+py_run_string("
+import os
+t = os.getenv('TABPFN_TOKEN')
+print('Python ve el token:', t is not None and len(t) > 0)
+print('Inicio token:', t[:12] if t else None)
+")
+
+# 2. Cargar base CSV
+datos <- read.csv(
+  "C:/Users/sebas/OneDrive - Universidad de los Andes/Estadística/3_Semestre/Mineria_de_datos/Ejercicios_clase/Clase_18/apistox/dataset_final.csv",
+  stringsAsFactors = FALSE
+)
+
+# 3. Revisar estructura
+head(datos)
+str(datos)
+names(datos)
+
+# 4. Preparar datos para TabPFN
+datos_modelo <- datos %>%
+  select(
+    -name,
+    -CID,
+    -CAS,
+    -SMILES,
+    -source,
+    -toxicity_type
+  ) %>%
+  mutate(
+    label = as.factor(label),
+    year = as.numeric(year),
+    herbicide = as.numeric(herbicide),
+    fungicide = as.numeric(fungicide),
+    insecticide = as.numeric(insecticide),
+    other_agrochemical = as.numeric(other_agrochemical),
+    ppdb_level = as.numeric(ppdb_level)
+  )
+
+# Verificar variable objetivo
+table(datos_modelo$label)
+
+# 5. Dividir entrenamiento y prueba
+set.seed(123)
+
+split_datos <- initial_split(
+  datos_modelo,
+  prop = 0.80,
+  strata = label
+)
+
+train_data <- training(split_datos)
+test_data  <- testing(split_datos)
+
+# 6. Entrenar TabPFN
+modelo_tabpfn <- tab_pfn(
+  label ~ .,
+  data = train_data,
+  version = "v2",
+  control = control_tab_pfn(
+    device = "auto",
+    random_state = 123
+  )
+)
+
+# 7. Predicciones
+predicciones <- predict(
+  modelo_tabpfn,
+  new_data = test_data %>% select(-label)
+)
+
+# 8. Resultados
+resultados <- bind_cols(
+  test_data %>% select(label),
+  predicciones
+)
+
+head(resultados)
+
+# 9. Accuracy
+accuracy(
+  resultados,
+  truth = label,
+  estimate = .pred_class
+)
+
+# 10. Matriz de confusión
+conf_mat(
+  resultados,
+  truth = label,
+  estimate = .pred_class
+)
+
+# 11. Nuevo caso tomado de la misma estructura del dataset
+nuevo_caso <- test_data %>%
+  select(-label) %>%
+  slice(1)
+
+predict(modelo_tabpfn, nuevo_caso)
+```
+
+
+
+```{r}
+predicciones <- predict(
+  modelo_tabpfn,
+  new_data = test_data %>% select(-label)
+)
+```
+
+
+Acá están las predicciones
+
+```{r}
+predicciones
+```
+
+```{r}
+conf_mat(
+  resultados,
+  truth = label,
+  estimate = .pred_class
+)
+```
+
+Comentarios
+
+La variable objetivo seleccionada fue label, la cual representa la clasificación toxicológica de los compuestos analizados. Se realizó una partición estratificada de los datos en un 80% para entrenamiento y un 20% para prueba, preservando la proporción de clases.
+
+El modelo TabPFN fue entrenado utilizando las variables predictoras disponibles y posteriormente se generaron predicciones sobre el conjunto de prueba.
+
+La matriz de confusión mostró 145 observaciones correctamente clasificadas en la clase 0 y 39 correctamente clasificadas en la clase 1. Se registraron 21 falsos positivos y únicamente 3 falsos negativos.
+
+El accuracy obtenido fue de aproximadamente **88.46%**, indicando un buen desempeño predictivo. El bajo número de falsos negativos sugiere que el modelo identifica adecuadamente la mayoría de los casos pertenecientes a la clase 1. Sin embargo, existe una tendencia moderada a clasificar algunas observaciones de la clase 0 como clase 1, reflejada en los 21 falsos positivos observados.
+
+En general, el modelo presenta una capacidad de clasificación satisfactoria para el problema analizado.
+
+```{r}
+metric_set(
+  accuracy,
+  precision,
+  recall,
+  f_meas
+)(
+  resultados,
+  truth = label,
+  estimate = .pred_class
+)
+```
+ Conclusiones
+ 
+
+El modelo TabPFN presentó un desempeño satisfactorio en la clasificación de la variable objetivo label, alcanzando una exactitud (accuracy) de **88.46%**, lo que indica que aproximadamente nueve de cada diez observaciones fueron clasificadas correctamente.
+
+La métrica de **recall (97.97%)** fue particularmente alta, evidenciando que el modelo logró identificar correctamente la gran mayoría de las observaciones pertenecientes a la clase positiva. Esto se refleja en la matriz de confusión, donde únicamente se observaron **3 falsos negativos**. Desde una perspectiva toxicológica, este resultado es relevante, ya que reduce el riesgo de clasificar como no tóxicos compuestos que realmente pertenecen a la categoría de interés.
+
+La **precisión (87.35%)** fue ligeramente inferior al recall debido a la presencia de **21 falsos positivos**, lo que indica que algunos compuestos fueron clasificados como pertenecientes a la clase positiva cuando en realidad correspondían a la clase negativa. Aunque esto disminuye la precisión del modelo, representa un error generalmente menos crítico que los falsos negativos en aplicaciones relacionadas con evaluación de riesgos.
+
+Finalmente, el **F1-score (92.36%)** muestra un equilibrio adecuado entre precisión y sensibilidad, sugiriendo que el modelo posee una capacidad predictiva robusta incluso ante el desbalance existente entre las clases. En conjunto, los resultados indican que TabPFN es una herramienta adecuada para este problema de clasificación, mostrando una elevada capacidad para detectar correctamente los casos positivos sin sacrificar de forma importante la precisión global.
+
