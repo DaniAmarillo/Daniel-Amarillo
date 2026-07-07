@@ -1,0 +1,302 @@
+---
+title: "Taller_clase_15"
+author: "Sebastian Tabares Segovia"
+date: "2026-07-01"
+output: html_document
+---
+
+# Ejercicio de práctica - Clase 15
+
+## Contexto
+
+En este ejercicio se simula una base de datos de una cooperativa de ahorro y crédito ubicada en Medellín. La base contiene información de **800 socios**, incluyendo variables financieras, demográficas y laborales. El objetivo es predecir si un socio cayó en mora (`Si`) o se mantuvo al día (`No`).
+
+Se comparará el desempeño de un árbol de decisión individual frente a un modelo de **Random Forest**, con el fin de evaluar si el ensamble mejora la capacidad predictiva.
+
+## Carga de paquetes
+
+
+```{r}
+library(rpart)
+library(randomForest)
+library(caret)
+```
+
+## Generación de datos sintéticos
+
+```{r}
+set.seed(42)
+
+n <- 800
+
+cooperativa <- data.frame(
+  ingreso       = round(runif(n, 800000, 8000000)),
+  edad          = sample(20:70, n, replace = TRUE),
+  historial     = sample(c("bueno", "regular", "malo"), n,
+                         replace = TRUE, prob = c(0.5, 0.3, 0.2)),
+  estrato       = sample(1:6, n, replace = TRUE),
+  tipo_empleo   = sample(c("formal", "informal"), n,
+                         replace = TRUE, prob = c(0.6, 0.4)),
+  monto         = round(runif(n, 500000, 20000000))
+)
+```
+
+
+## Construcción de la variable objetivo
+
+```{r}
+prob_mora <- with(cooperativa,
+  0.6 * (historial == "malo") +
+  0.3 * (historial == "regular") +
+  0.2 * (tipo_empleo == "informal") -
+  0.1 * (ingreso / 8000000)
+)
+
+cooperativa$mora <- factor(
+  ifelse(runif(n) < prob_mora, "Si", "No")
+)
+```
+
+
+## Revisión inicial de la base
+
+```{r}
+head(cooperativa)
+```
+
+```{r}
+str(cooperativa)
+```
+
+```{r}
+table(cooperativa$mora)
+prop.table(table(cooperativa$mora))
+```
+
+## Interpretación
+
+La variable respuesta presenta dos categorías: **No** (el socio no cayó en mora) y **Sí** (el socio incurrió en mora).
+
+Del total de **800 socios**, **581 (72.63 %)** permanecieron al día en sus obligaciones financieras, mientras que **219 (27.37 %)** presentaron mora. Aunque las clases no están completamente balanceadas, la proporción es adecuada para entrenar modelos de clasificación supervisada y representa un escenario realista, donde la mayoría de los clientes cumplen con sus pagos y una menor proporción presenta incumplimiento.
+
+
+## 1. Entrene un árbol de decisión con max_depth = 5 y calcule el accuracy en prueba
+
+Iniciamos separando datos de entrenamiento y de prueba
+
+```{r}
+set.seed(42)
+
+indice <- createDataPartition(
+  cooperativa$mora,
+  p = 0.80,
+  list = FALSE
+)
+
+train <- cooperativa[indice, ]
+test  <- cooperativa[-indice, ]
+```
+
+```{r}
+dim(train)
+dim(test)
+```
+
+641 datos de entrenamiento, 159 datos de prueba. Verificamos que la proporcion que pedimos se conserve
+
+```{r}
+prop.table(table(train$mora))
+
+prop.table(table(test$mora))
+```
+
+### Interpretación
+
+La división del conjunto de datos produjo **641 observaciones para entrenamiento** y **159 para prueba**, correspondientes aproximadamente al **80 %** y **20 %** de la información disponible.
+
+Además, se verifica que la proporción de la variable respuesta se conserva en ambos subconjuntos. En el conjunto de entrenamiento el **72.54 %** de los socios no presentan mora y el **27.46 %** sí presentan mora, mientras que en el conjunto de prueba estas proporciones son **72.96 %** y **27.04 %**, respectivamente.
+
+Esto confirma que `createDataPartition()` realizó una partición estratificada, manteniendo prácticamente la misma distribución de la variable objetivo en ambos conjuntos. Como consecuencia, el modelo será entrenado y evaluado sobre datos con características muy similares, reduciendo posibles sesgos durante la validación.
+
+
+```{r}
+# Ejecutamos un arbol con maxima profundidad 5
+arbol <- rpart(
+  mora ~ .,
+  data = train,
+  method = "class",
+  control = rpart.control(maxdepth = 5)
+)
+```
+
+
+```{r}
+rpart.plot(arbol)
+```
+### Interpretación del árbol de decisión
+
+La variable raíz del árbol es **historial**, lo que indica que es el predictor con mayor capacidad para diferenciar entre clientes que caen en mora y aquellos que cumplen con sus obligaciones financieras. Esta elección resulta coherente desde el punto de vista crediticio, ya que el comportamiento pasado suele ser uno de los mejores indicadores del riesgo futuro.
+
+Posteriormente, el árbol incorpora variables como **tipo de empleo**, **monto solicitado**, **ingreso mensual** y **estrato socioeconómico** para refinar la clasificación. En general, los clientes con buen historial son clasificados mayoritariamente como no morosos, mientras que aquellos con historial regular o malo, especialmente si presentan empleo informal o solicitan montos elevados en relación con sus ingresos, muestran una mayor probabilidad de incumplimiento. En conjunto, las reglas obtenidas por el árbol son consistentes con los criterios que normalmente utilizan las entidades financieras para evaluar el riesgo de crédito.
+
+```{r}
+#Matriz de confusion
+
+pred_test <- predict(
+  arbol,
+  newdata = test,
+  type = "class"
+)
+
+confusionMatrix(pred_test, test$mora)
+```
+
+### Interpretación
+
+La matriz de confusión muestra que el árbol clasificó correctamente **89 clientes sin mora** y **20 clientes con mora**. Sin embargo, también cometió **23 falsos negativos**, es decir, clientes que realmente presentaban mora fueron clasificados como clientes al día, y **27 falsos positivos**, correspondientes a clientes que no presentaban mora pero fueron clasificados como morosos.
+
+El modelo obtuvo una **exactitud (Accuracy) del 68.55 %**, lo que significa que aproximadamente siete de cada diez clientes fueron clasificados correctamente. No obstante, este desempeño resulta inferior a la **No Information Rate (72.96 %)**, indicando que el árbol no mejora significativamente una estrategia que siempre predijera la categoría mayoritaria. Adicionalmente, la especificidad (46.51 %) evidencia dificultades para identificar correctamente a los clientes que efectivamente presentan mora. Estos resultados justifican evaluar un modelo más robusto, como Random Forest, que suele ofrecer una mejor capacidad de generalización.
+
+
+## Punto 2 Entrenar un Random Forest
+
+```{r}
+rf <- randomForest(
+  mora ~ ., #Usar todas las variables para predecir mora
+  data = train, #Entrenar con el conjunto de entrenamiento
+  ntree = 200, #Como el ejercicio lo pide, construiremos 200 arboles
+  mtry = floor(sqrt(ncol(train) - 1)), #En cada division el árbol evalúa únicamente raiz de p variables. Recomendación clásica para la clasificación.
+  importance = TRUE #Calcular la importancia de las variables para analizar posteriormente cuales aportan más información
+)
+```
+
+
+```{r}
+print(rf)
+```
+
+Registramos el error OOB. Recordemosque vamos a trabajar sin separar los datos. Es decir con todos los datos se va a trabajar.
+
+```{r}
+rf$err.rate[200, ]
+```
+
+### Interpretación del Error OOB
+
+El Random Forest presenta un **Error Out Of Bag (OOB) de 25.59 %**, lo que equivale a una precisión aproximada del **74.41 %** durante la validación interna del modelo. Este indicador constituye una estimación del desempeño de generalización sin necesidad de utilizar el conjunto de prueba.
+
+Al analizar el error por clase, se observa que el modelo clasifica correctamente la mayoría de los clientes que **no presentan mora**, con un error de únicamente **12.47 %**. En contraste, el error para la categoría **Sí** (clientes con mora) alcanza el **60.23 %**, indicando que el modelo aún presenta dificultades para identificar correctamente esta clase minoritaria. Este comportamiento es consistente con el desbalance existente en la variable respuesta, donde aproximadamente el **73 %** de los registros corresponden a clientes sin mora.
+
+#### Prediccion sobre conjunto de Prueba
+
+```{r}
+pred_rf <- predict(rf, newdata = test)
+```
+
+Y finalmente generamos la **Matriz de confusión**
+
+```{r}
+confusionMatrix(pred_rf, test$mora)
+```
+
+### Interpretación
+
+El Random Forest clasificó correctamente **98** clientes que realmente no presentaban mora y **19** clientes que sí incurrieron en mora. Sin embargo, clasificó incorrectamente **24** clientes morosos como si no tuvieran mora y **18** clientes sin mora como si fueran morosos.
+
+El modelo obtuvo una **accuracy de 73.58 %**, lo que significa que aproximadamente **74 de cada 100 clientes** fueron clasificados correctamente. Aunque este porcentaje es superior al obtenido con el árbol de decisión, debe interpretarse con cuidado  debido a que la base de datos se encuentra desbalanceada, pues la mayoría de los clientes pertenecen a la categoría **"No"** (sin mora).
+
+La **sensibilidad** fue de **84.48 %**, indicando que el modelo identifica correctamente a la mayoría de los clientes que realmente no presentan mora. Por otra parte, la **especificidad** fue de **44.19 %**, lo que evidencia que el modelo todavía presenta dificultades para reconocer correctamente a los clientes que sí caen en mora.
+
+El coeficiente **Kappa = 0.30** muestra un nivel de concordancia moderado entre las predicciones y los valores reales, mientras que la **Balanced Accuracy = 64.33 %** confirma que, aunque el desempeño global mejoró, aún existe margen de mejora para detectar la clase minoritaria correspondiente a los clientes morosos.
+
+## Punto 3. Comparación entre el árbol de decisión y el Random Forest
+
+
+```{r}
+# Accuracy del árbol
+acc_arbol <- confusionMatrix(pred_test, test$mora)$overall["Accuracy"]
+
+# Accuracy del Random Forest
+acc_rf <- confusionMatrix(pred_rf, test$mora)$overall["Accuracy"]
+
+acc_arbol
+acc_rf
+
+# Mejora del Random Forest
+acc_rf - acc_arbol
+```
+### Interpretación
+
+El árbol de decisión obtuvo una **accuracy de 68.55 %**, mientras que el **Random Forest** alcanzó una **accuracy de 73.58 %** sobre el conjunto de prueba.
+
+La diferencia entre ambos modelos fue de aproximadamente **5.03 puntos porcentuales**, lo que indica que el Random Forest presenta una mejor capacidad de generalización sobre datos no utilizados durante el entrenamiento.
+
+Esta mejora era esperable, ya que el Random Forest combina las predicciones de un gran número de árboles de decisión entrenados sobre diferentes muestras del conjunto de datos y utilizando subconjuntos aleatorios de variables. Este mecanismo reduce la varianza del modelo y disminuye el riesgo de sobreajuste que suele presentar un árbol individual.
+
+En consecuencia, el Random Forest proporciona predicciones más estables y robustas, logrando un mejor desempeño general para la clasificación del riesgo de mora en los clientes de la cooperativa.
+
+
+## 4. Grafique la importancia de variables. ¿Cuáles son las 3 más importantes?
+
+
+```{r}
+# Importancia de las variables
+importance(rf)
+```
+
+```{r}
+# Gráfico de importancia de variables
+varImpPlot(rf,
+           main = "Importancia de variables - Random Forest")
+```
+
+```{r}
+importance(rf)
+```
+
+
+```{r}
+sort(importance(rf)[,"MeanDecreaseGini"], decreasing = TRUE)
+```
+
+### Interpretación
+
+El gráfico de importancia muestra dos criterios utilizados por el algoritmo Random Forest para evaluar la relevancia de cada variable. El primero, **MeanDecreaseAccuracy**, indica cuánto disminuye la precisión del modelo cuando una variable deja de utilizarse. El segundo, **MeanDecreaseGini**, mide cuánto contribuye cada variable a reducir la impureza de los nodos durante la construcción de los árboles y es el criterio más utilizado para interpretar la importancia de las variables.
+
+De acuerdo con el criterio **MeanDecreaseGini**, las tres variables más importantes fueron:
+
+1. **Monto solicitado** (50.53)
+2. **Ingreso mensual** (49.98)
+3. **Historial crediticio** (40.91)
+
+Estas variables fueron las que más contribuyeron a mejorar las decisiones del Random Forest, indicando que contienen la mayor cantidad de información para predecir el riesgo de mora de los clientes.
+
+La variable **edad** también presentó una importancia considerable, mientras que **tipo de empleo** y **estrato socioeconómico** tuvieron una menor influencia en las predicciones del modelo.
+
+
+#### Observación adicional
+
+Es interesante observar que en el **árbol de decisión** la variable más importante fue el **historial crediticio**, mientras que en el **Random Forest** las variables con mayor importancia fueron el **monto solicitado** y el **ingreso mensual**.
+
+Esta diferencia es completamente normal y obedece a la forma en que funcionan ambos algoritmos. Un árbol de decisión construye una única estructura jerárquica y selecciona, en cada división, la variable que mejor separa las observaciones en ese momento. Por esta razón, el historial crediticio apareció como la variable raíz del árbol.
+
+En contraste, el Random Forest construye un gran número de árboles utilizando diferentes muestras de los datos y subconjuntos aleatorios de variables. Al combinar la información de todos ellos, el algoritmo puede identificar variables que aportan información de manera consistente en muchos árboles, aunque no necesariamente sean la primera división de un árbol individual.
+
+Este comportamiento explica por qué variables continuas como el **monto solicitado** y el **ingreso mensual** terminan siendo las más importantes en el Random Forest y constituye una de las principales ventajas de los métodos de ensamble, ya que producen modelos más estables, robustos y con una mayor capacidad de generalización.
+
+
+## 5. ¿Es razonable que esas variables sean las más predictivas en el contexto colombiano?
+
+
+### Interpretación
+
+Sí, los resultados obtenidos son coherentes con el contexto de una cooperativa de ahorro y crédito en Colombia.
+
+El **monto solicitado** constituye un indicador importante del riesgo financiero, ya que créditos de mayor valor implican obligaciones económicas más altas y, en consecuencia, una mayor probabilidad de incumplimiento cuando la capacidad de pago del cliente es limitada.
+
+El **ingreso mensual** refleja directamente la capacidad económica del solicitante. En general, personas con mayores ingresos tienen una mayor facilidad para cumplir con las cuotas del crédito, mientras que ingresos bajos incrementan la probabilidad de presentar mora.
+
+Por su parte, el **historial crediticio** resume el comportamiento financiero previo del cliente. Una persona con antecedentes de buen cumplimiento representa un menor riesgo para la entidad financiera, mientras que un historial desfavorable suele asociarse con una mayor probabilidad de incumplimiento futuro.
+
+En conjunto, estas variables describen tres dimensiones fundamentales del análisis crediticio: la **capacidad de pago** (ingreso), el **nivel de exposición al riesgo** (monto solicitado) y el **comportamiento financiero histórico** (historial crediticio). Por esta razón, resulta razonable que el Random Forest las identifique como los predictores más importantes para estimar el riesgo de mora.
+
