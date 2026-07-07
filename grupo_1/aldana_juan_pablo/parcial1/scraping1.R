@@ -1,3 +1,8 @@
+paquetes <- c("httr","rvest","dplyr","stringr","purrr","tidyr","RSQLite","DBI","rcrossref")
+instalar <- paquetes[!(paquetes %in% installed.packages()[,"Package"])]
+if(length(instalar)) install.packages(instalar)
+invisible(lapply(paquetes, library, character.only = TRUE))
+
 library(httr)
 library(rvest)
 library(dplyr)
@@ -5,9 +10,11 @@ library(stringr)
 library(purrr)
 library(tidyr)
 library(RSQLite)
+library(DBI)
 library(rcrossref)
 
-setwd("C:/Users/juanh/Desktop/UNAL/SEMESTRE 2026-1/Mineria de datos/Parcial1")
+
+#setwd("C:/Users/juanh/Desktop/UNAL/SEMESTRE 2026-1/Mineria de datos/Parcial1")
 
 urls <- c(
   "https://www.annualreviews.org/content/journals/economics/17/1",
@@ -20,19 +27,19 @@ limpiar_texto <- function(x) {
 }
 
 scrapear_pagina <- function(url) {
-    
-    respuesta <- GET(
-      url,
-      add_headers(
-        `User-Agent` = paste(
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-          "AppleWebKit/537.36 (KHTML, like Gecko)",
-          "Chrome/124.0 Safari/537.36"
-        ),
-        `Accept-Language` = "es-ES,es;q=0.9,en;q=0.8",
-        `Referer` = "https://www.google.com/"
-      )
+  
+  respuesta <- GET(
+    url,
+    add_headers(
+      `User-Agent` = paste(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "AppleWebKit/537.36 (KHTML, like Gecko)",
+        "Chrome/124.0 Safari/537.36"
+      ),
+      `Accept-Language` = "es-ES,es;q=0.9,en;q=0.8",
+      `Referer` = "https://www.google.com/"
     )
+  )
   
   html_doc <- read_html(respuesta)
   
@@ -138,7 +145,7 @@ enriquecer_datos <- function(doi) {
     
     res  <- cr_works(dois = doi)
     data <- res$data 
-  
+    
     citas <- data$is_referenced_by_count %||% 0
     citas <- as.numeric(citas)
     
@@ -229,6 +236,3 @@ res2 <- dbGetQuery(con, "SELECT categoria, COUNT(*) as total FROM papers GROUP B
 print(res2)
 
 dbDisconnect(con)
-
-
-
