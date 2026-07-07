@@ -1,0 +1,228 @@
+---
+title: "Ejercicio de práctica: Árboles de decisión - Heart Disease (Cleveland)"
+author: "Daniela Roncancio Gomez"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: readable
+  pdf_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+# install.packages(c("rpart", "rpart.plot", "caret", "dplyr"))
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(dplyr)
+
+set.seed(123)
+```
+
+# 1. Carga del dataset y revisión de valores faltantes
+
+El dataset de **Cleveland** (Heart Disease) viene sin nombres de columna y
+usa `"?"` para marcar valores faltantes, por lo que los indicamos en la
+lectura.
+
+```{r carga-datos}
+url <- paste0("https://archive.ics.uci.edu/ml/",
+               "machine-learning-databases/heart-disease/",
+               "processed.cleveland.data")
+
+heart <- read.csv(url, header = FALSE, na.strings = "?")
+
+colnames(heart) <- c("age", "sex", "cp", "trestbps", "chol", "fbs",
+                      "restecg", "thalach", "exang", "oldpeak",
+                      "slope", "ca", "thal", "num")
+
+str(heart)
+```
+
+```{r resumen}
+summary(heart)
+```
+
+## Valores faltantes
+
+```{r missing}
+colSums(is.na(heart))
+```
+
+Las columnas `ca` y `thal` presentan algunos valores faltantes. Dado que son
+pocos casos, se eliminan esas filas con `na.omit()`.
+
+```{r limpieza}
+heart <- na.omit(heart)
+
+# Variable respuesta binaria: 0 = sin enfermedad, >0 = con enfermedad
+heart$num <- ifelse(heart$num > 0, "Si", "No")
+heart$num <- factor(heart$num, levels = c("No", "Si"))
+
+# Variables categóricas como factor
+heart$sex     <- factor(heart$sex)
+heart$cp      <- factor(heart$cp)
+heart$fbs     <- factor(heart$fbs)
+heart$restecg <- factor(heart$restecg)
+heart$exang   <- factor(heart$exang)
+heart$slope   <- factor(heart$slope)
+heart$thal    <- factor(heart$thal)
+
+dim(heart)
+```
+
+# 2. División 80% entrenamiento / 20% prueba
+
+```{r split}
+n <- nrow(heart)
+idx_train <- sample(seq_len(n), size = 0.8 * n)
+
+train <- heart[idx_train, ]
+test  <- heart[-idx_train, ]
+
+cat("Tamaño entrenamiento:", nrow(train), "\n")
+cat("Tamaño prueba       :", nrow(test), "\n")
+```
+
+# 3. Árbol sin poda
+
+Se ajusta un árbol con `cp = 0`, lo que evita la poda automática y permite
+que crezca al máximo (mayor riesgo de sobreajuste).
+
+```{r arbol-sin-poda}
+arbol_sin_poda <- rpart(num ~ ., data = train,
+                         method = "class",
+                         control = rpart.control(cp = 0))
+
+rpart.plot(arbol_sin_poda, main = "Árbol sin poda")
+```
+
+```{r accuracy-sin-poda}
+pred_train_sp <- predict(arbol_sin_poda, train, type = "class")
+pred_test_sp  <- predict(arbol_sin_poda, test,  type = "class")
+
+acc_train_sp <- mean(pred_train_sp == train$num)
+acc_test_sp  <- mean(pred_test_sp  == test$num)
+
+cat("Accuracy entrenamiento:", round(acc_train_sp, 4), "\n")
+cat("Accuracy prueba       :", round(acc_test_sp, 4), "\n")
+```
+
+# 4. Árbol podado con cp óptimo (validación cruzada)
+
+Primero se ajusta un árbol con validación cruzada (`xval = 10`) para obtener
+la tabla de complejidad (`cp`) y seleccionar el valor que minimiza el error
+de validación cruzada.
+
+```{r arbol-cv}
+arbol_cv <- rpart(num ~ ., data = train,
+                   method = "class",
+                   control = rpart.control(cp = 0, xval = 10))
+
+printcp(arbol_cv)
+plotcp(arbol_cv)
+```
+
+```{r poda}
+cp_tabla <- arbol_cv$cptable
+cp_optimo <- cp_tabla[which.min(cp_tabla[, "xerror"]), "CP"]
+cat("CP óptimo encontrado:", cp_optimo, "\n")
+
+arbol_podado <- prune(arbol_cv, cp = cp_optimo)
+
+rpart.plot(arbol_podado, main = "Árbol podado (cp óptimo)")
+```
+
+```{r accuracy-podado}
+pred_train_pod <- predict(arbol_podado, train, type = "class")
+pred_test_pod  <- predict(arbol_podado, test,  type = "class")
+
+acc_train_pod <- mean(pred_train_pod == train$num)
+acc_test_pod  <- mean(pred_test_pod  == test$num)
+
+cat("Accuracy entrenamiento:", round(acc_train_pod, 4), "\n")
+cat("Accuracy prueba       :", round(acc_test_pod, 4), "\n")
+```
+
+# 5. Comparación de ambos árboles
+
+```{r comparacion}
+comparacion <- data.frame(
+  Modelo = c("Sin poda", "Podado"),
+  Accuracy_Train = c(acc_train_sp, acc_train_pod),
+  Accuracy_Test  = c(acc_test_sp,  acc_test_pod),
+  Brecha_Train_Test = c(acc_train_sp - acc_test_sp,
+                         acc_train_pod - acc_test_pod)
+)
+
+knitr::kable(comparacion, digits = 4,
+              caption = "Comparación entre árbol sin poda y árbol podado")
+```
+
+```{r mejora}
+mejora_test <- acc_test_pod - acc_test_sp
+cat("Mejora en accuracy de prueba al podar:", round(mejora_test, 4), "\n")
+```
+
+## Interpretación
+
+- La **brecha entre train y test** mide el sobreajuste: cuanto mayor sea,
+  más diferencia hay entre lo que el modelo "memorizó" y lo que realmente
+  generaliza a datos nuevos.
+- Si el árbol podado presenta una brecha menor y/o un accuracy de prueba
+  igual o mayor que el árbol sin poda, esto indica que la poda **redujo el
+  sobreajuste** y mejoró (o al menos mantuvo) la capacidad de
+  generalización del modelo.
+
+## Matrices de confusión (opcional)
+
+```{r matrices-confusion}
+cat("Árbol sin poda (test):\n")
+confusionMatrix(pred_test_sp, test$num)
+
+cat("\nÁrbol podado (test):\n")
+confusionMatrix(pred_test_pod, test$num)
+```
+# Repondiendo las preguntas: 
+
+## Variable raíz:
+
+La variable raíz es simplemente la que aparece en el nodo superior del árbol (la primera división). Para verla:
+
+```{r variable-raiz}
+arbol_podado$frame[1, "var"]
+``` 
+
+La raíz es thal (resultado de la prueba de talasemia/perfusión).
+
+## Número de hojas:
+
+
+```{r numero-hojas}
+sum(arbol_podado$frame$var == "<leaf>")
+``` 
+
+Contando las filas de la tabla de reglas (identificadas por los números 4, 10, 12, 13, 11, 7), el árbol podado tiene 6 hojas.
+
+## Regla de la hoja con mayor cobertura:
+
+```{r hoja-mayor}
+rpart.rules(arbol_podado, cover = TRUE)
+``` 
+
+La fila con cobertura del 38% (la más alta de todas) corresponde a:
+
+Cuando thal = 3 (resultado normal) y ca < 1 (ningún vaso principal coloreado por angiografía) → probabilidad de enfermedad ≈ 0.11 → predicción: "No" (sin enfermedad)
+
+## Importancia de variables: 
+
+```{r variable-importantes}
+arbol_podado$variable.importance
+``` 
+
+thal es, por amplio margen, la variable más importante según el árbol, con un valor de importancia de 34.56, casi el doble que la siguiente (oldpeak, 18.65) y muy cerca de cp (18.58). 
+
