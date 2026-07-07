@@ -195,6 +195,7 @@ persona y variedad moderada en el catálogo de procedimientos.
 
 ### 3.2 Distribución de la variable objetivo
 
+
 ```r
   OBJETIVO       n  Etiqueta    Porcentaje
          0  648976  Sin COVID-19      ~100
