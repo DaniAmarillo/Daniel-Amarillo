@@ -36,7 +36,7 @@ La revista seleccionada esta clasificada como Q1, tiene disponibles en la web lo
 
 ```{r setup, message=FALSE, warning=FALSE}
 paquetes <- c("rvest", "xml2", "dplyr", "stringr", "purrr",
-              "janitor", "readr", "knitr", "DBI", "RSQLite")
+              "janitor", "readr", "knitr", "DBI", "RSQLite","httr")
 
 instalados <- rownames(installed.packages())
 pendientes <- setdiff(paquetes, instalados)
@@ -47,17 +47,16 @@ invisible(lapply(paquetes, library, character.only = TRUE))
 Inicialmente, se establece la conexión con la página web de la revista para verificar que los artículos del número seleccionado sean detectados correctamente antes de proceder con la extracción sistemática de la información.
 
 ```{r}
-
-# Prueba con la página del issue completo
+# Volver a cargar
 pagina <- read_html_live("https://www.mdpi.com/2504-4990/7/4")
-Sys.sleep(3)
+Sys.sleep(5)
 
 # Ver cuántos artículos encuentra
 pagina %>% html_elements("div.generic-item.article-item") %>% length()
 ```
 Al ejecutarlo, se verificó que el número seleccionado — volumen 7, número 4 (diciembre 2025) de Machine Learning and Knowledge Extraction — contiene un total de 61 artículos disponibles para su extracción.
 
-Posteriormente, se define y ejecuta el proceso de extracción sistemática de la información. A partir de los 61 nodos identificados, se construye una función que recorre cada artículo y extrae los campos de interés: título, autores, fecha de publicación, DOI, URL, y número de visualizaciones, organizando esta información en una tabla, y al aplicarla sobre todos los nodos se obtiene un dataframe consolidado con los 61 artículos.
+Posteriormente, se define y ejecuta el proceso de extracción sistemática de la información. A partir de los 61 nodos identificados, se construye una función que recorre cada artículo y extrae los campos de interés: título, autores, fecha de publicación, DOI, URL, resumen y número de visualizaciones, organizando esta información en una tabla, y al aplicarla sobre todos los nodos se obtiene un dataframe consolidado con los 61 artículos.
 
 ```{r}
 pagina <- read_html_live("https://www.mdpi.com/2504-4990/7/4")
@@ -73,7 +72,8 @@ extraer_articulo <- function(nodo) {
   doi     <- nodo %>% html_element("a[href*='doi.org']")     %>% html_attr("href") %>% str_remove("https://doi.org/")
   art_url <- nodo %>% html_element("a.title-link")           %>% html_attr("href") %>% paste0("https://www.mdpi.com", .)
   views   <- nodo %>% html_text2()                           %>% str_extract("Viewed by ([\\d,]+)", group = 1) %>% str_remove_all(",") %>% as.integer()
-  
+    abstract <- nodo %>% html_element(".abstract-full")         %>% html_text2() %>% str_remove("Full article$") %>% str_squish()
+    
   tibble(
     journal_name     = "Machine Learning and Knowledge Extraction",
     title            = titulo,
@@ -82,6 +82,7 @@ extraer_articulo <- function(nodo) {
     year             = 2025L,
     doi              = doi,
     url              = art_url,
+    abstract         = abstract,
     views            = views
   )
 }
@@ -89,37 +90,6 @@ extraer_articulo <- function(nodo) {
 articles <- map_dfr(nodos, extraer_articulo)
 articles
 
-```
-
-Después de esto, se extrajo el resumen de cada artículo accediendo individualmente a su URL.
-
-```{r}
-extraer_detalle <- function(url) {
-  Sys.sleep(1)
-  
-  pagina <- GET(url, add_headers(
-    "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-  )) %>% content("text") %>% read_html()
-  
-  abstract <- pagina %>%
-    html_element("div.art-abstract.art-abstract-new") %>%
-    html_text2() %>%
-    str_remove("^Abstract\\s*")
-  
-  tibble(abstract = abstract)
-}
-
-extraer_detalle_seguro <- purrr::possibly(extraer_detalle,
-                                           otherwise = tibble(abstract = NA_character_))
-
-cat("Extrayendo abstracts...\n")
-detalles <- map_dfr(articles$url, function(url) {
-  cat(".")
-  extraer_detalle_seguro(url)
-})
-cat("\nAbstracts extraídos:", sum(!is.na(detalles$abstract)), "\n")
-
-detalles
 ```
 
 
@@ -204,7 +174,7 @@ Adicionalmente, Los artículos se categorizaron en tres grupos: Estadística, IA
 
 
 ```{r}
-papers <- bind_cols(articles, detalles, ss_data) %>%
+papers <- bind_cols(articles, ss_data) %>%
   mutate(
     paper_id  = row_number(),
     n_authors = str_count(authors_raw, ";") + 1,
@@ -228,6 +198,9 @@ papers <- bind_cols(articles, detalles, ss_data) %>%
 
 cat("\n=== CLASIFICACIÓN TEMÁTICA ===\n")
 print(papers %>% count(topic_label))
+
+cat("\nCon citas:      ", sum(!is.na(papers$citations)), "\n")
+cat("Con referencias:", sum(!is.na(papers$n_references)), "\n")
 ```
 
 Como se observa todos los artículos fueron clasificados en alguna de las tres categorías, luego no hay ninguno que pertenezca a "Otros".
@@ -235,12 +208,11 @@ Como se observa todos los artículos fueron clasificados en alguna de las tres c
 Finalmente, se consolida la base de datos en una base de datos SQLite y se ejecuta cinco consultas para verificar cuántos artículos tienen abstract, visualizaciones, citas y referencias disponibles.
 
 ```{r}
-# ---- 6. GUARDAR EN SQLITE ----
 con <- dbConnect(SQLite(), "make_q1_2025.sqlite")
 
 # Tablas principales
-dbWriteTable(con, "papers",           papers,           overwrite = TRUE)
-dbWriteTable(con, "references",       all_references,   overwrite = TRUE)
+dbWriteTable(con, "papers",             papers,         overwrite = TRUE)
+dbWriteTable(con, "article_references", all_references, overwrite = TRUE)
 
 # Validación
 cat("\n=== VALIDACIÓN FINAL ===\n")
@@ -249,7 +221,7 @@ cat("Con abstract:         ", dbGetQuery(con, "SELECT COUNT(*) FROM papers WHERE
 cat("Con visualizaciones:  ", dbGetQuery(con, "SELECT COUNT(*) FROM papers WHERE views IS NOT NULL")[[1]], "\n")
 cat("Con citas:            ", dbGetQuery(con, "SELECT COUNT(*) FROM papers WHERE citations IS NOT NULL")[[1]], "\n")
 cat("Con referencias:      ", dbGetQuery(con, "SELECT COUNT(*) FROM papers WHERE n_references IS NOT NULL")[[1]], "\n")
-cat("Total referencias:    ", dbGetQuery(con, "SELECT COUNT(*) FROM 'references'")[[1]], "\n")
+cat("Total referencias:    ", dbGetQuery(con, "SELECT COUNT(*) FROM article_references")[[1]], "\n")
 
 dbDisconnect(con)
 cat("\nBase de datos guardada: make_q1_2025.sqlite ✅\n")
@@ -320,7 +292,7 @@ dbGetQuery(con, "
 ")
 ```
 
-Los 61 artículos publicados en 2025 acumularon un total de 122,178 visualizaciones, lo que refleja un alto nivel de interés y difusión del contenido de este número de la revista.
+Los 61 artículos publicados en 2025 acumularon un total de 126.893 visualizaciones, lo que refleja un alto nivel de interés y difusión del contenido de este número de la revista.
 
 # 6. ¿Cuál es el número promedio de referencias por artículo?
 
@@ -338,7 +310,7 @@ El promedio de referencias por artículo es de 49.07, lo que indica que los trab
 ```{r}
 dbGetQuery(con, "
   SELECT reference_title, COUNT(*) AS frecuencia
-  FROM 'references'
+  FROM article_references
   WHERE reference_title IS NOT NULL
   GROUP BY reference_title
   ORDER BY frecuencia DESC
@@ -357,7 +329,7 @@ dbGetQuery(con, "
 ")
 ```
 
-El promedio de citas por artículo es de 0.98, lo que indica que en general los artículos tienen menos de una cita en promedio. Esto se da a que el número analizado corresponde a diciembre de 2025, lo que significa que los artículos son recientes y aún no han tenido suficiente tiempo para acumular citas en la literatura o investigación científica. 
+El promedio de citas por artículo es de 1.08, lo que indica que en general los artículos tienen una cita en promedio. Esto se da a que el número analizado corresponde a diciembre de 2025, lo que significa que los artículos son recientes y aún no han tenido suficiente tiempo para acumular citas en la literatura o investigación científica. 
 
 
 9. ¿Cúal es el paper con más citas?
@@ -371,9 +343,9 @@ dbGetQuery(con, "
 ")
 ```
 
-El artículo "Attention-Guided Differentiable Channel Pruning for Efficient Deep Networks" es el más citado del número analizado con 5 citas, lo que lo distingue del resto dado que el promedio general es de apenas 0.98 citas por artículo. Su ventaja sobre los demás confirma su relevancia en la comunidad, particularmente en el área de optimización de redes neuronales profundas.
+El artículo "AI-Enabled IoT Intrusion Detection: Unified Conceptual Framework and Research Roadmap" es el más citado del número analizado con 5 citas, lo que lo distingue del resto dado que el promedio general es de apenas 1 cita por artículo. Su ventaja sobre los demás confirma su relevancia en la comunidad, particularmente en el área de la inteligencia artificial.
 
-
+10. ¿Cúal es el paper relacionado con machine learning, IA generativa o Estadística con más citas?
 
 ```{r}
 dbGetQuery(con, "
@@ -385,7 +357,7 @@ dbGetQuery(con, "
 ")
 ```
 
-El artículo con más citas dentro de las categorías temáticas analizadas es "Attention-Guided Differentiable Channel Pruning for Efficient Deep Networks", clasificado en Machine Learning con 5 citas, confirmando su relevancia e impacto en la comunidad científica.
+El artículo con más citas dentro de las categorías temáticas analizadas es "AI-Enabled IoT Intrusion Detection: Unified Conceptual Framework and Research Roadmap", clasificado en Machine Learning con 5 citas, confirmando su relevancia e impacto en la comunidad científica.
 
 11. ¿Cúal es el paper relacionado con machine learning, IA generativa o Estadística con más visualizaciones?
 
@@ -399,7 +371,7 @@ dbGetQuery(con, "
 ")
 ```
 
-El artículo con más visualizaciones es "AI-Enabled IoT Intrusion Detection: Unified Conceptual Framework and Research Roadmap", también clasificado en Machine Learning con 7.828 visualizaciones, lo que refleja un alto interés de la comunidad en la inteligencia artificial.
+El artículo con más visualizaciones es "AI-Enabled IoT Intrusion Detection: Unified Conceptual Framework and Research Roadmap", también clasificado en Machine Learning con 8.090 visualizaciones, lo que refleja un alto interés de la comunidad en la inteligencia artificial.
 
 # Descripción de la Fase 3: Hallazgos
 

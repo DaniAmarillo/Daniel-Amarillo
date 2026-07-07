@@ -1,0 +1,7 @@
+"0","dbGetQuery(con, """
+"0","  SELECT title, topic_label, views"
+"0","  FROM papers"
+"0","  WHERE topic_label IN ('Machine Learning', 'IA Generativa', 'Estadística')"
+"0","  ORDER BY views DESC"
+"0","  LIMIT 1"
+"0",""")"

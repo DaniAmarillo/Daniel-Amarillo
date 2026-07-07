@@ -1,0 +1,5 @@
+"0","dbGetQuery(con, """
+"0","  SELECT SUM(views) AS total_visualizaciones"
+"0","  FROM papers"
+"0","  WHERE year = 2025"
+"0",""")"

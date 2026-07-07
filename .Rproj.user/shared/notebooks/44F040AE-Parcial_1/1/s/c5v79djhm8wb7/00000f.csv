@@ -1,0 +1,8 @@
+"0","dbGetQuery(con, """
+"0","  SELECT reference_title, COUNT(*) AS frecuencia"
+"0","  FROM 'references'"
+"0","  WHERE reference_title IS NOT NULL"
+"0","  GROUP BY reference_title"
+"0","  ORDER BY frecuencia DESC"
+"0","  LIMIT 1"
+"0",""")"

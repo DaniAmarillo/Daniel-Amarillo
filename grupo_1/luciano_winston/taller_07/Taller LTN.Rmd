@@ -1,0 +1,660 @@
+---
+title: "Taller Limpieza, transformación y normalización de datos"
+subtitle: "Minería de Datos"
+author: "Winston Obeymar Lucano V."
+date: "Mayo 2026"
+output:
+  html_document:
+    theme: paper
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    number_sections: false
+    highlight: kate
+    df_print: paged
+---
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Poppins:ital,wght@0,400;0,600;0,700;1,500&display=swap" rel="stylesheet">
+
+```{=html}
+<style>
+
+  :root {
+    --primary: #4834D4;      
+    --accent: #22A6B3;       
+    --accent-light: #C7ECEE; 
+    --text-dark: #2F3640;    
+    --bg-main: #FDFDFD;     
+    --shadow-sm: 0 4px 12px rgba(72, 52, 212, 0.08);
+    --shadow-lg: 0 10px 25px rgba(72, 52, 212, 0.15);
+  }
+
+
+  body {
+    font-family: 'Inter', sans-serif;
+    color: var(--text-dark);
+    background-color: var(--bg-main);
+    font-size: 16px;
+    line-height: 1.7;
+  }
+
+
+  h1.title {
+    font-family: 'Poppins', sans-serif;
+    color: var(--primary);
+    font-weight: 700;
+    font-size: 42px;
+    margin-top: 30px;
+    letter-spacing: -0.5px;
+  }
+  
+  h3.subtitle {
+    font-family: 'Poppins', sans-serif;
+    color: var(--accent);
+    font-style: italic;
+    font-weight: 500;
+    font-size: 24px;
+    margin-bottom: 30px;
+  }
+
+
+  h1 { 
+    font-family: 'Poppins', sans-serif;
+    color: var(--primary);
+    border-bottom: 3px solid var(--accent-light);
+    padding-bottom: 10px;
+    margin-top: 50px;
+    font-weight: 600;
+    position: relative;
+  }
+
+
+  h1::after {
+    content: "";
+    position: absolute;
+    bottom: -3px;
+    left: 0;
+    width: 60px;
+    height: 3px;
+    background-color: var(--accent);
+  }
+
+h2 { 
+  font-family: 'Poppins', sans-serif;
+  color: var(--accent);
+  margin-top: 35px;
+  font-size: 20px;       
+  font-weight: 400;      
+  line-height: 1.4;      
+}
+
+
+  .list-group-item.active, .list-group-item.active:focus, .list-group-item.active:hover {
+    background-color: var(--primary);
+    border-color: var(--primary);
+    font-weight: 600;
+  }
+  
+  .tocify {
+    border-radius: 12px;
+    box-shadow: var(--shadow-sm);
+    border: none;
+    background-color: #ffffff;
+  }
+
+
+  .infobox {
+    background-color: #ffffff;
+    border-left: 5px solid var(--accent);
+    border-radius: 8px;
+    padding: 20px 25px;
+    margin: 30px 0;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.2s ease;
+  }
+
+  .infobox:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+  }
+  
+  .infobox-title {
+    color: var(--primary);
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    font-size: 15px;
+    letter-spacing: 1.5px;
+  }
+
+
+  .cover-page {
+    /* Degradado vibrante y moderno */
+    background: linear-gradient(135deg, var(--primary) 0%, #686DE0 50%, var(--accent) 100%);
+    color: white;
+    padding: 70px 50px;
+    border-radius: 16px;
+    margin-bottom: 50px;
+    box-shadow: var(--shadow-lg);
+    position: relative;
+    overflow: hidden;
+  }
+
+
+  .cover-page::before {
+    content: "";
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(255,255,255,0.1) 10%, transparent 10%), radial-gradient(circle, rgba(255,255,255,0.1) 10%, transparent 10%);
+    background-size: 30px 30px;
+    background-position: 0 0, 15px 15px;
+    opacity: 0.3;
+    pointer-events: none;
+  }
+  
+  .cover-page h1 {
+    color: #ffffff;
+    border-bottom: none;
+    font-size: 48px;
+    padding-bottom: 0;
+    margin-top: 10px;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+  }
+
+  .cover-page h1::after {
+    display: none; /* Quitamos la línea inferior del h1 en la portada */
+  }
+  
+  .cover-page .meta-info {
+    margin-top: 40px;
+    font-size: 18px;
+    color: rgba(255, 255, 255, 0.9);
+    line-height: 1.8;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 20px;
+    border-radius: 8px;
+    backdrop-filter: blur(5px);
+    display: inline-block;
+  }
+</style>
+```
+
+Llamamos las librerias para nuestro taller.
+
+```{r, message=FALSE, warning=FALSE}
+library(readxl)
+library(ggplot2)
+library(tidyr)
+library(kableExtra)
+library(dplyr)
+library(knitr)
+library(reactable)
+library(highcharter)
+library(htmltools)
+library(scales)
+library(purrr)
+```
+
+
+
+Ahora, los datos con los que trabajaremos en adelante, los vamos a cargar inicialmente para trabajar con ellos en los siguientes puntos.
+
+```{r, message=FALSE, warning=FALSE}
+house_prices <- read.csv("~/ESTADISTICA/Mineria de datos/Taller 7/house_prices.csv")
+adult <- read.csv("~/ESTADISTICA/Mineria de datos/Taller 7/adult.csv")
+airports <- read.csv("~/ESTADISTICA/Mineria de datos/Taller 7/airports.csv")
+heart <- read.csv("~/ESTADISTICA/Mineria de datos/Taller 7/heart.csv")
+mobile_data <- read.csv("~/ESTADISTICA/Mineria de datos/Taller 7/mobile_data.csv")
+netflix_titles <- read.csv("~/ESTADISTICA/Mineria de datos/Taller 7/netflix_titles.csv")
+titanic <- read.csv("~/ESTADISTICA/Mineria de datos/Taller 7/titanic.csv")
+mba <- read_excel("mba.xlsx")
+```
+
+# Ejercicio 1
+
+Vamos a comenzar con la base de datos de precios de casas, que en nuestro entorno se llama "house_prices".
+
+## Identifica las 5 columnas con mayor porcentaje de NA. ¿Cuáles eliminarías y cuáles imputarías? Justifica.
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+
+pct_na <- round((colSums(is.na(house_prices)) / nrow(house_prices)) * 100, 2)
+top_10_na <- head(sort(pct_na, decreasing = TRUE), 5)
+
+
+tabla_nulos <- data.frame(
+  Variable = names(top_10_na),
+  Valores_Nulos = top_10_na,
+  row.names = NULL 
+)
+
+kable(tabla_nulos, booktabs = T,
+      caption = "NA por columnas (House_Prices)", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+
+```
+
+:::: infobox
+::: infobox-title
+Columnas a Eliminar: PoolQC [\~99%], MiscFeature [\~96%], Alley [\~93%]
+:::
+
+Estas variables presentan más del 90% de valores faltantes. En minería de datos, imputar un volumen tan alto de registros introduce un sesgo masivo y ruido artificial al modelo. La ausencia del dato generalmente significa que la propiedad no tiene piscina, callejón o características especiales, por lo que retener la columna aporta poca varianza útil.
+::::
+
+:::: infobox
+::: infobox-title
+Columnas a Transformar (Ej. Fence [\~80%] o FireplaceQu [\~47%]
+:::
+
+En lugar de eliminarlas por completo, se pueden transformar en variables categóricas donde el NA se convierta en una nueva clase llamada "No Tiene". De esta forma, conservamos el valor predictivo (saber si una casa tiene o no chimenea/cerca afecta el precio).
+::::
+
+Imputariamos datos en el caso de que hayan variables con un porcentaje de NA's menor al 20%, en las primeras 5, no evidenciamos ninguna.
+
+## Imputa las columnas numéricas con NA usando la mediana y las categóricas con la moda. ¿Cuántas filas quedan completas (sin ningún NA) después?
+
+Primero vamos a crear una función que nos dé la moda para poder hacer la respectiva imputación de los datos categoricos.
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# 1. Creamos una función para calcular la moda estadística
+calcular_moda <- function(v) {
+  v_sin_na <- v[!is.na(v)]
+  if (length(v_sin_na) == 0) return(NA) 
+  valores_unicos <- unique(v_sin_na)
+  valores_unicos[which.max(tabulate(match(v_sin_na, valores_unicos)))]
+}
+
+# 2. Clonamos el dataset original para no alterarlo
+house_prices_imputed <- house_prices
+
+# 3. Iteramos sobre cada columna para aplicar la imputación correspondiente
+for (col in names(house_prices_imputed)) {
+  if (is.numeric(house_prices_imputed[[col]])) {
+    # Si es numérica: Imputamos con la mediana
+    mediana <- median(house_prices_imputed[[col]], na.rm = TRUE)
+    house_prices_imputed[[col]][is.na(house_prices_imputed[[col]])] <- mediana
+  } else {
+    # Si es categórica : Imputamos con la moda
+    moda <- calcular_moda(house_prices_imputed[[col]])
+    house_prices_imputed[[col]][is.na(house_prices_imputed[[col]])] <- moda
+  }
+}
+
+filas_completas_antes <- sum(complete.cases(house_prices))
+filas_completas_despues <- sum(complete.cases(house_prices_imputed))
+total_filas <- nrow(house_prices)
+
+resumen_imputacion <- data.frame(
+  Métrica = c("Total de filas en el Dataset", "Filas completas ANTES", "Filas completas DESPUÉS"),
+  Cantidad = c(total_filas, filas_completas_antes, filas_completas_despues)
+)
+
+kable(resumen_imputacion, booktabs = T,
+      caption = "Antes - Después Imputación", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+
+## Crea una variable antiguedad = 2024 - YearBuilt. Discretízala en 4 grupos con cut usando los cuartiles como puntos de corte.
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+var_ant <- house_prices_imputed %>% mutate(antiguedad = 2024 - house_prices_imputed$YearBuilt) %>%
+  mutate(antiguedad_grupo = cut(antiguedad, 
+                                breaks = quantile(antiguedad, probs = c(0, 0.25, 0.5, 0.75, 1),na.rm = TRUE), include.lowest = TRUE, 
+                                labels =c("Muy Reciente", "Moderna", "Intermedia", "Antigua")))
+
+datos_tabla <- var_ant %>% 
+  select(YearBuilt, antiguedad, antiguedad_grupo)
+
+reactable(
+  datos_tabla,
+  striped = TRUE,          
+  highlight = TRUE,        
+  searchable = TRUE,       
+  filterable = TRUE,       
+  defaultPageSize = 5,     
+  showPageSizeOptions = TRUE, 
+  
+
+  theme = reactableTheme(
+    headerStyle = list(
+      background = "#08BF5D", 
+      color = "white", 
+      fontWeight = "bold"
+    )
+  )
+)
+```
+
+# Ejercicio 2.
+
+Para este ejercicio vamos a usar el df de Titanic.
+
+## Aplica el criterio IQR para detectar outliers en fare. ¿Qué porcentaje de pasajeros son outliers?
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+Q <- quantile(titanic$fare, na.rm=TRUE)
+q1 <- Q[2]
+q3 <- Q[4]
+iqr_fare <- Q[4] - Q[2]
+
+limite_inferior <- q1 - 1.5 * iqr_fare
+limite_superior <- q3 + 1.5 * iqr_fare
+
+outliers_df <- titanic %>% 
+  filter(fare < limite_inferior | fare > limite_superior)
+
+tabla_resumen_iqr <- data.frame(
+  Métrica = c("Cuartil 1 (25%)", "Cuartil 3 (75%)", "Rango Intercuartílico (IQR)", "Límite Superior (Outliers)", "Total de Outliers Detectados"),
+  Valor = c(round(q1, 2), round(q3, 2), round(iqr_fare, 2), round(limite_superior, 2), nrow(outliers_df))
+)
+
+tabla_resumen_iqr <- tabla_resumen_iqr %>% 
+  add_row(
+    Métrica = "Porcentaje de Outliers (%)", 
+    Valor = round((nrow(outliers_df) / nrow(titanic)) * 100, 2)
+  )
+
+kable(tabla_resumen_iqr, booktabs = T,
+      caption = "Outliers usando IQR", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+
+```
+
+El porcentaje de outliers en la variable Fare, que en contexto es la tarifa que pagaron por los boletos del titanic, vemos que fué del 13,06%, esto es un número bastante alto, dado que los outliers con el criterio del IQR en una distribución normal, no sobrepasan el 1-2%, esto significa que la distribución está extremadamente sesgada hacia la derecha. 
+## Compara tres versiones de fare: original, winsorizada al percentil 5–95, y transformación log(1 + fare). Grafica sus distribuciones.
+
+```{r, warning=FALSE, message=FALSE}
+p05 <- quantile(titanic$fare, probs = 0.05, na.rm = TRUE)
+p95 <- quantile(titanic$fare, probs = 0.95, na.rm = TRUE)
+
+titanic_trans <- titanic %>%
+  mutate(
+    Fare_winsor = case_when(
+      fare < p05 ~ p05,
+      fare > p95 ~ p95,
+      TRUE ~ fare 
+    ),
+# Transformación Logarítmica
+    Fare_log = log1p(fare) 
+  )
+```
+
+### Grafico Datos Original
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+hc_original <- hchart(
+  density(titanic_trans$fare, na.rm = TRUE), 
+  type = "area", 
+  name = "Tarifa Original"
+) %>% 
+  hc_title(text = "1. Distribución Original (Sesgada)") %>% 
+  hc_colors("#4834D4") %>%  
+  hc_xAxis(title = list(text = "Precio del Billete")) %>% 
+  hc_yAxis(title = list(text = "Densidad")) %>% 
+  hc_credits(enabled = TRUE, text = "Datos del Titanic")
+
+hc_original
+
+```
+
+### Gráfico Datos Winsorizados
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+hc_winsor <- hchart(
+  density(titanic_trans$Fare_winsor, na.rm = TRUE), 
+  type = "area", 
+  name = "Tarifa Winsorizada"
+) %>% 
+  hc_title(text = "2. Distribución Winsorizada (Percentil 5-95)") %>% 
+  hc_colors("#22A6B3") %>% 
+  hc_xAxis(title = list(text = "Precio Acotado")) %>% 
+  hc_yAxis(title = list(text = "Densidad")) %>% 
+  hc_credits(enabled = TRUE, text = "Datos del Titanic")
+hc_winsor
+```
+
+### Gráfico Datos Logaritmico
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+hc_log <- hchart(
+  density(titanic_trans$Fare_log, na.rm = TRUE), 
+  type = "area", 
+  name = "Log(1 + Tarifa)"
+) %>% 
+  hc_title(text = "3. Transformación Logarítmica (Normalizada)") %>% 
+  hc_colors("#686DE0") %>%  
+  hc_xAxis(title = list(text = "Escala Logarítmica")) %>% 
+  hc_yAxis(title = list(text = "Densidad")) %>% 
+  hc_credits(enabled = TRUE, text = "Datos del Titanic")
+hc_log
+```
+
+# Ejercicio 3
+Para este ejercicio vamos a utilizar el dataframe de mobile_data.
+
+## Aplica Min-Max y Z-score a las variables ram, battery_power y px_height. Verifica propiedades: ¿el rango de Min-Max es [0,1]? ¿La media de Z-score es 0?
+
+### Z-score
+```{r, message=FALSE, warning=FALSE}
+mobile_scale <- mobile_data %>%
+  mutate(
+    across(
+      .cols = c(ram, battery_power, px_height), 
+      .fns = ~ as.numeric(scale(.x)), 
+      .names = "{.col}_zscore"
+    )
+  )
+```
+
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+comprobacion_zscore <- mobile_scale %>%
+  summarise(
+    across(
+      .cols = ends_with("_zscore"),
+      .fns = list(
+        Media = ~ round(mean(.x, na.rm = TRUE), 4)
+      ),
+      .names = "{.col}_{.fn}"
+    )
+  )
+tabla_giradaz <- as.data.frame(t(comprobacion_zscore))
+colnames(tabla_giradaz) <- "Valor"
+
+kable(tabla_giradaz, booktabs = T,
+      caption = "Medias z-score", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+Podemos ver que la estandarización de las variables **Ram**, **Battery power** y **px_height** nos reporta una media de 0, y en este caso, no lo vemos en la tabla, pero también tiene una varianza de 1.
+
+### Min-Max
+```{r, warning=FALSE, message=FALSE}
+mobile_min_max <- mobile_data %>% 
+  mutate(
+    across(
+      .cols = c(ram, battery_power, px_height),
+      .fns = ~ (.x - min(.x, na.rm = TRUE)) / (max(.x, na.rm = TRUE) - min(.x, na.rm = TRUE)),
+      .names = "{.col}_minmax"
+    )
+  )
+```
+
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+comprobacion_minmax <- mobile_min_max %>%
+  summarise(
+    across(
+      .cols = ends_with("_minmax"),
+      .fns = list(
+        Minimo = ~ min(.x, na.rm = TRUE),
+        Maximo = ~ max(.x, na.rm = TRUE)
+      ),
+      .names = "{.col}_{.fn}"
+    )
+  )
+tabla_girada <- as.data.frame(t(comprobacion_minmax))
+colnames(tabla_girada) <- "Valor"
+
+kable(tabla_girada, booktabs = T,
+      caption = "Rango Min_Max", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+La normalización llevada a cabo por el min-max, nos da en efecto un rango de las variables entre 0 y 1, como lo mostramos en la anterior tabla.
+
+## Grafica un scatter plot de ram vs. battery_power para las tres versiones (original, Min-Max, Z-score). ¿Cambia la forma de la nube de puntos?
+
+```{r, message=FALSE, warning=FALSE}
+df_final <- bind_cols(
+  mobile_data %>% select(ram, battery_power),
+  mobile_min_max %>% select(ram_minmax, battery_power_minmax),
+  mobile_scale %>% select(ram_zscore, battery_power_zscore)
+)
+```
+
+### Datos Originales
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# --- GRÁFICO 1: DATOS ORIGINALES ---
+hc_scatter_orig <- hchart(
+  df_final, 
+  type = "scatter", 
+  hcaes(x = ram, y = battery_power),
+  name = "Original"
+) %>% 
+  hc_title(text = "1. Datos Originales") %>% 
+  hc_colors("#4834D4") %>% 
+  hc_xAxis(title = list(text = "RAM")) %>% 
+  hc_yAxis(title = list(text = "Batería"))
+hc_scatter_orig
+```
+
+### Datos Min-Max
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# --- GRÁFICO 2: MIN-MAX ---
+hc_scatter_minmax <- hchart(
+  df_final, 
+  type = "scatter", 
+  hcaes(x = ram_minmax, y = battery_power_minmax),
+  name = "Min-Max"
+) %>% 
+  hc_title(text = "2. Normalización Min-Max [0, 1]") %>% 
+  hc_colors("#22A6B3") %>% 
+  hc_xAxis(title = list(text = "RAM [0, 1]")) %>% 
+  hc_yAxis(title = list(text = "Batería [0, 1]"))
+hc_scatter_minmax
+```
+
+### Datos Z-score
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# --- GRÁFICO 3: Z-SCORE ---
+hc_scatter_z <- hchart(
+  df_final, 
+  type = "scatter", 
+  hcaes(x = ram_zscore,  y = battery_power_zscore),
+  name = "Z-score"
+) %>% 
+  hc_title(text = "3. Estandarización Z-score") %>% 
+  hc_colors("#FF6B6B") %>% 
+  hc_xAxis(title = list(text = "RAM (Z)")) %>% 
+  hc_yAxis(title = list(text = "Batería (Z)"))
+hc_scatter_z
+```
+
+Z-score y Min-Max son transformaciones lineales. Por definición, preservan la estructura interna de los datos porque mantienen intactas las razones de distancia entre los puntos y el orden de los mismos. Solo reubican el origen de coordenadas y cambian la escala métrica de los ejes, por lo que la topología de la nube de puntos y los momentos de forma de la distribución (como la asimetría) se mantienen invariantes.
+
+##¿En qué situación el Min-Max da resultados problemáticos? Genera un ejemplo sintético con un outlier extremo y muestra el efecto.
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+
+datos_ram <- data.frame(
+  Dispositivo = paste("Telefono", 1:6),
+  RAM_Original = c(2000, 2500, 3000, 3500, 4000, 100000) 
+)
+
+datos_resultado <- datos_ram %>%
+  mutate(
+    RAM_MinMax = rescale(RAM_Original),
+    RAM_Zscore = as.numeric(scale(RAM_Original))
+  )
+
+datos_resultado <- datos_resultado %>% 
+  mutate(
+    RAM_MinMax = round(RAM_MinMax, 4),
+    RAM_Zscore = round(RAM_Zscore, 4)
+  )
+
+kable(datos_resultado, booktabs = T,
+      caption = "Min-Max Problematico", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+No se debe utilizar el escalado Min-Max si la variable presenta una distribución de cola larga (heavy-tailed) o si no se ha realizado un proceso previo de Winsorización o truncado de outliers. El estimador del rango ($X_{max} - X_{min}$) es estadísticamente poco robusto, lo que provoca que un solo valor extremo colapse la varianza del resto de las observaciones válidas, reduciendo su significancia estadística dentro del modelo.
+
+# Ejercicio 4.
+Construye un pipeline funcional que procese el dataset adult.csv end-to-end.
+
+- Reemplaza "?" por NA en todas las columnas character.
+- Elimina columnas con > 10 % de NA.
+- Imputa las columnas numéricas con la mediana y las categóricas con la moda.
+- Codifica income como variable binaria: >50K = 1, <=50K = 0.
+- Aplica Z-score a todas las columnas numéricas.
+- Usa purrr::map_df para generar una tabla resumen con media y sd de cada columna numérica - antes y después del Z-score. ¿Qué observas?
+
+```{r, message=FALSE, warning=FALSE}
+adult_procesado <- adult %>%
+  mutate(across(where(is.character), ~ na_if(.x, "?"))) %>%
+  select(where(~ mean(is.na(.x)) <= 0.10)) %>%
+  mutate(
+    across(where(is.numeric), ~ replace_na(.x, median(.x, na.rm = TRUE))),
+    across(where(is.character), ~ replace_na(.x, calcular_moda(.x)))
+  ) %>%  mutate(income_bin = if_else(income == ">50K", 1, 0))
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+num_antes <- adult_procesado %>% select(where(is.numeric), -income_bin)
+
+adult_final <- adult_procesado %>%
+  mutate(across(where(is.numeric), ~ as.numeric(scale(.x))))
+
+num_despues <- adult_final %>% select(where(is.numeric), -income_bin)
+
+nombres_columnas <- colnames(num_antes)
+
+resumen_antes <- map_df(nombres_columnas, function(nom) {
+  tibble(
+    Variable = nom,
+    Media_Antes = mean(num_antes[[nom]], na.rm = TRUE),
+    SD_Antes = sd(num_antes[[nom]], na.rm = TRUE)
+  )
+})
+
+resumen_despues <- map_df(nombres_columnas, function(nom) {
+  tibble(
+    Variable = nom,
+    Media_Despues = round(mean(num_despues[[nom]], na.rm = TRUE), 4),
+    SD_Despues = round(sd(num_despues[[nom]], na.rm = TRUE), 4)
+  )
+})
+
+tabla_comprobacion <- left_join(resumen_antes, resumen_despues, by = "Variable")
+
+kable(tabla_comprobacion, booktabs = T,
+      caption = "Antes - Despues Z-score", label = "vprankis") %>%
+  kable_styling(latex_options = c("striped", "scale_down",
+                                  "hold_position"))
+```
+
+
+
+

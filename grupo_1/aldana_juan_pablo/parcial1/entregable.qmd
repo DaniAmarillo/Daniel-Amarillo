@@ -1,0 +1,568 @@
+---
+title: "Parcial 1: Scraping"
+author: "Juan Pablo Aldana Henao."
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-title: "Contenido"
+    number-sections: true
+    theme: 
+      light: cosmo
+      dark: darkly
+    code-fold: true
+    code-tools: true
+    highlight-style: github
+    df-print: paged
+execute:
+  warning: false
+  message: false
+  echo: true
+---
+
+```{r setup, include=FALSE}
+library(httr)
+library(rvest)
+library(dplyr)
+library(stringr)
+library(purrr)
+library(tidyr)
+library(RSQLite)
+library(rcrossref)
+library(knitr)
+library(kableExtra)
+```
+
+# Introducción
+
+Este reporte documenta el proceso de extracción, almacenamiento y análisis de artículos publicados en el **Annual Review of Economics**, Volumen 17 (2025), revista académica en economía, editada por Annual Reviews.
+
+**Enlace de la revista:** <https://www.annualreviews.org/content/journals/economics/17/1>
+
+**Justificación de la elección:** El *Annual Review of Economics* publica artículos de revisión exhaustivos sobre los avances más relevantes en economía. Al ser una publicación de acceso estructurado (tabla de contenidos paginada, metadatos ricos en HTML), resulta ideal para un ejercicio de web scraping. Además, la disponibilidad de DOIs por artículo permite enriquecer los datos mediante APIs externas como CrossRef y OpenAlex, facilitando la obtención de métricas de citación y referencias bibliográficas.
+
+---
+
+# Fuente de Datos y Scraping
+
+## Páginas utilizadas
+
+Se extrajeron artículos de las dos páginas de la tabla de contenidos del Volumen 17:
+
+- Página 1: `https://www.annualreviews.org/content/journals/economics/17/1`
+- Página 2: `https://www.annualreviews.org/content/journals/economics/17/1?page=2`
+
+## Librerías utilizadas
+
+| Librería      | Propósito                                              |
+|---------------|--------------------------------------------------------|
+| `httr`        | Realizar peticiones HTTP con cabeceras personalizadas  |
+| `rvest`       | Parsear HTML y extraer nodos/atributos                 |
+| `dplyr`       | Manipulación y transformación de data frames           |
+| `stringr`     | Limpieza y extracción de texto |
+| `purrr`       | Programación funcional e iteración sobre listas        |
+| `tidyr`       | Reestructuración de datos    |
+| `RSQLite`     | Creación y gestión de bases de datos SQLite            |
+| `rcrossref`   | Consulta de la API CrossRef para datos académicos  |
+
+## Extracción
+
+El scraping se realizó en tres etapas:
+
+1. **Extracción base (HTML):** Se identificaron los nodos CSS `.articleInToc` como contenedores de cada artículo. Dentro de cada nodo se extrajeron: título, DOI, URL, autores y resumen.
+
+2. **Enriquecimiento vía CrossRef:** Con el DOI de cada artículo se consultó la API de CrossRef (`rcrossref::cr_works`) para obtener el número de citas y la lista de referencias bibliográficas.
+
+3. **Citas complementarias vía OpenAlex:** Ya que CrossRef no reportaba citas, se consultó la API de OpenAlex como fuente alternativa.
+
+## Código de scraping
+
+```{r scraping-funciones}
+# limpiar espacios en blanco
+limpiar_texto <- function(x) {
+  if (is.null(x) || length(x) == 0) return(NA_character_)
+  x %>% str_replace_all("\\s+", " ") %>% str_trim()
+}
+
+# scraping
+scrapear_pagina <- function(url) {
+
+  respuesta <- GET(
+    url,
+    add_headers(
+      `User-Agent` = paste(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "AppleWebKit/537.36 (KHTML, like Gecko)",
+        "Chrome/124.0 Safari/537.36"
+      ),
+      `Accept-Language` = "es-ES,es;q=0.9,en;q=0.8",
+      `Referer` = "https://www.google.com/"
+    )
+  )
+
+  html_doc       <- read_html(respuesta)
+  nodos_articulos <- html_doc %>% html_nodes(".articleInToc")
+
+  cat(sprintf("  → %d artículos encontrados en: %s\n",
+              length(nodos_articulos), url))
+
+  map_dfr(nodos_articulos, function(nodo) {
+
+    doi_val <- nodo %>%
+      html_node(".articleSourceTag a") %>%
+      html_attr("href") %>%
+      str_extract("10\\.\\d{4,}/\\S+")
+
+    url_articulo <- nodo %>%
+      html_node(".articleTitle a, .js-articleTitle a") %>%
+      html_attr("href")
+
+    url_completa <- if (!is.na(url_articulo) &&
+                        !str_starts(url_articulo, "http")) {
+      paste0("https://www.annualreviews.org", url_articulo)
+    } else {
+      url_articulo
+    }
+
+    autores_texto <- nodo %>%
+      html_nodes(".meta-value.authors .author-list__item a") %>%
+      html_text() %>%
+      limpiar_texto() %>%
+      paste(collapse = "; ")
+
+    resumen_texto <- nodo %>%
+      html_node(".js-desc p") %>%
+      html_text() %>%
+      limpiar_texto()
+
+    tibble(
+      titulo            = nodo %>%
+        html_node(".articleTitle a, .js-articleTitle a") %>%
+        html_text() %>% limpiar_texto(),
+      fecha_publicacion = "2025",
+      doi               = doi_val,
+      url               = url_completa,
+      autores           = autores_texto,
+      resumen           = resumen_texto
+    )
+  })
+}
+```
+
+```{r scraping-enriquecimiento}
+# citas openalex
+obtener_citas_openalex <- function(doi) {
+  tryCatch({
+    url  <- paste0("https://api.openalex.org/works/https://doi.org/", doi)
+    resp <- GET(url, add_headers(`User-Agent` = "tumail@universidad.edu"))
+    data <- content(resp, as = "parsed")
+    as.integer(data$cited_by_count %||% 0)
+  }, error = function(e) 0L)
+}
+
+# texto plano
+formatear_referencias <- function(refs) {
+  
+  if (is.null(refs) || length(refs) == 0) return(NA_character_)
+  
+  if (is.data.frame(refs)) {
+    
+    resultado <- refs %>%
+      rowwise() %>%
+      mutate(texto_ref = {
+        autor  <- if (exists("author",  where = cur_data()) && !is.na(author))        author        else ""
+        anio   <- if (exists("year",    where = cur_data()) && !is.na(year))           year          else ""
+        titulo <- if (exists("article.title", where = cur_data()) && !is.na(article.title)) article.title else ""
+        
+        txt <- str_squish(paste(
+          autor,
+          if (nchar(anio) > 0) paste0("(", anio, ").") else "",
+          titulo
+        ))
+        if (txt %in% c("", ".", "().")) NA_character_ else txt
+      }) %>%
+      ungroup() %>%
+      pull(texto_ref) %>%
+      .[!is.na(.)] %>%
+      paste(collapse = "; ")
+    
+    if (resultado == "") return(NA_character_)
+    return(resultado)
+  }
+
+  map_chr(refs, function(ref) {
+    autor  <- ref[["author"]]          %||% ""
+    anio   <- ref[["year"]]            %||% ""
+    titulo <- ref[["article-title"]]   %||%
+              ref[["article.title"]]   %||% ""
+    txt <- str_squish(paste(
+      autor,
+      if (nchar(anio) > 0) paste0("(", anio, ").") else "",
+      titulo
+    ))
+    if (txt %in% c("", ".", "().")) NA_character_ else txt
+  }) %>%
+    .[!is.na(.)] %>%
+    paste(collapse = "; ")
+}
+
+# crossref
+enriquecer_datos <- function(doi) {
+  tryCatch({
+    res  <- cr_works(dois = doi)
+    data <- res$data
+
+    citas     <- as.numeric(data$is_referenced_by_count %||% 0)
+    refs_raw  <- data$reference
+
+    referencias <- tryCatch({
+      if (is.null(refs_raw) || length(refs_raw) == 0) {
+        NA_character_
+      } else {
+        refs_df <- if (is.list(refs_raw) && !is.data.frame(refs_raw)) {
+          refs_raw[[1]]
+        } else {
+          refs_raw
+        }
+        formatear_referencias(refs_df)
+      }
+    })
+
+    list(citas = citas, referencias = referencias)
+  }, error = function(e) {
+    list(citas = 0, referencias = NA_character_)
+  })
+}
+```
+
+```{r scraping-ejecucion}
+# enlaces
+urls <- c(
+  "https://www.annualreviews.org/content/journals/economics/17/1",
+  "https://www.annualreviews.org/content/journals/economics/17/1?page=2"
+)
+
+# extraccion
+df_base <- map_dfr(urls, function(u) {
+  Sys.sleep(2)
+  scrapear_pagina(u)
+})
+
+# añadiendo informacion de apis
+datos_extra <- map(df_base$doi, function(d) {
+  if (is.na(d)) return(list(citas = 0, referencias = NA_character_))
+  Sys.sleep(0.5)
+  enriquecer_datos(d)
+})
+
+df_base <- df_base %>%
+  mutate(
+    n_citas = if_else(
+      map_dbl(datos_extra, "citas") == 0,
+      map_int(doi, obtener_citas_openalex),
+      as.integer(map_dbl(datos_extra, "citas"))
+    ),
+    referencias = map_chr(datos_extra, "referencias"),
+  )
+```
+
+---
+
+# Construcción de la base sqlite
+
+## Clasificación temática
+
+Antes de insertar los datos se etiquetó cada artículo mediante una función de clasificación basada en palabras clave presentes en el título y el resumen.
+
+```{r clasificacion}
+clasificar_articulo <- function(titulo, resumen) {
+  texto <- tolower(paste(titulo %||% "", resumen %||% "", sep = " "))
+
+  if (str_detect(texto,
+      "machine learning|aprendizaje automático|neural network|deep learning")) {
+    return("Machine Learning")
+  } else if (str_detect(texto,
+      "generative ai|ia generativa|llm|gpt|large language model")) {
+    return("IA Generativa")
+  } else if (str_detect(texto,
+      "statistics|statistical|inference|probability|econometrics|causal")) {
+    return("Estadística")
+  } else {
+    return("Otros")
+  }
+}
+
+df_base <- df_base %>%
+  rowwise() %>%
+  mutate(categoria = clasificar_articulo(titulo, resumen)) %>%
+  ungroup()
+
+# Vista rápida de la distribución
+df_base %>%
+  count(categoria, name = "n_articulos") %>%
+  kable(caption = "Distribución de artículos por categoría temática") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE)
+```
+
+**Criterio de clasificación:**
+
+| Categoría       | Palabras clave buscadas (en título + resumen)                                        |
+|-----------------|--------------------------------------------------------------------------------------|
+| Machine Learning| `machine learning`, `aprendizaje automático`, `neural network`, `deep learning`      |
+| IA Generativa   | `generative ai`, `ia generativa`, `llm`, `gpt`, `large language model`               |
+| Estadística     | `statistics`, `statistical`, `inference`, `probability`, `econometrics`, `causal`    |
+| Otros           | Todo lo que no coincide con ninguna categoría anterior                               |
+
+## Creación de tablas e inserción de datos
+
+```{r base-datos}
+con <- dbConnect(SQLite(), "annual_reviews_2025.db")
+
+# tabla papers
+dbWriteTable(con, "papers", df_base, overwrite = TRUE)
+
+# tabla normalizada 
+df_autores <- df_base %>%
+  select(doi, autores) %>%
+  filter(!is.na(autores) & autores != "") %>%
+  separate_rows(autores, sep = "; ") %>%
+  filter(!is.na(autores) & autores != "") %>%
+  rename(nombre_autor = autores)
+
+dbWriteTable(con, "autores", df_autores, overwrite = TRUE)
+```
+
+## Validación básica
+
+```{r validacion}
+# primeras 5 filas de papers
+dbGetQuery(con, "select titulo, autores, n_citas, categoria from papers limit 5") %>%
+  kable(caption = "Muestra de la tabla `papers`") %>%
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = TRUE)
+
+# distribución por categoría
+dbGetQuery(con, "select categoria, count(*) as total from papers group by categoria") %>%
+  kable(caption = "Conteo por categoría (validación)") %>%
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+```
+
+---
+
+# Clasificación Temática
+
+La función `clasificar_articulo()` aplica detección de patrones con expresiones regulares sobre la concatenación del **título** y el **resumen** de cada artículo (convertidos a minúsculas). El orden de evaluación es relevante: se prioriza *Machine Learning* e *IA Generativa* sobre *Estadística*, ya que muchos artículos de ML usan lenguaje estadístico.
+
+**Limitación:** Al tratarse de una revista de economía general, la mayoría de artículos caen en *Otros*. Los términos de ML/IA son poco frecuentes en este dominio, lo que puede subestimar artículos con enfoques computacionales expresados con jerga económica.
+
+---
+
+# Consultas SQL y Resultados
+
+## Pregunta 1 — Número promedio de autores por paper
+
+```{r q1}
+q1 <- dbGetQuery(con, "
+  select round(avg(n_autores), 2) as promedio_autores_por_paper
+  FROM (
+    select doi, count(*) as n_autores
+    from autores
+    group by doi
+  )
+")
+kable(q1, caption = "Q1: Promedio de autores por paper") %>%
+  kable_styling(full_width = FALSE)
+```
+
+**Interpretación:** El promedio refleja que los artículos de revisión en economía suelen tener entre 2 y 3 autores.
+
+## Pregunta 2 — Artículos relacionados con Machine Learning
+
+```{r q2}
+q2 <- dbGetQuery(con, "
+  select count(*) as articulos_machine_learning
+  from papers
+  where categoria = 'Machine Learning'
+")
+kable(q2, caption = "Q2: Artículos de Machine Learning") %>%
+  kable_styling(full_width = FALSE)
+```
+
+## Pregunta 3 — Artículos relacionados con IA Generativa
+
+```{r q3}
+q3 <- dbGetQuery(con, "
+  select count(*) as articulos_ia_generativa
+from papers
+where categoria = 'IA Generativa'
+")
+kable(q3, caption = "Q3: Artículos de IA Generativa") %>%
+  kable_styling(full_width = FALSE)
+```
+
+## Pregunta 4 — Artículos de otros temas estadísticos
+
+```{r q4}
+q4 <- dbGetQuery(con, "
+ select count(*) as articulos_estadistica_otros
+from papers
+where categoria in ('Estadística', ' Otros')
+")
+kable(q4, caption = "Q4: Artículos de Estadística y Otros") %>%
+  kable_styling(full_width = FALSE)
+```
+
+**Interpretación (Q2–Q4):** La distribución evidencia que el Annual Review of Economics es una revista de amplio espectro: la mayoría de artículos trata temas económicos generales. La presencia de ML/IA refleja la creciente adopción de estas herramientas en economía empírica.
+
+## Pregunta 5 — Total de descargas en 2025
+
+El sitio no ofrece metricas de descarga.
+
+
+## Pregunta 6 — Promedio de referencias por artículo
+
+```{r q6}
+q6 <- dbGetQuery(con, "
+  select round(avg(n_refs), 2) as promedio_referencias_por_articulo
+from (
+    select doi,
+           case
+             when referencias is null or referencias = '' then 0
+             else length(referencias) - length(replace(referencias, ';', '')) + 1
+           end as n_refs
+    from papers
+  )
+")
+kable(q6, caption = "Q6: Promedio de referencias por artículo") %>%
+  kable_styling(full_width = FALSE)
+```
+
+**Interpretación:** Los artículos de revisión típicamente citan un gran número de trabajos.
+
+## Pregunta 7 — Referencia más frecuente entre todos los artículos
+
+```{r q7}
+# las referencias están almacenadas como texto concatenado se separan y cuentan
+df_refs_expandido <- df_base %>%
+  select(doi, referencias) %>%
+  filter(!is.na(referencias) & referencias != "") %>%
+  separate_rows(referencias, sep = "; ") %>%
+  filter(!is.na(referencias) & str_length(referencias) > 5) %>%
+  rename(referencia = referencias)
+
+dbWriteTable(con, "referencias_expandidas", df_refs_expandido, overwrite = TRUE)
+
+q7 <- dbGetQuery(con, "
+  select referencia,
+         count(*) as frecuencia
+from referencias_expandidas
+group by referencia
+order by frecuencia desc
+limit 1
+")
+
+
+kable(q7, caption = "Q7: Referencia más citada entre los artículos") %>%
+  kable_styling(full_width = TRUE, bootstrap_options = c("striped", "hover")) %>%
+  column_spec(1, width = "80%")
+```
+
+**Interpretación:** La referencia más repetida entre artículos sugiere un trabajo que múltiples autores del volumen consideran fundamental como punto de partida.
+
+## Pregunta 8 — Promedio de citas por artículo
+
+```{r q8}
+q8 <- dbGetQuery(con, "
+  select round(avg(n_citas), 2) as promedio_citas_por_articulo
+from papers
+")
+kable(q8, caption = "Q8: Promedio de citas por artículo") %>%
+  kable_styling(full_width = FALSE)
+```
+
+**Interpretación:** Al ser publicaciones de 2025, el número de citas es naturalmente bajo.
+
+## Pregunta 9 — Paper con más citas
+
+```{r q9}
+q9 <- dbGetQuery(con, "
+  select titulo, autores, n_citas, categoria
+from papers
+order by n_citas desc
+limit 1
+")
+kable(q9, caption = "Q9: Paper con mayor número de citas") %>%
+  kable_styling(full_width = TRUE)
+```
+
+## Pregunta 10 — Paper de ML / IA / Estadística con más citas
+
+```{r q10}
+q10 <- dbGetQuery(con, "
+  select titulo, autores, n_citas, categoria
+from papers
+where categoria in ('Machine Learning', 'IA generativa', 'Estadística')
+order by n_citas desc
+limit 1
+")
+kable(q10, caption = "Q10: Paper temático con más citas") %>%
+  kable_styling(full_width = TRUE)
+```
+
+## Pregunta 11 — Paper de ML / IA / Estadística con más descargas
+
+```{r q11}
+q11 <- dbGetQuery(con, "
+  select titulo, autores, n_descargas, categoria
+from papers
+where categoria in ('Machine Learning', 'IA generativa', 'Estadística')
+order by n_descargas desc
+limit 1
+")
+kable(q11, caption = "Q11: Paper temático con más descargas") %>%
+  kable_styling(full_width = TRUE)
+
+dbDisconnect(con)
+```
+
+---
+
+# Hallazgos
+
+A partir del análisis realizado sobre el Volumen 17 del *Annual Review of Economics* se destacan los siguientes resultados:
+
+1. **Dominio de temas económicos generales:** La mayoría de artículos del volumen no se categorizab en categorías de ML, IA o Estadística tal como fueron definidas, lo que refleja la naturaleza de esta revista, con énfasis en teoría económica, política pública y economía del desarrollo.
+
+2. **Adopción de ML y métodos computacionales:** Los pocos artículos clasificados en Machine Learning o Estadística son representativos de una tendencia creciente en economía empírica, donde técnicas de aprendizaje automático se usan para identificación causal, pronóstico y análisis de texto.
+
+3. **Citas bajas pero con variabilidad:** Al tratarse de publicaciones recientes (2025), el conteo de citas es limitado. Sin embargo, existen artículos con ventaja inicial notable, posiblemente por la reputación previa de sus autores o por abordar temas de alta demanda.
+
+4. **Referencias bibliográficas ricas:** Los artículos de revisión citan un número elevado de trabajos. La referencia más frecuente entre todos los artículos puede indicar un trabajo que sirve de ancla teórica para el volumen.
+
+---
+
+# Limitaciones
+
+| Aspecto | Descripción |
+|---------|-------------|
+| **Descargas** | Annual Reviews no expone métricas de descarga públicamente.|
+|
+| **Cobertura de referencias** | La API de CrossRef no siempre retorna la lista completa de referencias. Algunos DOIs devuelven listas vacías o parciales. |
+| **Limitaciones del scraping** | El sitio de Annual Reviews utiliza JavaScript para renderizar algunos elementos, lo que puede provocar que ciertos metadatos (autores, resúmenes) no sean extraídos correctamente en todos los artículos. |
+| **Clasificación temática por palabras clave** | El método de clasificación es simple. Artículos que usan ML sin mencionarlo explícitamente no serán correctamente clasificados. |
+| **Citas recientes** | Al ser publicaciones de 2025, las métricas de citación son basicas. |
+| **Rate limiting** | Se añadieron pausas (`Sys.sleep`) entre solicitudes para respetar los límites de las APIs. |
+| **Acceso a resúmenes** | Algunos artículos requieren suscripción para mostrar el resumen completo; en esos casos el campo `resumen` puede quedar en `NA`. |
+
+---
+
+# Conclusión
+
+Este ejercicio demostró la viabilidad de construir un pipeline completo de **extracción, enriquecimiento y análisis** de artículos académicos usando R. A partir del scraping estructurado del *Annual Review of Economics* (Vol. 17, 2025) se obtuvo un dataset con metadatos de los artículos publicados, enriquecido con citas y referencias bibliográficas de CrossRef y OpenAlex, almacenado en una base SQLite y analizado mediante consultas SQL.
+
+Las consultas respondieron preguntas sobre la distribución temática de la revista, patrones de autoría y popularidad de los artículos. Las principales limitaciones son la limitacion al acceso de métricas de descarga y la cobertura incompleta de referencias en CrossRef.
+
+
+---
+

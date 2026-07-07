@@ -1,0 +1,4 @@
+"0","dbGetQuery(con, """
+"0","  SELECT ROUND(AVG(n_references), 2) AS promedio_referencias"
+"0","  FROM papers"
+"0",""")"
