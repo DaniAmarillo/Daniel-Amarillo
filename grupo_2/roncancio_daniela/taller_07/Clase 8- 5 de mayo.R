@@ -1,5 +1,5 @@
 
-install.packages("naniar")
+stall.packages("naniar")
 install.packages("tidyverse")
 install.packages(c("rlang", "cli"))
 install.packages("tidymodels")
@@ -7,7 +7,6 @@ install.packages("tidymodels")
 library(naniar)
 library(tidyverse)
 library(tidymodels)
-
 
 ## Ejercicio 1: Diagnóstico de valores faltantes
 
