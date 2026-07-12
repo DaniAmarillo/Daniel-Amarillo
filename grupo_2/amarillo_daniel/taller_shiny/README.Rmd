@@ -1,0 +1,36 @@
+---
+title: "README"
+author: "Daniel Eduardo Amarillo Echeverry"
+date: '`r Sys.Date()`'
+output: html_document
+---
+
+# Análisis Bibliométrico — Journal of Behavioral Addictions
+
+> Dashboard interactivo para el análisis bibliométrico de artículos publicados en el **Journal of Behavioral Addictions (JBA)**, uno de los journals Q1 más relevantes en psicología a nivel mundial.
+
+ **[Ver app en producción](https://3lqn33-daniel0eduardo-amarillo0echeverry.shinyapps.io/papers/)**
+
+---
+
+## Descripción
+
+Esta carpeta contiene una aplicación en Shiny que permite explorar, filtrar y analizar la producción científica indexada del JBA. Los datos son recolectados automáticamente desde la api final de OpenAlex mediante un pipeline de scraping construido en R.
+
+El objetivo es proporcionar una vista integral de métricas bibliométricas: tendencias temporales de publicación, distribución temática, autores más prolíficos y métricas de impacto (citas y descargas).
+
+---
+
+## Funcionalidades
+
+- **Filtros dinámicos** por rango de años, tema, doi.
+- **Tendencia temporal** de publicaciones con escala ajustable (año / mes-año / día-mes-año)
+- **Clasificación temática** automática de abstracts en categorías: Machine Learning, IA Generativa, Estadística y Otros
+- **Métricas de impacto**: distribución de citas y indice de impacto de citas [FWCI](https://biblioguias.ulpgc.es/c.php?g=654413&p=5007950)
+- **Scraping bajo demanda** directamente desde la UI, con logs en tiempo real
+
+## Autor
+
+**Daniel Eduardo Amarillo Echeverry** — damarillo@unal.edu.co
+
+Curso: Minería de Datos · 2025

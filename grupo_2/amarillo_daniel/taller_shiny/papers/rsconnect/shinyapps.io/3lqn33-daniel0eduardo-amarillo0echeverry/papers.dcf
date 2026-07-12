@@ -1,0 +1,12 @@
+name: papers
+title: papers
+username: 3lqn33-daniel0eduardo-amarillo0echeverry
+account: 3lqn33-daniel0eduardo-amarillo0echeverry
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 17474953
+bundleId: 12090884
+url: https://3lqn33-daniel0eduardo-amarillo0echeverry.shinyapps.io/papers/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE

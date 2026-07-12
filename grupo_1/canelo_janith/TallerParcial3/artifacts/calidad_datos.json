@@ -1,0 +1,11 @@
+{
+  "n_multisexo": 525,
+  "n_multinac": 0,
+  "n_antes_nacimiento": 13881,
+  "n_valores_negativos": 3001,
+  "n_valores_cero": 70394,
+  "valor_min": 0.01,
+  "valor_max": 628388.67,
+  "valor_media": 107.70308736316021,
+  "valor_mediana": 17.86
+}

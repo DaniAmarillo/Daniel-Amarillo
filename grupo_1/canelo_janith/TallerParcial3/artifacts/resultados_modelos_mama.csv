@@ -1,0 +1,17 @@
+modelo,variante,PR_AUC,ROC_AUC,F1,Recall,Precision,Accuracy
+LightGBM,con_prop_oncologia,0.7117,0.9914,0.5972,0.688,0.5276,0.9994
+RandomForest,con_prop_oncologia,0.7041,0.9788,0.6636,0.568,0.7978,0.9996
+XGBoost,con_prop_oncologia,0.7031,0.9988,0.3167,0.864,0.1939,0.9976
+CatBoost,con_prop_oncologia,0.6886,0.9985,0.3685,0.824,0.2373,0.9982
+Stacking_LGB_Cat,con_prop_oncologia,0.5481,0.9977,0.2769,0.864,0.1649,0.9971
+KNN,con_prop_oncologia,0.3474,0.9969,0.1888,0.792,0.1071,0.9957
+SVM_RBF,con_prop_oncologia,0.1946,0.9966,0.1463,0.824,0.0803,0.9939
+GradientBoosting,con_prop_oncologia,0.1415,0.5189,0.0889,0.048,0.6,0.9994
+RandomForest,sin_prop_oncologia,0.714,0.9909,0.6789,0.592,0.7957,0.9996
+XGBoost,sin_prop_oncologia,0.7066,0.9987,0.2948,0.856,0.178,0.9974
+CatBoost,sin_prop_oncologia,0.6922,0.9987,0.3584,0.84,0.2278,0.9981
+LightGBM,sin_prop_oncologia,0.6821,0.9946,0.5836,0.656,0.5256,0.9994
+Stacking_LGB_Cat,sin_prop_oncologia,0.682,0.9986,0.3083,0.872,0.1873,0.9975
+KNN,sin_prop_oncologia,0.3447,0.9969,0.1786,0.808,0.1004,0.9953
+SVM_RBF,sin_prop_oncologia,0.2235,0.9966,0.1373,0.816,0.0749,0.9935
+GradientBoosting,sin_prop_oncologia,0.1535,0.5189,0.1314,0.072,0.75,0.9994
