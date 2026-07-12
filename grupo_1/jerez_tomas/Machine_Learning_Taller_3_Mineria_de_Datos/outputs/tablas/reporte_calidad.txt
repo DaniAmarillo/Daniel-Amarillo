@@ -1,0 +1,32 @@
+Archivo:                     db_2026.csv
+Rango de fechas:             2026-01-01 00:00:00  ->  2026-12-08 00:00:00
+Fecha de referencia (edad):  2026-12-08
+
+--- Volumen ---
+Filas (procedimientos):      9,345,278
+Beneficiarios unicos:        653,631
+Utilizaciones (visita-dia):  2,250,307
+Procedimientos distintos:    3,252
+
+--- Variable objetivo ---
+Beneficiarios positivos:     272
+PREVALENCIA (target=1):      0.042%
+Balance (0/1):               {0: 653359, 1: 272}
+
+--- Faltantes (a nivel transaccion; ahora N/A cuenta como faltante) ---
+CID faltante:                88.63%
+Especialidad faltante:       73.21%
+UF faltante:                 28.75%
+Tipo unidad faltante:        28.75%
+Sexo faltante:               6.50%
+Valor faltante:              0.00%
+
+--- Inconsistencias por beneficiario ---
+Con >1 sexo distinto:        525
+Con >1 fecha nac. distinta:  0
+Edades imposibles (<0/>110): 3,165
+
+--- VALOR_UTILIZACAO ---
+Min: -27537.23   Max: 628,388.67   Media: 106.85
+P50: 17.39   P99: 1222.44   P99.9: 9457.30
+
