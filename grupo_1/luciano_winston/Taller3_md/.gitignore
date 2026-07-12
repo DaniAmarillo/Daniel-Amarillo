@@ -1,0 +1,6 @@
+data/
+modelos/
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
