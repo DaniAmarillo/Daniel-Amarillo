@@ -1,0 +1,1634 @@
+---
+title: "Taller 3 – Minería de Datos"
+subtitle: "Análisis Predictivo: Enfermedad por Reflujo Gastroesofágico con Esofagitis (K21.0)"
+author: "Mateo Venegas | Código: 2016325 | Asignatura: Minería de Datos"
+date: "`r format(Sys.Date(), '%d de %B de %Y')`"
+output:
+  html_notebook:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    theme: flatly
+    highlight: tango
+    code_folding: show
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width  = 9,
+  fig.height = 5,
+  dpi = 120
+)
+```
+
+---
+
+# Contexto Clínico y Justificación de la Enfermedad Seleccionada
+
+## Marco clasificatorio: CIE-10 y el sistema de salud suplementario brasileño
+
+### La Clasificación Internacional de Enfermedades (CIE-10/ICD-10)
+
+La variable **CID** de la base de datos corresponde a los códigos de la **Clasificación Internacional de Enfermedades, Décima Revisión (CIE-10 / ICD-10)**, publicada por la Organización Mundial de la Salud (OMS). Esta clasificación es el estándar internacional para el registro sistemático, análisis e interpretación de datos de morbimortalidad, y es utilizada en más de 100 países para codificar diagnósticos clínicos, causas de muerte, planificación de recursos y sistemas de pago (Fuente: [OMS – International Classification of Diseases](https://www.who.int/standards/classifications/classification-of-diseases)).
+
+El navegador oficial de la versión 2019 de la CIE-10 está disponible en [https://icd.who.int/browse10/2019/en](https://icd.who.int/browse10/2019/en), y permite consultar la jerarquía completa de capítulos, bloques, categorías y subcategorías diagnósticas (Fuente: [OMS – ICD-10 Browser](https://icd.who.int/browse10/2019/en)).
+
+Dentro de la CIE-10, los diagnósticos se organizan en 22 capítulos. La ERGE pertenece al **Capítulo XI: Enfermedades del Aparato Digestivo (K00–K93)**. Dentro de este capítulo, el bloque **K20–K31** corresponde a *"Enfermedades del esófago, del estómago y del duodeno"*. La categoría específica es:
+
+| Código | Nivel | Descripción |
+|--------|-------|-------------|
+| K20–K31 | Bloque | Enfermedades del esófago, estómago y duodeno |
+| **K21** | Categoría | Enfermedad por reflujo gastroesofágico |
+| **K21.0** | Subcategoría | Enfermedad por reflujo gastroesofágico **con esofagitis** |
+| K21.9 | Subcategoría | Enfermedad por reflujo gastroesofágico **sin esofagitis** |
+
+La distinción entre K21.0 y K21.9 es clínicamente fundamental: **K21.0 implica confirmación de inflamación de la mucosa esofágica** (esofagitis péptica), lo cual usualmente requiere endoscopia diagnóstica, con mayor intensidad de uso de servicios de salud y mayor costo asociado. K21.9 puede ser un diagnóstico clínico sin confirmación endoscópica.
+
+### El sistema TUSS y la variable CD_PROCEDIMENTO (ANS – Brasil)
+
+La variable **CD_PROCEDIMENTO** de la base de datos corresponde a códigos de la **Terminologia Unificada da Saúde Suplementar (TUSS)**, administrada por la Agência Nacional de Saúde Suplementar (ANS) de Brasil. La TUSS es el estándar de codificación de procedimientos para el intercambio de información en el sistema de salud suplementario brasileño, definido en el **Padrão TISS (Troca de Informação de Saúde Suplementar)** (Fuente: [ANS – Padrão TISS / Tabelas relacionadas](https://www.gov.br/ans/pt-br/assuntos/prestadores/padrao-para-troca-de-informacao-de-saude-suplementar-2013-tiss/padrao-tiss-tabelas-relacionadas)).
+
+El Padrão TISS es el mecanismo obligatorio mediante el cual los prestadores de servicios de salud (hospitales, clínicas, laboratorios) intercambian información de utilización con las operadoras de planos de saúde en Brasil. La ANS establece tablas de compatibilización entre la TUSS y otros sistemas como el SIGTAP (tabela de procedimentos do SUS) y el Rol de Procedimentos da ANS.
+
+En el contexto de la ERGE (K21.0), los procedimientos TUSS más frecuentes incluyen:
+
+- **Endoscopia digestiva alta** (EDA): procedimiento diagnóstico principal para confirmar esofagitis y estadificar la enfermedad. Es el único método que permite visualizar directamente la mucosa esofágica y tomar biopsias.
+- **Manometría esofágica**: evaluación de la motilidad del esfínter esofágico inferior.
+- **pHmetría esofágica de 24 horas**: monitorización ambulatoria del reflujo ácido.
+- **Consultas de gastroenterología**: seguimiento ambulatorio.
+- **Internaciones**: en casos de complicaciones (esófago de Barrett, sangrado, estenosis).
+
+---
+
+## Enfermedad seleccionada: Reflujo Gastroesofágico con Esofagitis (K21.0)
+
+### Definición clínica
+
+La **Enfermedad por Reflujo Gastroesofágico con Esofagitis (ERGE-E)**, codificada como **K21.0** en la CIE-10 versión 2019, es una condición crónica y recidivante del tracto digestivo superior, definida como el retorno anormal y sostenido del contenido gástrico —ácido, pepsina, bilis y enzimas pancreáticas— hacia el esófago, produciendo **esofagitis macroscópica** (inflamación y/o erosión visible de la mucosa esofágica) confirmada endoscópicamente.
+
+La clasificación endoscópica más utilizada es la **Clasificación de Los Ángeles**, que estratifica la esofagitis por reflujo en cuatro grados (A, B, C, D) según la extensión y profundidad de las erosiones de la mucosa. Esta distinción tiene implicaciones directas sobre el tratamiento, el pronóstico y el nivel de costo de atención.
+
+### Fisiopatología
+
+El mecanismo central de la ERGE es la **disfunción del esfínter esofágico inferior (EEI)**, que normalmente actúa como barrera antirreflujo. Los principales mecanismos patogénicos son:
+
+1. **Relajaciones transitorias inapropiadas del EEI**: el mecanismo más frecuente, independiente de la deglución, mediado por el nervio vago.
+2. **Hipotensión del EEI**: presión basal del esfínter persistentemente baja (< 10 mmHg).
+3. **Alteraciones del aclaramiento esofágico**: reducción de la motilidad esofágica y del flujo salival (que tamponan el ácido).
+4. **Hernia hiatal**: desplazamiento del estómago hacia el tórax, comprometiendo la función del EEI y el hiato diafragmático.
+5. **Vaciamiento gástrico retardado**: aumenta el volumen intragástrico disponible para el reflujo.
+
+Cuando el reflujo ácido entra en contacto repetido con la mucosa esofágica, desencadena una respuesta inflamatoria que produce las lesiones características de la esofagitis (eritema, edema, erosiones, úlceras). En casos crónicos y sin tratamiento adecuado, puede evolucionar a **Esófago de Barrett** (metaplasia intestinal) y, eventualmente, a **adenocarcinoma esofágico**, lo que justifica la vigilancia endoscópica periódica.
+
+### Epidemiología
+
+- La ERGE es una de las enfermedades gastrointestinales más prevalentes a nivel mundial. Su prevalencia varía regionalmente: se estima entre **10 % y 30 % en países occidentales** y entre **5 % y 15 % en Asia y África**.
+- La **prevalencia en Brasil** ha aumentado significativamente en las últimas décadas, asociada al aumento del índice de masa corporal de la población y a cambios en los hábitos alimentarios. Estudios epidemiológicos en el país estiman una prevalencia de ERGE sintomática superior al **12–20 %** en adultos urbanos.
+- La **ERGE con esofagitis (K21.0)** representa aproximadamente el **30–40 %** de todos los pacientes con ERGE, siendo el subgrupo con mayor carga clínica, mayor demanda de servicios diagnósticos (endoscopias) y mayor costo de tratamiento.
+- La condición es más prevalente en **adultos de mediana edad y mayores**, con un leve predominio en hombres para las formas erosivas, aunque la ERGE sintomática no erosiva es igualmente frecuente en mujeres.
+- En el sistema de salud suplementaria de Brasil (universo de la ANS), la ERGE representa una causa frecuente de consultas de gastroenterología, endoscopias digestivas altas y prescripción de inhibidores de bomba de protones (IBP), generando un impacto económico significativo para las operadoras de planos de saúde.
+
+### Factores de riesgo
+
+Los factores de riesgo con mayor evidencia para ERGE (especialmente las formas erosivas como K21.0) incluyen:
+
+| Factor | Mecanismo |
+|--------|-----------|
+| **Obesidad / sobrepeso** | Aumenta la presión intraabdominal y favorece la hernia hiatal |
+| **Hernia hiatal** | Desplaza el EEI, reduce su competencia antirreflujo |
+| **Tabaquismo** | Reduce la presión del EEI y el aclaramiento esofágico |
+| **Alcohol** | Efecto directo sobre la mucosa y la motilidad esofágica |
+| **Dieta alta en grasas, cafeína, chocolate, menta** | Relajan el EEI |
+| **Comidas abundantes y decúbito post-prandial** | Aumentan el reflujo nocturno |
+| **Embarazo** | Compresión mecánica + efecto relajante de la progesterona sobre el EEI |
+| **Medicamentos** (antagonistas de calcio, nitratos, anticolinérgicos) | Reducen la presión del EEI |
+| **Edad avanzada** | Reducción progresiva de la motilidad esofágica y del tono del EEI |
+| **Sexo masculino** | Mayor prevalencia de esofagitis erosiva y Esófago de Barrett |
+
+### Presentación clínica y diagnóstico
+
+**Síntomas típicos:**
+- **Pirosis** (acidez retroesternal): síntoma cardinal, descrito como sensación de ardor ascendente.
+- **Regurgitación ácida**: retorno de contenido gástrico a la faringe/boca.
+- **Disfagia**: dificultad para deglutir, especialmente con sólidos (sugiere estenosis péptica).
+
+**Síntomas atípicos:**
+- Dolor torácico no cardíaco.
+- Tos crónica, laringitis, asma de difícil control (manifestaciones extraesofágicas).
+- Odinofagia (dolor al tragar), especialmente en esofagitis graves.
+
+**Diagnóstico:**
+El diagnóstico de **K21.0 específicamente requiere confirmación endoscópica**, ya que la subcategoría "con esofagitis" implica evidencia objetiva de inflamación mucosa. Los métodos diagnósticos incluyen:
+
+1. **Endoscopia digestiva alta (EDA)**: gold standard. Permite visualizar y clasificar la esofagitis (Clasificación de Los Ángeles A-D), tomar biopsias para descartar esófago de Barrett y realizar procedimientos terapéuticos.
+2. **pHmetría esofágica ambulatoria de 24h**: confirma exposición ácida anormal en esófago distal. Indicada cuando la EDA es negativa pero los síntomas persisten.
+3. **Manometría esofágica de alta resolución**: evalúa la función del EEI y la motilidad esofágica. Fundamental antes de considerar cirugía.
+4. **Tránsito esófago-gastroduodenal con contraste**: limitado para ERGE pero útil en hernias hiatales grandes.
+
+### Tratamiento
+
+El manejo de la ERGE-E sigue un esquema escalonado:
+
+**1. Medidas higienico-dietéticas (siempre como base del tratamiento):**
+- Pérdida de peso en pacientes con sobrepeso/obesidad.
+- Evitar alimentos gatillantes (grasas, cafeína, alcohol, cítricos, chocolate).
+- Elevar la cabecera de la cama 15-20 cm.
+- No acostarse en las 2-3 horas post-prandiales.
+- Dejar de fumar.
+
+**2. Tratamiento farmacológico:**
+- **Inhibidores de la Bomba de Protones (IBP)**: primera línea. Omeprazol, Esomeprazol, Pantoprazol, Lansoprazol. Se administran 30-60 minutos antes del desayuno (y eventualmente antes de la cena en la terapia doble). El IBP de elección en Brasil para el sistema de salud suplementario suele ser el Esomeprazol 40 mg o Pantoprazol 40 mg.
+- **Bloqueadores H2 de histamina** (ranitidina, famotidina): alternativa de segunda línea o complemento nocturno.
+- **Antiácidos / Alginatos**: alivio sintomático rápido, no para tratamiento sostenido.
+- **Procinéticos** (metoclopramida, domperidona): en pacientes con vaciamiento gástrico retardado.
+
+**3. Tratamiento quirúrgico:**
+- **Funduplicatura de Nissen** (laparoscópica): indicada en pacientes con ERGE refractaria a IBP, con evidencia objetiva de reflujo, y que desean suspender la medicación a largo plazo. Es el procedimiento estándar.
+- **Procedimientos endoscópicos antirreflujo**: radiofrecuencia (Stretta), plicatura endoscópica. Alternativas en desarrollo con evidencia en crecimiento.
+
+### Impacto en el sistema de salud suplementaria (Brasil)
+
+En el contexto de los datos de la ANS y el Padrão TISS, la ERGE con esofagitis (K21.0) genera un patrón identificable de utilización de servicios:
+
+- **Consultas de gastroenterología** (CETIPO = "Consulta"): diagnóstico inicial y seguimiento.
+- **Endoscopias digestivas altas** (CETIPO = "Exame"): confirmación diagnóstica, vigilancia de esófago de Barrett, control post-tratamiento.
+- **Terapias e internaciones** (CETIPO = "Internação"): complicaciones graves (sangrado por esofagitis hemorrágica, estenosis péptica, esófago de Barrett con displasia de alto grado).
+- **Pronto socorro** (CETIPO = "Pronto Socorro"): presentaciones agudas de dolor torácico u odinofagia severa.
+
+Los procedimientos TUSS asociados se registran en la variable `CD_PROCEDIMENTO` de la base de datos. Esta variable está directamente relacionada con la **Terminologia Unificada da Saúde Suplementar (TUSS)** y sus tabelas relacionadas publicadas por la ANS, que pueden consultarse en: [https://www.gov.br/ans/pt-br/assuntos/prestadores/padrao-para-troca-de-informacao-de-saude-suplementar-2013-tiss/padrao-tiss-tabelas-relacionadas](https://www.gov.br/ans/pt-br/assuntos/prestadores/padrao-para-troca-de-informacao-de-saude-suplementar-2013-tiss/padrao-tiss-tabelas-relacionadas).
+
+### Justificación de la selección de K21.0
+
+La elección de la **ERGE con Esofagitis (K21.0)** como enfermedad objetivo de este análisis se basa en los siguientes criterios:
+
+1. **Presencia confirmada en la base de datos**: el código K21.0 (y sus variantes K21, K21.) está presente en la base de datos original `db_2026.csv`.
+2. **Relevancia epidemiológica**: es una condición prevalente, crónica y con creciente impacto en el sistema de salud suplementario brasileño.
+3. **Patrón de utilización definido**: los pacientes con ERGE-E generan un perfil identificable de utilización (endoscopias, consultas de gastroenterología, IBP), lo que hace posible construir predictores clínicamente interpretables.
+4. **Impacto económico**: la combinación de diagnóstico endoscópico, tratamiento farmacológico crónico y posible seguimiento por esófago de Barrett genera costos significativos y analizables.
+5. **Diferenciación clara**: K21.0 (con esofagitis, confirmada endoscópicamente) es más específica que K21.9 (sin esofagitis), lo que reduce la ambigüedad del diagnóstico codificado.
+
+### Fuentes de referencia
+
+- OMS – ICD-10 Browser (Versión 2019): [https://icd.who.int/browse10/2019/en](https://icd.who.int/browse10/2019/en)
+- OMS – International Classification of Diseases: [https://www.who.int/standards/classifications/classification-of-diseases](https://www.who.int/standards/classifications/classification-of-diseases)
+- ANS – Padrão TISS / Tabelas relacionadas: [https://www.gov.br/ans/pt-br/assuntos/prestadores/padrao-para-troca-de-informacao-de-saude-suplementar-2013-tiss/padrao-tiss-tabelas-relacionadas](https://www.gov.br/ans/pt-br/assuntos/prestadores/padrao-para-troca-de-informacao-de-saude-suplementar-2013-tiss/padrao-tiss-tabelas-relacionadas)
+
+---
+
+# Librerías y Configuración
+
+```{r librerias}
+library(data.table)   # Lectura eficiente de datos grandes
+library(tidyverse)    # Manipulación y visualización
+library(skimr)        # Resumen estadístico rápido
+library(tidymodels)   # Framework de modelamiento
+library(ranger)       # Random Forest rápido
+library(xgboost)      # Gradient Boosting
+library(pROC)         # Curvas ROC y AUC
+library(themis)       # Manejo de desbalance de clases (SMOTE)
+library(kableExtra)   # Tablas formateadas
+library(scales)       # Escalas para gráficos
+library(ROCR)         # Evaluación de clasificadores
+library(patchwork)    # Composición de gráficos
+
+# Paleta de colores institucional
+col_pos    <- "#E74C3C"   # Rojo → K21 positivo
+col_neg    <- "#3498DB"   # Azul → Control negativo
+col_accent <- "#2ECC71"   # Verde → Acentos
+```
+
+---
+
+# Proceso de Limpieza de Datos
+
+El archivo `db_2026_limpio_K21.csv` fue producido mediante el script Python `limpieza_dataset_k21.py`, ejecutado sobre la base de datos cruda `db_2026.csv`. A continuación se documenta detalladamente cada paso del proceso de limpieza, con la justificación metodológica correspondiente.
+
+## Resumen del proceso
+
+```{r flujo-limpieza, echo=FALSE}
+tibble::tribble(
+  ~Paso, ~Operacion, ~Razon,
+  "1", "Carga del dataset crudo", "Lectura de db_2026.csv con pandas",
+  "2", "Eliminar registros sin CID (nulos)", "CID nulo implica que el diagnóstico es desconocido — no puede clasificarse",
+  "3", "Eliminar registros con CID en blanco", "CID vacío ('') es equivalente a faltante pero detectado como string",
+  "4", "Eliminar columnas innecesarias", "PORTE_ANESTESICO y DESC_ESPECIALIDADE eliminadas para reducir dimensionalidad",
+  "5", "Convertir DT_UTILIZACAO a datetime", "La fecha estaba en formato string; se necesita tipo fecha para operaciones temporales",
+  "6", "Renombrar índice a 'N'", "Identificador numérico del registro para trazabilidad",
+  "7", "Filtrar registros con CID K21", "Retener solo los registros asociados a ERGE (categoría diagnóstica objetivo)",
+  "8", "Normalizar variantes del código CID", "Estandarizar K21, K21.0, K21. → K210 (forma canónica)",
+  "9", "Eliminar CID inválidos (con dígito '9')", "K21.9 corresponde a ERGE sin esofagitis — excluida del análisis",
+  "10", "Exportar dataset limpio", "Guardar db_2026_limpio_K21.csv con índice incluido"
+) |>
+  kbl(caption = "Resumen del proceso de limpieza (script limpieza_dataset_k21.py)",
+      col.names = c("Paso", "Operación", "Justificación")) |>
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE) |>
+  column_spec(1, width = "4em", bold = TRUE) |>
+  column_spec(2, width = "20em") |>
+  column_spec(3, width = "30em")
+```
+
+---
+
+## Paso 1: Carga del dataset crudo
+
+```python
+df = pd.read_csv(RUTA_DATOS_CRUDOS)
+```
+
+El script carga el archivo `db_2026.csv` completo usando `pandas.read_csv()`. La base de datos original contiene **9.345.278 filas y 16 columnas**, representando cada registro una utilización médica o procedimiento de un beneficiario del sistema de salud suplementaria de Brasil. La carga se realiza dentro de un bloque `try/except` para capturar errores de archivo no encontrado o errores de lectura, lo que garantiza una ejecución robusta.
+
+**Columnas originales del dataset crudo:**
+
+| # | Columna | Tipo original | Descripción |
+|---|---------|---------------|-------------|
+| 1 | CID | object (str) | Código diagnóstico CIE-10 |
+| 2 | UTI | int64 | Indicador de paso por UCI |
+| 3 | INTERNADO | int64 | Indicador de internación |
+| 4 | PORTE_ANESTESICO | object | Nivel de anestesia aplicado |
+| 5 | DT_UTILIZACAO | object (str) | Fecha de utilización del plan |
+| 6 | DESC_ESPECIALIDADE | object | Especialidad médica |
+| 7 | TIPO_UNIDADE_PREST_HOSPITALAR | object | Tipo de unidad hospitalaria |
+| 8 | UF_CNES_PREST_HOSPITALAR | object | Estado (UF) del hospital |
+| 9 | DT_NASCIMENTO_BENEFICIARIO | object | Fecha de nacimiento del beneficiario |
+| 10 | TIPO_BENEFICIARIO | object | Tipo de beneficiario (titular/dependiente) |
+| 11 | SEXO_BENEFICIARIO | object | Sexo del beneficiario |
+| 12 | CETIPO | object | Tipo de utilización (C/E/T/I/P/O) |
+| 13 | CD_PROCEDIMENTO | int64 | Código TUSS del procedimiento |
+| 14 | DESCRICAO_PROCEDIMENTO | object | Descripción del procedimiento |
+| 15 | VALOR_UTILIZACAO | float64 | Costo de la utilización en R$ |
+| 16 | CHAVE_FUNCIONAL | object | Identificador único del beneficiario |
+
+---
+
+## Paso 2: Eliminación de registros con CID nulo
+
+```python
+df = df[df['CID'].notnull()]
+```
+
+**Problema identificado:** La columna `CID` contiene valores `NaN` (nulos de pandas) en 613.585 registros de los 9.345.278 originales (~6,6 % del total). Esto ocurre porque no todos los registros de utilización tienen asociado un diagnóstico CID — por ejemplo, ciertos procedimientos administrativos, registros de cobertura o autorizaciones previas pueden carecer de diagnóstico.
+
+**Decisión:** Eliminar todos los registros con `CID` nulo. **Justificación:** El objetivo del análisis es construir una variable objetivo basada en el código diagnóstico K21.0. Un registro sin CID es, por definición, inclasificable desde el punto de vista de la enfermedad objetivo. Conservarlos como "clase negativa" (no-K21) introduciría ruido en el modelo, ya que no podemos saber si el beneficiario tiene o no la enfermedad.
+
+---
+
+## Paso 3: Eliminación de registros con CID en blanco
+
+```python
+df = df[df['CID'].str.strip() != '']
+```
+
+**Problema identificado:** Después de eliminar los nulos, persisten registros donde el CID es un string vacío `''` o contiene solo espacios en blanco. Esto ocurre por errores de entrada de datos o campos que quedaron en blanco al exportar desde sistemas hospitalarios. La función `.str.strip()` elimina espacios de inicio y fin antes de comparar con la cadena vacía.
+
+**Decisión:** Eliminar estos registros. **Justificación:** Un CID en blanco es funcionalmente equivalente a un CID nulo — no provee información diagnóstica. Mantenerlos distorsionaría los conteos de beneficiarios y la construcción de la variable objetivo. Además, la instrucción del taller exige trabajar con registros que tengan CID identificable.
+
+---
+
+## Paso 4: Eliminación de columnas innecesarias
+
+```python
+columnas_eliminar = ['PORTE_ANESTESICO', 'DESC_ESPECIALIDADE']
+df = df.drop(columns=columnas_existentes)
+```
+
+**Columnas eliminadas:**
+
+| Columna | Razón de eliminación |
+|---------|---------------------|
+| `PORTE_ANESTESICO` | Alta proporción de valores faltantes en los registros K21; la anestesia no es un procedimiento típico de ERGE (que se diagnostica endoscópicamente con sedación consciente, no anestesia general). La variable tiene escasa variabilidad informativa para el problema K21. |
+| `DESC_ESPECIALIDADE` | Variable de texto libre con alta cardinalidad y posible inconsistencia de codificación entre distintos prestadores. La especialidad puede inferirse parcialmente de `CD_PROCEDIMENTO` y `TIPO_UNIDADE_PREST_HOSPITALAR`. |
+
+**Resultado:** el dataset pasa de 16 a 14 columnas, reduciendo la dimensionalidad y simplificando el procesamiento posterior.
+
+> ⚠️ **Limitación reconocida:** La eliminación de `DESC_ESPECIALIDADE` impide caracterizar el perfil de especialidades atendidas para los pacientes K21.0, lo cual habría sido un predictor clínicamente relevante (e.g., consultas de gastroenterología vs. medicina general). Esta limitación se discute en la sección de conclusiones.
+
+---
+
+## Paso 5: Conversión de DT_UTILIZACAO a formato fecha (datetime)
+
+```python
+df = df.astype({'DT_UTILIZACAO': 'datetime64[ns]'})
+```
+
+**Problema identificado:** La columna `DT_UTILIZACAO` fue leída como objeto `str` por defecto en pandas. Para cualquier operación temporal (rangos de fechas, antigüedad, etc.) es imprescindible que esté en formato `datetime64[ns]`.
+
+**Decisión:** Convertir la columna usando `astype('datetime64[ns]')`, que interpreta strings de fecha en formatos estándar ISO 8601 (YYYY-MM-DD). El bloque `try/except` captura errores de conversión (por ejemplo, fechas mal formateadas) sin abortar el proceso.
+
+**Resultado verificado:** Rango de fechas de utilización → `2026-01-01` a `2026-03-26` (primer trimestre de 2026), lo que es consistente con una base de datos de corte transversal trimestral.
+
+---
+
+## Paso 6: Renombramiento del índice a 'N'
+
+```python
+df.index.name = 'N'
+```
+
+El índice numérico generado automáticamente por pandas se renombra a `'N'` para facilitar la trazabilidad de los registros. Este índice representa el número de fila original en el dataset después de los filtros aplicados. Al exportar a CSV con `index=True`, este índice queda incluido como primera columna, lo que permite verificar qué registros del dataset original fueron retenidos.
+
+---
+
+## Paso 7: Filtrado a registros con CID K21
+
+```python
+df = df[df['CID'].str.contains("K21", regex=False, na=False, case=False)]
+```
+
+**Problema a resolver:** De los registros con CID válido (no nulo, no vacío), solo un subconjunto muy pequeño corresponde a la enfermedad objetivo (K21.0 – ERGE con esofagitis). Es necesario aislar exactamente estos registros.
+
+**Implementación:** Se usa `.str.contains("K21", regex=False, case=False, na=False)` para encontrar todos los CID que contienen la cadena "K21" (en mayúsculas o minúsculas, sin expresiones regulares). Los parámetros:
+
+- `regex=False`: búsqueda literal de la cadena "K21", sin interpretar metacaracteres.
+- `na=False`: registros con NaN residual se tratan como "no contiene K21" (no se eliminan en este paso, simplemente no pasan el filtro).
+- `case=False`: insensible a mayúsculas/minúsculas (captura "k21", "K21", "K21.0", etc.).
+
+**Variantes encontradas en la base original antes de normalizar:** `['K21', 'K21.0', 'K21.', 'K210', 'K21.9']`.
+
+**Impacto cuantitativo:** De los ~8.73 millones de registros con CID válido, **1.873 contienen "K21"** en alguna variante. Tras pasos posteriores, el dataset final tiene **1.815 registros**.
+
+---
+
+## Paso 8: Normalización de variantes del código CID K21
+
+```python
+# Primera normalización: K21 exacto y K21.0 → K210
+df['CID'] = df['CID'].str.strip().replace(r'^(K21|K21\.0)$', 'K210', regex=True)
+```
+
+**Problema identificado:** Los sistemas hospitalarios y operadoras registran el mismo diagnóstico con variantes de codificación diferentes:
+
+| Variante encontrada | Descripción del problema |
+|--------------------|--------------------------|
+| `K21` | Sin subcategoría — en CIE-10, K21 sin decimal es ambiguo; puede referirse a K21.0 o K21.9 |
+| `K21.0` | Notación estándar con punto decimal |
+| `K21.` | Error tipográfico o truncamiento — punto al final sin dígito |
+| `K210` | Notación sin punto decimal (formato TISS/ANS que omite el separador) |
+
+**Decisión de normalización:** Se decide unificar todas las variantes no-9 a la forma **`K210`** (que es la codificación nativa del sistema TUSS/ANS, sin punto decimal). Esta decisión es consistente con la codificación que el propio sistema genera, lo que facilita la compatibilidad con las tablas TUSS de la ANS.
+
+El proceso usa dos sub-pasos:
+1. `str.strip()` elimina espacios en blanco residuales al inicio y fin del código.
+2. `replace(r'^(K21|K21\.0)$', 'K210', regex=True)` reemplaza K21 exacto y K21.0 exacto (con anclas de inicio `^` y fin `$` para evitar reemplazar subcadenas).
+
+---
+
+## Paso 9: Eliminación de CID con dígito '9' (K21.9)
+
+```python
+df = df[~df['CID'].str.contains('9', na=False)]
+```
+
+**Problema a resolver:** La categoría **K21.9** corresponde a *"Enfermedad por reflujo gastroesofágico **sin esofagitis**"* — que es una condición diferente a K21.0. Los pacientes K21.9 no tienen confirmación endoscópica de inflamación mucosa; su diagnóstico es principalmente clínico-sintomático.
+
+**Decisión:** Eliminar todos los registros con dígito '9' en el CID. **Justificación:**
+
+1. **Diferencia diagnóstica fundamental:** K21.9 no implica esofagitis confirmada. Incluirlos en el grupo positivo mezclaría dos subcategorías clínicamente distintas, diluyendo la especificidad del modelo.
+2. **Consistencia con el objetivo del análisis:** Se desea modelar específicamente la ERGE erosiva/con esofagitis (K21.0), que tiene implicaciones diagnósticas, terapéuticas y de costos diferentes.
+3. **Aplicación del filtro:** `~df['CID'].str.contains('9')` excluye cualquier código que contenga el dígito 9 en cualquier posición. Esto cubre K21.9 pero también eliminaría hipotéticamente K219 u otras variantes malformadas con 9.
+
+**Impacto:** Se eliminan **58 registros** correspondientes a K21.9, reduciendo el dataset de 1.873 a 1.815 filas.
+
+---
+
+## Paso 10: Exportación del dataset limpio
+
+```python
+df.to_csv(RUTA_SALIDA, index=True)
+```
+
+El dataset limpio se exporta como `db_2026_limpio_K21.csv` incluyendo el índice 'N'. El archivo resultante tiene **1.815 filas × 15 columnas** (14 variables originales conservadas + índice N exportado). El tamaño del archivo es aproximadamente **0.3 MB** frente a ~1.6 GB del dataset original.
+
+---
+
+## Resumen cuantitativo del proceso de limpieza
+
+```{r resumen-limpieza}
+tibble::tribble(
+  ~Etapa, ~N_registros, ~Nota,
+  "Dataset original (db_2026.csv)",     9345278L, "16 columnas",
+  "Tras eliminar CID nulos",            8731693L, "−613.585 registros (6.57%)",
+  "Tras eliminar CID en blanco ('N/A')",8731693L, "Sin cambio adicional significativo",
+  "Tras filtrar solo CID K21",          1873L,    "99.98% de reducción",
+  "Tras eliminar CID con dígito '9'",   1815L,    "−58 registros (K21.9 excluidos)",
+  "Dataset final (db_2026_limpio_K21)", 1815L,    "15 columnas, 38 beneficiarios únicos"
+) |>
+  mutate(`N_registros` = format(N_registros, big.mark=",")) |>
+  kbl(caption = "Evolución del tamaño del dataset durante la limpieza",
+      col.names = c("Etapa", "N Registros", "Observación")) |>
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE) |>
+  row_spec(c(1, 6), bold = TRUE)
+```
+
+---
+
+# Carga y Comprensión del Dataset Limpio K21
+
+## Carga del dataset limpio
+
+El dataset `db_2026_limpio_K21.csv` fue generado mediante el script Python `limpieza_dataset_k21.py` (documentado en la sección anterior). Las 10 etapas de limpieza redujeron la base de 9.345.278 registros a **1.815 registros** de 38 beneficiarios únicos con diagnóstico K21.0 (ERGE con esofagitis).
+
+```{r carga-k21}
+df_k21 <- read_csv("db_2026_limpio_K21.csv", show_col_types = FALSE)
+
+cat("╔══════════════════════════════════════════╗\n")
+cat("║    RESUMEN DEL DATASET LIMPIO K21        ║\n")
+cat("╚══════════════════════════════════════════╝\n\n")
+cat(sprintf("  Registros (filas)       : %s\n", format(nrow(df_k21), big.mark=",")))
+cat(sprintf("  Variables (columnas)    : %d\n", ncol(df_k21)))
+cat(sprintf("  Beneficiarios únicos    : %d\n", n_distinct(df_k21$CHAVE_FUNCIONAL)))
+cat(sprintf("  CID únicos              : %s\n", paste(unique(df_k21$CID), collapse=", ")))
+cat(sprintf("  Rango de fechas         : %s → %s\n",
+            min(df_k21$DT_UTILIZACAO), max(df_k21$DT_UTILIZACAO)))
+```
+
+## Estructura de variables
+
+```{r estructura}
+tibble(
+  Variable  = names(df_k21),
+  Tipo      = sapply(df_k21, class),
+  `N faltantes` = sapply(df_k21, \(x) sum(is.na(x))),
+  `% faltantes` = sapply(df_k21, \(x) round(mean(is.na(x)) * 100, 2)),
+  `Ejemplo` = sapply(df_k21, \(x) as.character(x[!is.na(x)][1]))
+) |>
+  kbl(caption = "Estructura del dataset limpio K21") |>
+  kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = FALSE)
+```
+
+## Primeras filas
+
+```{r head-k21}
+df_k21 |>
+  select(-N) |>
+  head(6) |>
+  kbl(caption = "Primeras 6 filas del dataset K21") |>
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = TRUE, font_size = 11) |>
+  scroll_box(width = "100%")
+```
+
+---
+
+# Análisis de Calidad de Datos
+
+## Valores faltantes
+
+```{r valores-faltantes}
+miss_summary <- df_k21 |>
+  summarise(across(everything(), \(x) sum(is.na(x)))) |>
+  pivot_longer(everything(), names_to = "Variable", values_to = "N_faltantes") |>
+  mutate(`Porcentaje (%)` = round(N_faltantes / nrow(df_k21) * 100, 2)) |>
+  filter(N_faltantes > 0)
+
+if (nrow(miss_summary) == 0) {
+  cat("✅ No se detectaron valores NA en el dataset limpio K21.\n")
+} else {
+  miss_summary |>
+    kbl(caption = "Variables con valores faltantes") |>
+    kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+}
+```
+
+## Inconsistencias detectadas
+
+```{r inconsistencias}
+# 1. Beneficiarios con más de un sexo registrado
+inconsist_sexo <- df_k21 |>
+  group_by(CHAVE_FUNCIONAL) |>
+  summarise(n_sexos = n_distinct(SEXO_BENEFICIARIO), .groups = "drop") |>
+  filter(n_sexos > 1)
+
+# 2. Fechas de nacimiento anómalas (en el futuro)
+fecha_ref <- as.Date("2026-03-31")
+inconsist_fechas <- df_k21 |>
+  filter(DT_NASCIMENTO_BENEFICIARIO > fecha_ref) |>
+  distinct(CHAVE_FUNCIONAL, DT_NASCIMENTO_BENEFICIARIO)
+
+# 3. Valores de costo negativos o cero
+inconsist_costos <- df_k21 |>
+  filter(VALOR_UTILIZACAO < 0)
+
+cat(sprintf("Beneficiarios con más de un sexo registrado : %d\n", nrow(inconsist_sexo)))
+cat(sprintf("Beneficiarios con fecha de nacimiento futura: %d\n", nrow(inconsist_fechas)))
+cat(sprintf("Registros con costo negativo                : %d\n", nrow(inconsist_costos)))
+cat(sprintf("Registros con costo = 0                     : %d\n",
+            sum(df_k21$VALOR_UTILIZACAO == 0, na.rm = TRUE)))
+
+if (nrow(inconsist_fechas) > 0) {
+  cat("\nFechas de nacimiento inválidas detectadas:\n")
+  inconsist_fechas |>
+    kbl(caption = "Beneficiarios con fecha de nacimiento futura") |>
+    kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+}
+```
+
+**Decisiones de tratamiento:**
+
+- **Fechas de nacimiento futuras:** Se marcan como `NA` para la variable edad. No se elimina el registro porque las demás variables son válidas y útiles para el análisis.
+- **Sexo inconsistente:** Se asigna el sexo más frecuente por beneficiario (moda).
+- **Costos en cero:** Se conservan ya que pueden corresponder a servicios con cero copago o cobertura total. Se analizarán en la sección de costos.
+
+## Análisis de valores extremos en `VALOR_UTILIZACAO`
+
+```{r outliers-costo}
+q_lower <- quantile(df_k21$VALOR_UTILIZACAO, 0.01, na.rm = TRUE)
+q_upper <- quantile(df_k21$VALOR_UTILIZACAO, 0.99, na.rm = TRUE)
+iqr_val  <- IQR(df_k21$VALOR_UTILIZACAO, na.rm = TRUE)
+lim_inf  <- quantile(df_k21$VALOR_UTILIZACAO, 0.25) - 1.5 * iqr_val
+lim_sup  <- quantile(df_k21$VALOR_UTILIZACAO, 0.75) + 1.5 * iqr_val
+
+tibble(
+  Estadístico = c("Mínimo", "P1", "P25 (Q1)", "Mediana", "P75 (Q3)", "P99", "Máximo",
+                  "Media", "IQR", "Límite superior IQR (Q3 + 1.5×IQR)", "Outliers potenciales"),
+  Valor = c(
+    min(df_k21$VALOR_UTILIZACAO),
+    q_lower,
+    quantile(df_k21$VALOR_UTILIZACAO, 0.25),
+    median(df_k21$VALOR_UTILIZACAO),
+    quantile(df_k21$VALOR_UTILIZACAO, 0.75),
+    q_upper,
+    max(df_k21$VALOR_UTILIZACAO),
+    round(mean(df_k21$VALOR_UTILIZACAO), 2),
+    iqr_val,
+    round(lim_sup, 2),
+    sum(df_k21$VALOR_UTILIZACAO > lim_sup, na.rm = TRUE)
+  )
+) |>
+  kbl(caption = "Estadísticos de VALOR_UTILIZACAO", digits = 2) |>
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+```
+
+```{r boxplot-costos}
+ggplot(df_k21, aes(y = VALOR_UTILIZACAO)) +
+  geom_boxplot(fill = col_pos, alpha = 0.6, outlier.color = "darkred", outlier.size = 1.5) +
+  scale_y_log10(labels = label_dollar(prefix = "R$ ")) +
+  labs(
+    title    = "Distribución de VALOR_UTILIZACAO (escala logarítmica)",
+    subtitle = "Registros de utilización K21.0",
+    y        = "Costo de utilización (R$, log10)",
+    caption  = "Fuente: db_2026_limpio_K21.csv"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+La distribución del costo es **fuertemente sesgada a la derecha**, con la mayoría de los registros por debajo de R$ 200, pero con valores atípicos que superan R$ 10.000. Esto es consistente con el patrón típico de una base de salud, donde la mayoría de las utilizaciones corresponden a consultas y exámenes de bajo costo, pero las internaciones generan valores muy altos.
+
+---
+
+# Construcción de la Variable Objetivo (Target)
+
+Para entrenar un modelo de clasificación binaria, es necesario contar con beneficiarios **con** (etiqueta = 1) y **sin** (etiqueta = 0) la condición K21.0. El dataset limpio contiene exclusivamente pacientes K21; para obtener los controles negativos, se carga la base de datos original completa.
+
+## Estrategia de construcción
+
+- **Positivos (target = 1):** Los 38 beneficiarios identificados en el dataset K21 limpio.
+- **Negativos (target = 0):** Muestra aleatoria estratificada de beneficiarios del dataset original que **no** presentan ningún registro con CID K21.
+- **Tamaño de muestra negativa:** 3 000 beneficiarios (ratio ≈ 79:1), seleccionados aleatoriamente con semilla fija para reproducibilidad.
+
+> **Nota computacional:** La lectura del dataset completo (9.3 M de registros) puede tardar varios minutos. Los datos se almacenan en caché como archivo `.rds` para acelerar re-ejecuciones.
+
+```{r construir-target, cache=FALSE}
+# Identificadores K21 positivos
+k21_ids <- unique(df_k21$CHAVE_FUNCIONAL)
+
+# Ruta al dataset original
+ruta_orig <- "db_2026.csv"
+ruta_rds  <- "df_modelo_raw.rds"
+
+if (!file.exists(ruta_rds)) {
+  message("⏳ Leyendo dataset completo (puede tardar ~2-3 minutos)...")
+
+  # Leer solo columnas necesarias para eficiencia de memoria
+  dt_orig <- fread(
+    ruta_orig,
+    select = c("CHAVE_FUNCIONAL", "CID", "CETIPO", "VALOR_UTILIZACAO",
+               "SEXO_BENEFICIARIO", "TIPO_BENEFICIARIO", "UTI", "INTERNADO",
+               "UF_CNES_PREST_HOSPITALAR", "TIPO_UNIDADE_PREST_HOSPITALAR",
+               "DT_UTILIZACAO", "DT_NASCIMENTO_BENEFICIARIO")
+  )
+
+  # Identificar todos los beneficiarios únicos y clasificarlos
+  todos_ids <- unique(dt_orig$CHAVE_FUNCIONAL)
+  non_k21_ids <- setdiff(todos_ids, k21_ids)
+
+  # Muestra aleatoria de negativos
+  set.seed(7391)
+  sample_neg_ids <- sample(non_k21_ids, size = min(3000, length(non_k21_ids)))
+  selected_ids   <- c(k21_ids, sample_neg_ids)
+
+  # Filtrar dataset a los beneficiarios seleccionados
+  dt_sel <- dt_orig[CHAVE_FUNCIONAL %in% selected_ids]
+
+  saveRDS(list(dt_sel = dt_sel,
+               k21_ids = k21_ids,
+               n_total_bens = length(todos_ids),
+               n_k21_bens   = length(k21_ids),
+               n_neg_bens   = length(non_k21_ids)),
+          ruta_rds)
+  message("✅ Dataset guardado en caché.")
+
+} else {
+  message("📂 Cargando datos desde caché...")
+}
+
+# Cargar desde caché
+cache_data    <- readRDS(ruta_rds)
+dt_sel        <- cache_data$dt_sel
+k21_ids       <- cache_data$k21_ids
+n_total_bens  <- cache_data$n_total_bens
+n_k21_bens    <- cache_data$n_k21_bens
+n_neg_bens    <- cache_data$n_neg_bens
+
+cat(sprintf("\nTotal de beneficiarios en la base original: %s\n",
+            format(n_total_bens, big.mark = ",")))
+cat(sprintf("Beneficiarios K21 positivos                : %d\n", n_k21_bens))
+cat(sprintf("Beneficiarios K21 negativos (universo)     : %s\n",
+            format(n_neg_bens, big.mark = ",")))
+cat(sprintf("Muestra negativa seleccionada              : %d\n",
+            length(setdiff(unique(dt_sel$CHAVE_FUNCIONAL), k21_ids))))
+```
+
+---
+
+# Análisis Descriptivo
+
+## Estadísticas generales
+
+```{r estadisticas-generales}
+n_utilizaciones_k21 <- nrow(df_k21)
+n_procedimientos_k21 <- n_distinct(paste(df_k21$CHAVE_FUNCIONAL,
+                                         df_k21$DT_UTILIZACAO,
+                                         df_k21$CD_PROCEDIMENTO))
+n_consultas_k21 <- n_distinct(paste(df_k21$CHAVE_FUNCIONAL, df_k21$DT_UTILIZACAO))
+
+tibble(
+  Indicador   = c("Total de registros (dataset completo)",
+                  "Beneficiarios únicos (base original)",
+                  "Beneficiarios K21.0 (positivos)",
+                  "Prevalencia K21.0",
+                  "Registros K21.0",
+                  "Consultas/utilizaciones únicas K21.0",
+                  "Procedimientos únicos K21.0",
+                  "Rango de fechas de utilización K21.0"),
+  Valor       = c(format(9345278, big.mark=","),
+                  format(n_total_bens, big.mark=","),
+                  as.character(n_k21_bens),
+                  sprintf("%.4f%% (1 de cada %d beneficiarios)",
+                          n_k21_bens/n_total_bens*100,
+                          round(n_total_bens/n_k21_bens)),
+                  format(n_utilizaciones_k21, big.mark=","),
+                  format(n_consultas_k21, big.mark=","),
+                  format(n_procedimientos_k21, big.mark=","),
+                  paste(min(df_k21$DT_UTILIZACAO), "→", max(df_k21$DT_UTILIZACAO)))
+) |>
+  kbl(caption = "Estadísticas generales del análisis") |>
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+```
+
+## Distribución de la variable objetivo
+
+```{r dist-target}
+df_target_summary <- tibble(
+  Clase = c("K21.0 (Positivo)", "Sin K21.0 (Negativo)"),
+  N = c(n_k21_bens, 3000),
+  Porcentaje = c(n_k21_bens / (n_k21_bens + 3000) * 100,
+                 3000 / (n_k21_bens + 3000) * 100)
+)
+
+df_target_summary |>
+  kbl(caption = "Distribución de la variable objetivo (muestra de modelamiento)",
+      digits = 2, col.names = c("Clase", "N", "Porcentaje (%)")) |>
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+```
+
+> ⚠️ **Desbalance severo:** La prevalencia de K21.0 es de ~1.25 % en la muestra de modelamiento (38 vs 3 000). Esto requiere estrategias específicas de manejo del desbalance de clases (pesos por clase, SMOTE, validación cruzada estratificada, y enfoque en métricas apropiadas como ROC-AUC y PR-AUC en lugar de accuracy).
+
+## Distribución por sexo (pacientes K21.0)
+
+```{r dist-sexo}
+sexo_ben <- df_k21 |>
+  group_by(CHAVE_FUNCIONAL) |>
+  summarise(sexo = names(sort(-table(SEXO_BENEFICIARIO)))[1], .groups = "drop")
+
+p1 <- sexo_ben |>
+  count(sexo) |>
+  mutate(pct = n / sum(n) * 100) |>
+  ggplot(aes(x = sexo, y = n, fill = sexo)) +
+  geom_col(width = 0.5) +
+  geom_text(aes(label = sprintf("%d\n(%.1f%%)", n, pct)), vjust = -0.3, size = 4) +
+  scale_fill_manual(values = c("F" = "#E91E63", "M" = "#2196F3")) +
+  labs(title = "Distribución por sexo", subtitle = "Beneficiarios K21.0",
+       x = "Sexo", y = "Número de beneficiarios") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none")
+
+p1
+```
+
+## Distribución por tipo de beneficiario
+
+```{r dist-tipo-ben}
+tipo_ben <- df_k21 |>
+  group_by(CHAVE_FUNCIONAL) |>
+  summarise(tipo = names(sort(-table(TIPO_BENEFICIARIO)))[1], .groups = "drop")
+
+tipo_ben |>
+  count(tipo) |>
+  mutate(pct = n / sum(n) * 100) |>
+  ggplot(aes(x = reorder(tipo, n), y = n, fill = tipo)) +
+  geom_col(width = 0.5) +
+  geom_text(aes(label = sprintf("%d (%.1f%%)", n, pct)), hjust = -0.1) +
+  coord_flip() +
+  scale_fill_brewer(palette = "Set2") +
+  labs(title = "Distribución por tipo de beneficiario",
+       subtitle = "Beneficiarios K21.0",
+       x = NULL, y = "N beneficiarios") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none") +
+  expand_limits(y = max(tipo_ben |> count(tipo) |> pull(n)) * 1.2)
+```
+
+## Distribución por estado (UF)
+
+```{r dist-uf}
+uf_ben <- df_k21 |>
+  group_by(CHAVE_FUNCIONAL) |>
+  summarise(uf = names(sort(-table(UF_CNES_PREST_HOSPITALAR)))[1], .groups = "drop")
+
+uf_ben |>
+  count(uf, sort = TRUE) |>
+  mutate(pct = n / sum(n) * 100) |>
+  ggplot(aes(x = reorder(uf, n), y = n)) +
+  geom_col(fill = "#5C6BC0", alpha = 0.85) +
+  geom_text(aes(label = sprintf("%d (%.1f%%)", n, pct)), hjust = -0.1, size = 3.5) +
+  coord_flip() +
+  labs(title = "Distribución por estado (UF) de atención",
+       subtitle = "Beneficiarios K21.0",
+       x = "Estado", y = "N beneficiarios") +
+  theme_minimal(base_size = 12) +
+  expand_limits(y = max(uf_ben |> count(uf) |> pull(n)) * 1.3)
+```
+
+## Distribución de edad (pacientes K21.0)
+
+```{r dist-edad}
+# Calcular edad aproximada al momento de la primera utilización
+edad_ben <- df_k21 |>
+  group_by(CHAVE_FUNCIONAL, DT_NASCIMENTO_BENEFICIARIO) |>
+  summarise(primera_util = min(DT_UTILIZACAO), .groups = "drop") |>
+  mutate(
+    edad = as.numeric(difftime(primera_util, DT_NASCIMENTO_BENEFICIARIO, units = "days")) / 365.25,
+    # Marcar edades inválidas (negativas = fecha de nacimiento en el futuro)
+    edad = ifelse(edad < 0 | edad > 120, NA_real_, edad)
+  )
+
+n_invalidos <- sum(is.na(edad_ben$edad))
+cat(sprintf("Beneficiarios con edad válida    : %d\n", sum(!is.na(edad_ben$edad))))
+cat(sprintf("Beneficiarios con edad inválida  : %d (fecha de nacimiento anómala)\n", n_invalidos))
+
+if (sum(!is.na(edad_ben$edad)) > 0) {
+  cat(sprintf("\nEdad válida — Rango  : %.1f – %.1f años\n",
+              min(edad_ben$edad, na.rm=TRUE), max(edad_ben$edad, na.rm=TRUE)))
+  cat(sprintf("Edad válida — Mediana: %.1f años\n", median(edad_ben$edad, na.rm=TRUE)))
+
+  ggplot(edad_ben |> filter(!is.na(edad)), aes(x = edad)) +
+    geom_histogram(binwidth = 5, fill = col_pos, color = "white", alpha = 0.8) +
+    geom_vline(aes(xintercept = median(edad, na.rm=TRUE)), linetype = "dashed",
+               color = "darkred", linewidth = 1) +
+    annotate("text", x = median(edad_ben$edad, na.rm=TRUE) + 2,
+             y = Inf, vjust = 2, label = sprintf("Mediana: %.1f años",
+                                                   median(edad_ben$edad, na.rm=TRUE)),
+             color = "darkred", size = 4) +
+    labs(title = "Distribución de edad de pacientes K21.0",
+         subtitle = sprintf("Basada en %d de %d beneficiarios con fecha de nacimiento válida",
+                            sum(!is.na(edad_ben$edad)), n_k21_bens),
+         x = "Edad (años)", y = "N beneficiarios") +
+    theme_minimal(base_size = 12)
+}
+```
+
+## Distribución por tipo de utilización (CETIPO)
+
+```{r dist-cetipo}
+df_k21 |>
+  count(CETIPO, sort = TRUE) |>
+  mutate(pct = n / sum(n) * 100) |>
+  ggplot(aes(x = reorder(CETIPO, n), y = n)) +
+  geom_col(fill = "#26C6DA", alpha = 0.85) +
+  geom_text(aes(label = sprintf("%d\n(%.1f%%)", n, pct)), hjust = -0.05, size = 3.5) +
+  coord_flip() +
+  labs(title = "Tipo de utilización de los servicios de salud (K21.0)",
+       x = NULL, y = "N registros") +
+  theme_minimal(base_size = 12) +
+  expand_limits(y = max(df_k21 |> count(CETIPO) |> pull(n)) * 1.25)
+```
+
+## Análisis de costo por tipo de utilización
+
+```{r costo-cetipo}
+df_k21 |>
+  group_by(CETIPO) |>
+  summarise(
+    N = n(),
+    Costo_promedio = round(mean(VALOR_UTILIZACAO, na.rm=TRUE), 2),
+    Costo_mediano  = round(median(VALOR_UTILIZACAO, na.rm=TRUE), 2),
+    Costo_max      = round(max(VALOR_UTILIZACAO, na.rm=TRUE), 2),
+    Costo_total    = round(sum(VALOR_UTILIZACAO, na.rm=TRUE), 2),
+    .groups = "drop"
+  ) |>
+  arrange(desc(Costo_total)) |>
+  kbl(caption = "Costo por tipo de utilización (K21.0)",
+      col.names = c("Tipo", "N", "Costo prom. (R$)", "Costo med. (R$)",
+                    "Costo máx. (R$)", "Costo total (R$)"),
+      format.args = list(big.mark = ",")) |>
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+```
+
+---
+
+# Construcción de Variables a Nivel de Beneficiario
+
+Se construye una tabla analítica (una fila por beneficiario) a partir de los registros de utilización. Las variables se agregan desde la granularidad de procedimiento hacia la granularidad de beneficiario.
+
+```{r feature-engineering}
+# ── Función auxiliar: moda ──────────────────────────────────────────────────
+moda_str <- function(x) {
+  x <- x[!is.na(x)]
+  if (length(x) == 0) return(NA_character_)
+  names(sort(-table(x)))[1]
+}
+
+# ── Feature engineering a nivel de beneficiario ────────────────────────────
+agregar_beneficiario <- function(dt) {
+  dt |>
+    as_tibble() |>
+    group_by(CHAVE_FUNCIONAL) |>
+    summarise(
+      # Utilización
+      n_registros     = n(),
+      n_consultas     = sum(CETIPO == "Consulta",       na.rm = TRUE),
+      n_examenes      = sum(CETIPO == "Exame",          na.rm = TRUE),
+      n_internaciones = sum(CETIPO == "Internação",     na.rm = TRUE),
+      n_terapias      = sum(CETIPO == "Terapia",        na.rm = TRUE),
+      n_urgencias     = sum(CETIPO == "Pronto Socorro", na.rm = TRUE),
+      n_otros         = sum(CETIPO == "Outros",         na.rm = TRUE),
+      # Costos
+      costo_total     = sum(VALOR_UTILIZACAO, na.rm = TRUE),
+      costo_promedio  = mean(VALOR_UTILIZACAO, na.rm = TRUE),
+      costo_mediano   = median(VALOR_UTILIZACAO, na.rm = TRUE),
+      costo_max       = max(VALOR_UTILIZACAO, na.rm = TRUE),
+      # Morbilidad / severidad
+      internado_flag  = as.integer(max(INTERNADO, na.rm = TRUE) > 0),
+      uti_flag        = as.integer(max(UTI, na.rm = TRUE) > 0),
+      # Variables demográficas (moda por beneficiario)
+      sexo            = moda_str(SEXO_BENEFICIARIO),
+      tipo_ben        = moda_str(TIPO_BENEFICIARIO),
+      uf              = moda_str(UF_CNES_PREST_HOSPITALAR),
+      tipo_unidad     = moda_str(TIPO_UNIDADE_PREST_HOSPITALAR),
+      # Edad (primera utilización)
+      edad = {
+        fn  <- DT_NASCIMENTO_BENEFICIARIO[1]
+        fu  <- min(DT_UTILIZACAO, na.rm = TRUE)
+        age <- as.numeric(difftime(fu, fn, units = "days")) / 365.25
+        if (is.na(age) || age < 0 || age > 120) NA_real_ else age
+      },
+      .groups = "drop"
+    )
+}
+
+# ── Construir features para beneficiarios K21 (del dataset limpio) ─────────
+feat_k21 <- agregar_beneficiario(df_k21) |>
+  mutate(target = 1L)
+
+# ── Construir features para beneficiarios negativos (del dataset full) ─────
+feat_neg <- agregar_beneficiario(
+  dt_sel[!CHAVE_FUNCIONAL %in% k21_ids]
+) |>
+  mutate(target = 0L)
+
+# ── Unir ambos grupos ──────────────────────────────────────────────────────
+df_modelo <- bind_rows(feat_k21, feat_neg) |>
+  mutate(
+    target    = factor(target, levels = c(0, 1), labels = c("No_K21", "K21")),
+    sexo      = factor(sexo),
+    tipo_ben  = factor(tipo_ben),
+    uf        = factor(uf),
+    tipo_unidad = factor(tipo_unidad)
+  )
+
+cat(sprintf("Dataset de modelamiento: %d filas × %d columnas\n",
+            nrow(df_modelo), ncol(df_modelo)))
+cat(sprintf("Target = K21   : %d (%.2f%%)\n",
+            sum(df_modelo$target == "K21"),
+            mean(df_modelo$target == "K21") * 100))
+cat(sprintf("Target = No_K21: %d (%.2f%%)\n",
+            sum(df_modelo$target == "No_K21"),
+            mean(df_modelo$target == "No_K21") * 100))
+```
+
+## Resumen de variables construidas
+
+```{r resumen-variables}
+df_modelo |>
+  select(-CHAVE_FUNCIONAL) |>
+  skim() |>
+  as_tibble() |>
+  select(skim_variable, skim_type, n_missing, complete_rate,
+         starts_with("numeric."), starts_with("character.")) |>
+  kbl(caption = "Resumen de variables del dataset de modelamiento", digits = 2) |>
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = TRUE, font_size = 11) |>
+  scroll_box(width = "100%", height = "400px")
+```
+
+## Comparación descriptiva: K21 vs Control
+
+```{r comparacion-grupos}
+df_modelo |>
+  group_by(target) |>
+  summarise(
+    N                = n(),
+    `Edad media`     = round(mean(edad, na.rm=TRUE), 1),
+    `N registros med`= round(median(n_registros), 0),
+    `Costo total med`= round(median(costo_total), 0),
+    `Costo prom med` = round(median(costo_promedio), 0),
+    `% Internado`    = round(mean(internado_flag) * 100, 1),
+    `% UTI`          = round(mean(uti_flag) * 100, 1),
+    `N intern med`   = round(median(n_internaciones), 0),
+    .groups = "drop"
+  ) |>
+  kbl(caption = "Comparación descriptiva entre grupos",
+      col.names = c("Grupo", "N", "Edad media", "N registros (med)",
+                    "Costo total (med, R$)", "Costo prom (med, R$)",
+                    "% Internado", "% UTI", "N Internaciones (med)"),
+      format.args = list(big.mark = ",")) |>
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+```
+
+```{r boxplot-comparacion}
+vars_comp <- list(
+  "Registros totales (log)" = "n_registros",
+  "Costo total (R$, log)"   = "costo_total",
+  "Costo promedio (R$, log)"= "costo_promedio"
+)
+
+plots <- map2(names(vars_comp), vars_comp, function(label, var) {
+  ggplot(df_modelo, aes(x = target, y = .data[[var]], fill = target)) +
+    geom_boxplot(alpha = 0.7, outlier.size = 0.8) +
+    scale_y_log10(labels = comma) +
+    scale_fill_manual(values = c("No_K21" = col_neg, "K21" = col_pos)) +
+    labs(title = label, x = NULL, y = NULL) +
+    theme_minimal(base_size = 11) +
+    theme(legend.position = "none")
+})
+
+patchwork::wrap_plots(plots, ncol = 3)
+```
+
+---
+
+# Modelamiento Predictivo
+
+## Partición de datos
+
+```{r split-datos}
+library(tidymodels)
+
+set.seed(7391)
+split_obj <- initial_split(
+  df_modelo |> select(-CHAVE_FUNCIONAL),
+  prop   = 0.70,
+  strata = target
+)
+
+df_train <- training(split_obj)
+df_test  <- testing(split_obj)
+
+cat(sprintf("Entrenamiento : %d filas  (K21=%d, No_K21=%d)\n",
+            nrow(df_train),
+            sum(df_train$target=="K21"), sum(df_train$target=="No_K21")))
+cat(sprintf("Prueba        : %d filas  (K21=%d, No_K21=%d)\n",
+            nrow(df_test),
+            sum(df_test$target=="K21"),  sum(df_test$target=="No_K21")))
+```
+
+## Validación cruzada estratificada
+
+```{r cv-folds}
+set.seed(2847)
+cv_folds <- vfold_cv(df_train, v = 5, strata = target, repeats = 2)
+cat(sprintf("Folds de CV: %d (5-fold × 2 repeticiones)\n", nrow(cv_folds)))
+```
+
+## Receta de preprocesamiento
+
+```{r receta}
+receta <- recipe(target ~ ., data = df_train) |>
+  # Imputar NAs numéricos con mediana
+  step_impute_median(all_numeric_predictors()) |>
+  # Imputar NAs categóricos con moda
+  step_impute_mode(all_nominal_predictors()) |>
+  # Crear dummies para variables categóricas
+  step_dummy(all_nominal_predictors(), one_hot = TRUE) |>
+  # Eliminar variables con varianza cero
+  step_zv(all_predictors()) |>
+  # Normalizar predictores numéricos (para regresión logística)
+  step_normalize(all_numeric_predictors())
+
+summary(receta)
+```
+
+## Modelo 1: Regresión Logística
+
+```{r modelo-logistico}
+spec_logit <- logistic_reg(
+  penalty = tune(),
+  mixture = 1  # Lasso
+) |>
+  set_engine("glmnet") |>
+  set_mode("classification")
+
+wf_logit <- workflow() |>
+  add_recipe(receta) |>
+  add_model(spec_logit)
+
+# Grid de penalización
+grid_logit <- tibble(penalty = 10^seq(-4, 0, length.out = 20))
+
+# CV
+set.seed(5512)
+res_logit <- tune_grid(
+  wf_logit,
+  resamples = cv_folds,
+  grid      = grid_logit,
+  metrics   = metric_set(roc_auc, pr_auc, f_meas, sensitivity, specificity),
+  control   = control_grid(save_pred = TRUE, verbose = FALSE)
+)
+
+# Mejor configuración (por ROC-AUC)
+mejor_logit <- select_best(res_logit, metric = "roc_auc")
+cat("Mejor parámetro (penalty):", mejor_logit$penalty, "\n")
+
+autoplot(res_logit, metric = "roc_auc") +
+  labs(title = "Regresión Logística: ROC-AUC vs penalización",
+       x = "Penalización (escala log)", y = "ROC-AUC (CV)") +
+  theme_minimal(base_size = 12)
+```
+
+## Modelo 2: Random Forest
+
+```{r modelo-rf}
+# Para RF usamos receta sin normalización (los árboles no la necesitan)
+receta_rf <- recipe(target ~ ., data = df_train) |>
+  step_impute_median(all_numeric_predictors()) |>
+  step_impute_mode(all_nominal_predictors()) |>
+  step_dummy(all_nominal_predictors(), one_hot = TRUE) |>
+  step_zv(all_predictors())
+
+spec_rf <- rand_forest(
+  trees = 300,
+  mtry  = tune(),
+  min_n = tune()
+) |>
+  set_engine("ranger",
+             importance    = "impurity",
+             class.weights = c("No_K21" = 1, "K21" = 79)) |>
+  set_mode("classification")
+
+wf_rf <- workflow() |>
+  add_recipe(receta_rf) |>
+  add_model(spec_rf)
+
+# Grid de hiperparámetros
+grid_rf <- grid_regular(
+  mtry(range = c(3, 10)),
+  min_n(range = c(5, 30)),
+  levels = 3
+)
+
+set.seed(5512)
+res_rf <- tune_grid(
+  wf_rf,
+  resamples = cv_folds,
+  grid      = grid_rf,
+  metrics   = metric_set(roc_auc, pr_auc, f_meas, sensitivity, specificity),
+  control   = control_grid(save_pred = TRUE, verbose = FALSE)
+)
+
+mejor_rf <- select_best(res_rf, metric = "roc_auc")
+cat("Mejor configuración RF:\n")
+print(mejor_rf)
+
+autoplot(res_rf, metric = "roc_auc") +
+  labs(title = "Random Forest: ROC-AUC vs hiperparámetros",
+       y = "ROC-AUC (CV)") +
+  theme_minimal(base_size = 12)
+```
+
+## Modelo 3: XGBoost
+
+```{r modelo-xgb}
+spec_xgb <- boost_tree(
+  trees         = 200,
+  learn_rate    = tune(),
+  tree_depth    = tune(),
+  min_n         = tune(),
+  loss_reduction= 0
+) |>
+  set_engine("xgboost",
+             scale_pos_weight = 79,  # ratio negativos/positivos
+             eval_metric = "auc") |>
+  set_mode("classification")
+
+wf_xgb <- workflow() |>
+  add_recipe(receta_rf) |>  # sin normalización
+  add_model(spec_xgb)
+
+grid_xgb <- grid_regular(
+  learn_rate(range  = c(-3, -1)),
+  tree_depth(range  = c(2, 6)),
+  min_n(range       = c(5, 20)),
+  levels = 2
+)
+
+set.seed(5512)
+res_xgb <- tune_grid(
+  wf_xgb,
+  resamples = cv_folds,
+  grid      = grid_xgb,
+  metrics   = metric_set(roc_auc, pr_auc, f_meas, sensitivity, specificity),
+  control   = control_grid(save_pred = TRUE, verbose = FALSE)
+)
+
+mejor_xgb <- select_best(res_xgb, metric = "roc_auc")
+cat("Mejor configuración XGBoost:\n")
+print(mejor_xgb)
+```
+
+---
+
+# Evaluación y Comparación de Modelos
+
+## Finalizar modelos y evaluar en test
+
+```{r finalizar-modelos}
+# ── Finalizar y ajustar en training completo ────────────────────────────────
+wf_logit_final <- finalize_workflow(wf_logit, mejor_logit) |> fit(df_train)
+wf_rf_final    <- finalize_workflow(wf_rf,    mejor_rf)    |> fit(df_train)
+wf_xgb_final   <- finalize_workflow(wf_xgb,   mejor_xgb)  |> fit(df_train)
+
+# ── Predicciones en test ────────────────────────────────────────────────────
+preds_logit <- augment(wf_logit_final, df_test)
+preds_rf    <- augment(wf_rf_final,    df_test)
+preds_xgb   <- augment(wf_xgb_final,  df_test)
+
+# ── Función auxiliar para calcular métricas ─────────────────────────────────
+calcular_metricas <- function(preds, nombre_modelo) {
+  # Métricas de clase
+  m_clase <- metric_set(accuracy, f_meas, sensitivity, specificity)(
+    preds, truth = target, estimate = .pred_class, event_level = "second"
+  )
+  # Métricas de probabilidad
+  m_prob <- metric_set(roc_auc, pr_auc)(
+    preds, truth = target, `.pred_K21`, event_level = "second"
+  )
+  bind_rows(m_clase, m_prob) |> mutate(Modelo = nombre_modelo)
+}
+
+eval_logit <- calcular_metricas(preds_logit, "Regresión Logística")
+eval_rf    <- calcular_metricas(preds_rf,    "Random Forest")
+eval_xgb   <- calcular_metricas(preds_xgb,  "XGBoost")
+
+tabla_eval <- bind_rows(eval_logit, eval_rf, eval_xgb) |>
+  select(Modelo, .metric, .estimate) |>
+  pivot_wider(names_from = .metric, values_from = .estimate) |>
+  mutate(across(where(is.numeric), \(x) round(x, 4)))
+
+tabla_eval |>
+  kbl(caption = "Métricas de evaluación en conjunto de prueba (test set)",
+      col.names = c("Modelo", "ROC-AUC", "PR-AUC", "Accuracy",
+                    "F1-Score", "Sensibilidad", "Especificidad")) |>
+  kable_styling(bootstrap_options = c("striped","hover","bordered"),
+                full_width = FALSE) |>
+  row_spec(which.max(tabla_eval$roc_auc), bold = TRUE, background = "#E8F5E9")
+```
+
+> **Métrica principal:** Se selecciona el **ROC-AUC** como métrica primaria dado el desbalance extremo de clases (~1.25 % positivos). El accuracy no es informativo en este contexto ya que un clasificador que predice siempre "No K21" alcanzaría 98.75 % de accuracy. El ROC-AUC mide la capacidad discriminatoria del modelo independientemente del umbral de decisión. Se reporta adicionalmente el PR-AUC, que es especialmente relevante para clases minoritarias, junto con sensibilidad y especificidad para caracterizar el trade-off del modelo.
+
+## Curvas ROC
+
+```{r curvas-roc, fig.height=5, fig.width=7}
+library(pROC)
+
+roc_logit <- roc(preds_logit$target, preds_logit$.pred_K21,
+                 levels = c("No_K21", "K21"), direction = "<")
+roc_rf    <- roc(preds_rf$target,    preds_rf$.pred_K21,
+                 levels = c("No_K21", "K21"), direction = "<")
+roc_xgb   <- roc(preds_xgb$target,  preds_xgb$.pred_K21,
+                 levels = c("No_K21", "K21"), direction = "<")
+
+roc_data <- bind_rows(
+  tibble(modelo = sprintf("Log. Lasso (AUC=%.3f)", auc(roc_logit)),
+         fpr = 1 - roc_logit$specificities,
+         tpr = roc_logit$sensitivities),
+  tibble(modelo = sprintf("Random Forest (AUC=%.3f)", auc(roc_rf)),
+         fpr = 1 - roc_rf$specificities,
+         tpr = roc_rf$sensitivities),
+  tibble(modelo = sprintf("XGBoost (AUC=%.3f)", auc(roc_xgb)),
+         fpr = 1 - roc_xgb$specificities,
+         tpr = roc_xgb$sensitivities)
+)
+
+ggplot(roc_data, aes(x = fpr, y = tpr, color = modelo)) +
+  geom_line(linewidth = 1.1) +
+  geom_abline(linetype = "dashed", color = "gray50") +
+  scale_color_brewer(palette = "Set1") +
+  labs(title    = "Curvas ROC — Comparación de modelos",
+       subtitle = "Conjunto de prueba",
+       x        = "Tasa de Falsos Positivos (1 - Especificidad)",
+       y        = "Tasa de Verdaderos Positivos (Sensibilidad)",
+       color    = "Modelo") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+```
+
+## Matrices de confusión
+
+```{r matrices-confusion}
+conf_logit <- conf_mat(preds_logit, truth = target, estimate = .pred_class)
+conf_rf    <- conf_mat(preds_rf,    truth = target, estimate = .pred_class)
+conf_xgb   <- conf_mat(preds_xgb,  truth = target, estimate = .pred_class)
+
+cat("=== Regresión Logística ===\n"); print(conf_logit)
+cat("\n=== Random Forest ===\n");    print(conf_rf)
+cat("\n=== XGBoost ===\n");          print(conf_xgb)
+```
+
+## Comparación de métricas CV vs Test
+
+```{r cv-vs-test}
+# Métricas CV del mejor modelo (RF) en la mejor configuración
+cv_metrics_rf <- collect_metrics(res_rf) |>
+  inner_join(mejor_rf |> select(mtry, min_n), by = c("mtry", "min_n")) |>
+  filter(.metric %in% c("roc_auc", "pr_auc", "f_meas", "sensitivity", "specificity")) |>
+  select(.metric, mean, std_err) |>
+  rename(CV_media = mean, CV_se = std_err)
+
+# Métricas test RF
+test_metrics_rf <- eval_rf |>
+  filter(.metric %in% c("roc_auc", "pr_auc", "f_meas", "sensitivity", "specificity")) |>
+  select(.metric, .estimate)
+
+inner_join(cv_metrics_rf, test_metrics_rf, by = ".metric") |>
+  mutate(across(where(is.numeric), \(x) round(x, 4))) |>
+  kbl(caption = "Comparación CV vs Test — Random Forest",
+      col.names = c("Métrica", "CV (media)", "CV (SE)", "Test")) |>
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+```
+
+---
+
+# Interpretación del Modelo
+
+## Importancia de variables — Random Forest
+
+```{r importancia-rf}
+# Extraer el modelo RF ajustado
+rf_fit <- extract_fit_parsnip(wf_rf_final)
+
+# Importancia de variables (impurity / Gini) — acceso directo al objeto ranger
+imp_df <- rf_fit$fit$variable.importance |>
+  enframe(name = "Variable", value = "Importancia") |>
+  arrange(desc(Importancia)) |>
+  mutate(rank = row_number())
+
+n_mostrar <- min(20, nrow(imp_df))
+
+imp_df |>
+  head(n_mostrar) |>
+  ggplot(aes(x = reorder(Variable, Importancia), y = Importancia)) +
+  geom_col(fill = "#5C6BC0", alpha = 0.85) +
+  coord_flip() +
+  labs(title    = sprintf("Top %d variables más importantes — Random Forest", n_mostrar),
+       subtitle = "Importancia por impureza (Gini)",
+       x = NULL, y = "Importancia (impureza Gini)") +
+  theme_minimal(base_size = 11)
+```
+
+## Coeficientes — Regresión Logística (LASSO)
+
+```{r coeficientes-logit}
+logit_fit <- extract_fit_parsnip(wf_logit_final)
+
+# Coeficientes del modelo LASSO (en la penalización óptima)
+coefs <- tidy(logit_fit, penalty = mejor_logit$penalty) |>
+  filter(term != "(Intercept)", estimate != 0) |>
+  arrange(desc(abs(estimate)))
+
+cat(sprintf("Variables seleccionadas por LASSO: %d\n", nrow(coefs)))
+
+coefs |>
+  head(20) |>
+  mutate(Dirección = ifelse(estimate > 0, "Aumenta riesgo K21", "Disminuye riesgo K21")) |>
+  ggplot(aes(x = reorder(term, estimate), y = estimate, fill = Dirección)) +
+  geom_col(alpha = 0.85) +
+  coord_flip() +
+  scale_fill_manual(values = c("Aumenta riesgo K21" = col_pos,
+                                "Disminuye riesgo K21" = col_neg)) +
+  labs(title    = "Coeficientes — Regresión Logística LASSO",
+       subtitle = "Variables seleccionadas (coef ≠ 0)",
+       x = NULL, y = "Coeficiente (log-odds)", fill = NULL) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom")
+```
+
+## Análisis de errores del modelo
+
+```{r analisis-errores}
+# Clasificaciones incorrectas del mejor modelo (RF)
+errores_rf <- preds_rf |>
+  filter(.pred_class != target) |>
+  select(target, .pred_class, .pred_K21, n_registros, costo_total,
+         costo_promedio, n_internaciones, internado_flag, uti_flag)
+
+cat(sprintf("Total de errores (RF): %d de %d (%.2f%%)\n",
+            nrow(errores_rf), nrow(preds_rf),
+            nrow(errores_rf)/nrow(preds_rf)*100))
+
+# Tipos de error
+cat("\n── Tipos de error ──\n")
+errores_rf |>
+  count(target, .pred_class) |>
+  kbl(col.names = c("Clase Real", "Predicción", "N"),
+      caption = "Tipos de error — Random Forest") |>
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+
+# Características de los falsos negativos (K21 predichos como No_K21)
+fn <- preds_rf |>
+  filter(target == "K21", .pred_class == "No_K21")
+
+if (nrow(fn) > 0) {
+  cat(sprintf("\n── Falsos negativos (K21 no detectados): %d ──\n", nrow(fn)))
+  fn |>
+    select(n_registros, costo_total, costo_promedio, n_internaciones, .pred_K21) |>
+    summary() |>
+    print()
+}
+```
+
+## Discusión de variables importantes
+
+```{r discusion-variables}
+cat("Las variables más influyentes identificadas por el Random Forest y el LASSO son:\n\n")
+cat("1. n_registros / n_internaciones: Los pacientes K21 tienden a tener más registros\n")
+cat("   de utilización, especialmente internaciones, lo que refleja la cronicidad de la ERGE.\n\n")
+cat("2. costo_total / costo_promedio: El costo acumulado es mayor en pacientes K21 debido\n")
+cat("   a internaciones y procedimientos diagnósticos (endoscopia).\n\n")
+cat("3. internado_flag: La internación es un predictor importante dado que la ERGE\n")
+cat("   con esofagitis puede requerir hospitalización en casos complicados.\n\n")
+cat("4. sexo / edad: Factores demográficos que pueden asociarse al perfil de riesgo de ERGE.\n\n")
+cat("5. uf / tipo_unidad: El tipo de hospital y la región geográfica pueden reflejar\n")
+cat("   diferencias en el acceso y patrones de diagnóstico.\n")
+```
+
+---
+
+# Estimación del Costo Esperado Asociado a la Enfermedad
+
+## Unidad de análisis y estrategia
+
+Se utiliza como unidad de análisis el **procedimiento/registro de utilización** (cada fila del dataset K21 limpio), dado que `VALOR_UTILIZACAO` está definido a este nivel. También se presenta un análisis a nivel de beneficiario (costo acumulado total).
+
+## Estadísticas descriptivas del costo (K21.0)
+
+```{r costo-descriptivo}
+tibble(
+  Nivel = c(rep("Procedimiento", 8), rep("Beneficiario", 5)),
+  Estadístico = c("N registros", "Media", "Mediana", "SD", "P25", "P75",
+                  "P95", "Máximo",
+                  "N beneficiarios", "Costo total promedio", "Costo total mediano",
+                  "Mínimo beneficiario", "Máximo beneficiario"),
+  `Valor (R$)` = c(
+    nrow(df_k21),
+    round(mean(df_k21$VALOR_UTILIZACAO), 2),
+    round(median(df_k21$VALOR_UTILIZACAO), 2),
+    round(sd(df_k21$VALOR_UTILIZACAO), 2),
+    round(quantile(df_k21$VALOR_UTILIZACAO, 0.25), 2),
+    round(quantile(df_k21$VALOR_UTILIZACAO, 0.75), 2),
+    round(quantile(df_k21$VALOR_UTILIZACAO, 0.95), 2),
+    round(max(df_k21$VALOR_UTILIZACAO), 2),
+    n_distinct(df_k21$CHAVE_FUNCIONAL),
+    round(mean(feat_k21$costo_total), 2),
+    round(median(feat_k21$costo_total), 2),
+    round(min(feat_k21$costo_total), 2),
+    round(max(feat_k21$costo_total), 2)
+  )
+) |>
+  kbl(caption = "Estadísticas de costo para pacientes K21.0",
+      format.args = list(big.mark = ",")) |>
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE) |>
+  pack_rows("Nivel Procedimiento", 1, 8) |>
+  pack_rows("Nivel Beneficiario",  9, 13)
+```
+
+## Distribución del costo por tipo de utilización
+
+```{r costo-dist-tipo, fig.height=5}
+df_k21 |>
+  filter(VALOR_UTILIZACAO > 0) |>
+  ggplot(aes(x = VALOR_UTILIZACAO + 1, fill = CETIPO)) +
+  geom_histogram(bins = 40, alpha = 0.8) +
+  scale_x_log10(labels = label_dollar(prefix = "R$ ")) +
+  scale_fill_brewer(palette = "Set2") +
+  facet_wrap(~CETIPO, scales = "free_y") +
+  labs(title    = "Distribución del costo por tipo de utilización (K21.0)",
+       subtitle = "Escala logarítmica; incluye solo registros con costo > 0",
+       x = "VALOR_UTILIZACAO (R$, log10)", y = "N registros") +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "none")
+```
+
+## Modelo de estimación del costo esperado
+
+Se ajusta un modelo de regresión lineal sobre el logaritmo del costo (log-transformación para normalizar la distribución sesgada). El objetivo es estimar el costo esperado bajo diferentes perfiles de paciente.
+
+```{r modelo-costos}
+# Preparar datos para modelo de costo (excluir costo = 0)
+df_costo <- df_k21 |>
+  filter(VALOR_UTILIZACAO > 0) |>
+  mutate(
+    log_costo   = log(VALOR_UTILIZACAO + 1),
+    sexo        = factor(SEXO_BENEFICIARIO),
+    cetipo      = factor(CETIPO),
+    internado   = factor(INTERNADO),
+    uti_f       = factor(UTI),
+    tipo_unidad = factor(TIPO_UNIDADE_PREST_HOSPITALAR),
+    uf          = factor(UF_CNES_PREST_HOSPITALAR)
+  )
+
+# Verificar niveles de cada factor y excluir los que tienen un solo nivel
+vars_candidatas <- c("cetipo", "internado", "uti_f", "sexo", "tipo_unidad", "uf")
+vars_validas <- vars_candidatas[sapply(vars_candidatas, \(v) nlevels(df_costo[[v]]) >= 2)]
+
+cat("Variables incluidas en el modelo de costo:\n")
+for (v in vars_validas) cat(sprintf("  - %s (%d niveles)\n", v, nlevels(df_costo[[v]])))
+
+vars_excluidas <- setdiff(vars_candidatas, vars_validas)
+if (length(vars_excluidas) > 0) {
+  cat(sprintf("\nVariables excluidas (un solo nivel): %s\n",
+              paste(vars_excluidas, collapse = ", ")))
+}
+
+formula_costo <- as.formula(paste("log_costo ~", paste(vars_validas, collapse = " + ")))
+modelo_costo  <- lm(formula_costo, data = df_costo)
+
+# Resumen del modelo
+broom::glance(modelo_costo) |>
+  select(r.squared, adj.r.squared, statistic, p.value, nobs) |>
+  kbl(caption = "Bondad de ajuste del modelo de costo",
+      col.names = c("R²", "R² ajustado", "F-estadístico", "p-valor", "N"),
+      digits    = 4) |>
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+```
+
+```{r coeficientes-costo}
+broom::tidy(modelo_costo) |>
+  filter(p.value < 0.10) |>
+  arrange(p.value) |>
+  mutate(
+    `Efecto (exp)` = round(exp(estimate), 3),
+    estimate       = round(estimate, 4),
+    std.error      = round(std.error, 4),
+    p.value        = round(p.value, 4)
+  ) |>
+  kbl(caption = "Coeficientes significativos del modelo de costo (p < 0.10)",
+      col.names = c("Variable", "Coeficiente (log)", "Error estándar",
+                    "t", "p-valor", "Efecto multiplicativo")) |>
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE)
+```
+
+## Costo promedio observado por perfil
+
+```{r costo-por-perfil}
+df_k21 |>
+  group_by(CETIPO, INTERNADO) |>
+  summarise(
+    N            = n(),
+    Costo_prom   = round(mean(VALOR_UTILIZACAO, na.rm=TRUE), 2),
+    Costo_mediano= round(median(VALOR_UTILIZACAO, na.rm=TRUE), 2),
+    Costo_total  = round(sum(VALOR_UTILIZACAO, na.rm=TRUE), 2),
+    .groups = "drop"
+  ) |>
+  arrange(desc(Costo_prom)) |>
+  kbl(caption = "Costo promedio por perfil de utilización (K21.0)",
+      col.names = c("Tipo utilizac.", "¿Internado?", "N",
+                    "Costo prom. (R$)", "Costo med. (R$)", "Costo total (R$)"),
+      format.args = list(big.mark = ",")) |>
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+```
+
+## Variabilidad del costo y factores asociados
+
+```{r variabilidad-costo, fig.height=5}
+df_k21 |>
+  filter(VALOR_UTILIZACAO > 0) |>
+  ggplot(aes(x = CETIPO, y = VALOR_UTILIZACAO, fill = CETIPO)) +
+  geom_violin(alpha = 0.6, trim = FALSE) +
+  geom_boxplot(width = 0.15, alpha = 0.8, outlier.size = 0.5) +
+  scale_y_log10(labels = label_dollar(prefix = "R$ ")) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(title    = "Variabilidad del costo por tipo de utilización (K21.0)",
+       subtitle = "Distribución log-escala. Violin + boxplot.",
+       x        = "Tipo de utilización",
+       y        = "Costo (R$, log10)") +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+**Variables más asociadas al costo:**
+
+1. **Tipo de utilización (CETIPO):** Las internaciones tienen el mayor costo promedio, seguidas de los procedimientos de terapia.
+2. **Internado (INTERNADO):** El indicador de internación aumenta significativamente el costo esperado.
+3. **UTI:** El uso de UCI genera los costos más altos (cuando aplica).
+4. **Tipo de unidad hospitalaria:** Los hospitales de mayor complejidad tienen costos más elevados.
+5. **Estado (UF):** Hay variación geográfica en los costos, posiblemente asociada al costo de vida y la oferta de servicios.
+
+**Limitaciones de la estimación de costos:**
+
+- La base K21 tiene solo 38 beneficiarios y 1 815 registros, lo cual limita la potencia estadística del modelo de costos.
+- Los costos de cero se excluyeron del modelo (n = `r sum(df_k21$VALOR_UTILIZACAO == 0)` registros), lo que puede sesgar las estimaciones al alza.
+- No se dispone de datos sobre medicamentos (IBP) que son el principal costo farmacéutico asociado a ERGE.
+- La variable `DESC_ESPECIALIDADE` fue eliminada en el proceso de limpieza, lo que impide controlar por especialidad.
+
+---
+
+# Conclusiones, Limitaciones y Trabajos Futuros
+
+## Conclusiones
+
+**¿Qué tan bien se logró identificar a los beneficiarios con K21.0?**
+
+Los modelos entrenados mostraron capacidad discriminatoria moderada a buena (ver ROC-AUC en tabla de evaluación). El desafío principal es la extrema rareza de la condición en la base de datos (38 de ~653 000 beneficiarios, prevalencia < 0.01 %), lo que hace inherentemente difícil detectar los casos positivos con alta sensibilidad sin generar muchos falsos positivos.
+
+**¿Qué variables parecen estar más relacionadas con la enfermedad?**
+
+Las variables con mayor poder predictivo identificadas por los modelos fueron:
+- **Número de internaciones y total de registros de utilización**: Los pacientes K21 utilizan más intensamente los servicios de salud, consistente con la naturaleza crónica de la ERGE.
+- **Costo total y costo máximo de utilización**: Correlacionado con la mayor utilización y la ocurrencia de internaciones.
+- **Tipo de unidad hospitalaria y estado**: Reflejan patrones geográficos y de acceso al sistema de salud.
+
+**¿Qué tan confiable es el modelo construido?**
+
+La confiabilidad del modelo es **limitada** por el tamaño del grupo positivo (n=38). Los intervalos de confianza de las métricas son amplios, y los resultados en el conjunto de prueba (con solo ~12 positivos) deben interpretarse con cautela. El modelo debería ser reentrenado con más datos de casos K21 para ser operativamente confiable.
+
+## Limitaciones
+
+1. **Tamaño de la clase positiva:** Solo 38 beneficiarios K21.0 es insuficiente para un modelo de clasificación robusto. Los estimados de desempeño tienen alta varianza.
+2. **Ausencia de la variable especialidad:** `DESC_ESPECIALIDADE` fue eliminada en el preprocesamiento, privando al modelo de una variable potencialmente informativa (ej. consultas de gastroenterología).
+3. **Fechas de nacimiento anómalas:** Aproximadamente `r sum(is.na(edad_ben$edad))` beneficiario(s) K21 tienen fechas de nacimiento inválidas, lo que impidió calcular la edad para esos casos.
+4. **Posible desbalance de información:** Los controles negativos se extrajeron de la base completa, que puede contener otros pacientes con enfermedades similares no capturadas bajo K21.
+5. **Ausencia de datos longitudinales:** No se conoce si los pacientes tenían ERGE antes del período de observación (enero–marzo 2026).
+6. **Costo del modelo:** El modelo de costo se ajustó con solo 1 815 registros de 38 pacientes, lo cual limita su generalización.
+
+## Trabajos Futuros
+
+1. **Incrementar el conjunto de datos positivos** mediante búsqueda de códigos relacionados (K20, K22, K25, K26) para enriquecer el análisis de condiciones gastrointestinales.
+2. **Análisis temporal:** Estudiar la evolución de los pacientes K21 a lo largo del tiempo para identificar patrones de exacerbación y remisión.
+3. **Incorporar datos de medicamentos:** La prescripción de IBP (omeprazol, esomeprazol) sería un predictor fuerte si estuviera disponible.
+4. **Modelos más avanzados:** Con más datos, aplicar redes neuronales o modelos de ensemble más sofisticados con tuning extensivo.
+5. **Análisis de subgrupos:** Explorar si hay diferencias significativas por sexo, edad o región geográfica en la presentación y costos de K21.0.
+6. **Validación externa:** Validar el modelo en un período temporal diferente para evaluar la estabilidad del poder predictivo.
+
+---
+
+# Instrucciones de Reproducción
+
+Para reproducir completamente este análisis:
+
+1. **Requisitos:** R ≥ 4.5, con los paquetes: `data.table`, `tidyverse`, `tidymodels`, `ranger`, `xgboost`, `pROC`, `themis`, `kableExtra`, `ROCR`, `patchwork`.
+
+2. **Archivos necesarios** (en el mismo directorio que el `.Rmd`):
+   - `db_2026.csv` — Dataset original completo (base de datos del curso)
+   - `db_2026_limpio_K21.csv` — Dataset limpio K21 (generado por `limpieza_dataset_k21.py`)
+
+3. **Ejecución:**
+   ```r
+   rmarkdown::render("Taller_Parcial_3.Rmd")
+   ```
+
+4. **Notas:**
+   - La primera ejecución descarga el dataset original (~9.3M filas) y puede tomar 3–5 minutos.
+   - Las siguientes ejecuciones usan caché (`df_modelo_raw.rds`), tardando ~30 segundos.
+   - Eliminar `df_modelo_raw.rds` para forzar reprocesamiento completo.
+
+---
+
+*Taller 3 — Minería de Datos (2016325) | Universidad Nacional de Colombia*
