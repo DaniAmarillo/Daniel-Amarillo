@@ -1,0 +1,8 @@
+Su entorno de ejecución de Python debe llamar las siguientes librerías para uso del código aquí depositados:
+
+pandas
+numpy
+scikit-learn
+matplotlib
+seaborn
+duckdb

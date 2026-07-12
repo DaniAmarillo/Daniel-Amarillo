@@ -1,0 +1,328 @@
+---
+title: "Taller 3 - Cardiopatia isquemica"
+subtitle: "Mineria de Datos"
+author: "Elian Steven Bejarano"
+date: "2026-07-12"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    theme: flatly
+    df_print: paged
+  pdf_document:
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  out.width = "92%"
+)
+
+library(knitr)
+library(kableExtra)
+
+pretty_table <- function(df, caption = NULL, digits = 4) {
+  tab <- knitr::kable(
+    df,
+    booktabs = TRUE,
+    caption = caption,
+    digits = digits,
+    align = "c"
+  )
+
+  kableExtra::kable_styling(
+    tab,
+    bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+    full_width = FALSE,
+    position = "center",
+    font_size = 13,
+    latex_options = c("scale_down", "hold_position")
+  )
+}
+
+fmt_int <- function(x) {
+  format(as.integer(round(as.numeric(x))), big.mark = ".", decimal.mark = ",", scientific = FALSE)
+}
+
+fmt_num <- function(x, digits = 4) {
+  formatC(as.numeric(x), format = "f", digits = digits, decimal.mark = ",", big.mark = ".")
+}
+
+fmt_pct <- function(x, digits = 3) {
+  paste0(formatC(100 * as.numeric(x), format = "f", digits = digits, decimal.mark = ","), " %")
+}
+
+read_tbl <- function(path) {
+  read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+}
+
+resumen_base <- read_tbl("output/tablas/resumen_base.csv")
+metricas_test <- read_tbl("output/tablas/metricas_modelos_test.csv")
+metricas_cv <- read_tbl("output/tablas/metricas_modelos_cv.csv")
+resumen_modelamiento <- read_tbl("output/tablas/resumen_modelamiento.csv")
+faltantes <- read_tbl("output/tablas/valores_faltantes.csv")
+inconsistencias <- read_tbl("output/tablas/inconsistencias_datos.csv")
+extremos <- read_tbl("output/tablas/valores_extremos_costo.csv")
+costos <- read_tbl("output/tablas/resumen_costos_cardio_i20_i25.csv")
+importancia_rf <- read_tbl("output/tablas/permutation_importance_random_forest.csv")
+importancia_lr <- read_tbl("output/tablas/importancia_regresion_logistica.csv")
+```
+
+# Enfermedad seleccionada
+
+La enfermedad seleccionada fue **cardiopatia isquemica**, definida mediante los codigos **CID I20-I25**. Segun el navegador ICD-10 de la OMS, este bloque corresponde a enfermedades isquemicas del corazon e incluye diagnosticos como angina de pecho, infarto agudo de miocardio, complicaciones posteriores al infarto, otras formas agudas y cardiopatia isquemica cronica: [OMS ICD-10 Browser](https://icd.who.int/browse10/2016/en).
+
+La eleccion es adecuada para el taller porque tiene una definicion clinica coherente, costo total alto y suficientes registros asociados para estudiar costos. Al recalcular directamente sobre `db_2026.csv`, se encontraron **22.718 registros I20-I25**, **693 utilizaciones** y **222 beneficiarios positivos**. El resumen exploratorio previo reportaba 223 beneficiarios, pero la lectura directa de `CID` y `CHAVE_FUNCIONAL` sobre la base completa produjo 222.
+
+# Variable objetivo
+
+La variable objetivo se construyo a nivel de beneficiario:
+
+- `cardio_isquemica = 1` si el beneficiario tuvo al menos una transaccion con `CID` entre `I20` e `I25`.
+- `cardio_isquemica = 0` en caso contrario.
+
+No se uso `CID` como predictor. Ademas, para reducir fuga de informacion, las variables predictoras se agregaron excluyendo las filas con `CID I20-I25`; de esta forma, el modelo no aprende directamente de las mismas utilizaciones que definen la etiqueta.
+
+# Descripcion de la base
+
+```{r tabla-base}
+valor <- function(nombre) resumen_base$valor[resumen_base$metrica == nombre][1]
+
+tabla_base <- data.frame(
+  Metrica = c(
+    "Registros",
+    "Beneficiarios",
+    "Beneficiarios con cardiopatia isquemica",
+    "Prevalencia",
+    "Registros I20-I25",
+    "Utilizaciones totales",
+    "Utilizaciones I20-I25",
+    "Periodo observado"
+  ),
+  Valor = c(
+    fmt_int(valor("n_registros")),
+    fmt_int(valor("n_beneficiarios")),
+    fmt_int(valor("n_beneficiarios_cardio")),
+    fmt_pct(valor("prevalencia_cardio"), 3),
+    fmt_int(valor("n_registros_cardio")),
+    fmt_int(valor("n_utilizaciones")),
+    fmt_int(valor("n_utilizaciones_cardio")),
+    paste(valor("fecha_min_utilizacion"), "a", valor("fecha_max_utilizacion"))
+  )
+)
+
+pretty_table(tabla_base, "Resumen general de la base")
+```
+
+La variable objetivo esta extremadamente desbalanceada. Esto hace que `accuracy` sea poco informativa: un modelo que predijera siempre la clase negativa tendria una exactitud cercana a 99,97 %, pero no identificaria ningun caso positivo. Por esta razon, la metrica principal fue **PR-AUC**, acompanada de F1, sensibilidad, especificidad y ROC-AUC.
+
+```{r grafico-objetivo}
+knitr::include_graphics("output/figuras/distribucion_objetivo.png")
+```
+
+# Calidad de datos
+
+```{r tabla-faltantes}
+tabla_faltantes <- faltantes
+tabla_faltantes$n_faltantes <- fmt_int(tabla_faltantes$n_faltantes)
+tabla_faltantes$pct_faltantes <- fmt_pct(tabla_faltantes$pct_faltantes, 2)
+names(tabla_faltantes) <- c("Variable", "Faltantes", "% faltantes")
+pretty_table(tabla_faltantes, "Valores faltantes por variable")
+```
+
+```{r tabla-inconsistencias}
+tabla_incons <- inconsistencias
+tabla_incons$n <- fmt_int(tabla_incons$n)
+tabla_incons$pct <- fmt_pct(tabla_incons$pct, 3)
+names(tabla_incons) <- c("Problema", "N", "%")
+pretty_table(tabla_incons, "Inconsistencias identificadas")
+```
+
+Para variables demograficas inconsistentes se uso la moda por beneficiario. Tambien se conservaron variables auxiliares de inconsistencia, como numero de sexos distintos y numero de tipos de beneficiario distintos.
+
+```{r tabla-extremos}
+tabla_extremos <- extremos
+tabla_extremos$valor <- fmt_num(tabla_extremos$valor, 2)
+names(tabla_extremos) <- c("Metrica", "Valor")
+pretty_table(tabla_extremos, "Valores extremos en VALOR_UTILIZACAO")
+```
+
+En `VALOR_UTILIZACAO` se observaron valores extremos y algunos valores negativos. En salud, los costos suelen ser muy asimetricos, por lo que estos valores se documentaron en lugar de eliminarlos automaticamente.
+
+# Variables construidas
+
+La tabla final quedo a nivel de `CHAVE_FUNCIONAL` con 653.631 beneficiarios y 37 columnas. Las variables predictoras incluyen:
+
+```{r tabla-variables}
+tabla_variables <- data.frame(
+  Grupo = c(
+    "Demograficas",
+    "Uso del sistema",
+    "Costos",
+    "Complejidad asistencial",
+    "Tipos de utilizacion",
+    "Categorias frecuentes",
+    "Calidad de datos"
+  ),
+  Variables = c(
+    "Edad de referencia, sexo, tipo de beneficiario",
+    "Registros, utilizaciones, procedimientos distintos, especialidades, estados y unidades",
+    "Costo total, promedio, desviacion, minimo y maximo",
+    "Indicadores y tasas de UCI e internacion",
+    "Consultas, examenes, terapias, internaciones, pronto socorro y otros",
+    "Especialidad, estado, unidad y CETIPO mas frecuente",
+    "Numero de sexos, tipos de beneficiario y fechas de nacimiento distintas"
+  )
+)
+pretty_table(tabla_variables, "Familias de variables predictoras")
+```
+
+```{r grafico-edad}
+knitr::include_graphics("output/figuras/edad_por_objetivo.png")
+```
+
+# Muestreo estratificado y estrategia de entrenamiento
+
+El problema tiene una prevalencia extremadamente baja: solo **222 beneficiarios positivos** entre **653.631 beneficiarios**. Entrenar directamente algunos modelos con toda la base beneficiario a beneficiario era posible para el procesamiento, pero poco eficiente para el ajuste de modelos y muy sensible al desbalance. Por eso se implementaron dos decisiones complementarias:
+
+1. **Particion estratificada train/test**: se separo un conjunto de prueba del 20 % preservando la proporcion de positivos. Este conjunto se mantuvo con la prevalencia natural de la base para evaluar el desempeno real.
+2. **Submuestreo controlado de negativos solo en entrenamiento**: en el conjunto de entrenamiento se conservaron todos los positivos y se tomo una muestra reproducible de negativos en razon 50:1. Asi el modelo pudo aprender patrones de la clase minoritaria sin ignorar por completo la clase mayoritaria.
+
+```{r tabla-muestreo}
+muestreo <- resumen_modelamiento[resumen_modelamiento$tipo %in% c("train_completo", "train_usado_modelos", "test"), c("tipo", "n", "positivos")]
+muestreo$negativos <- muestreo$n - muestreo$positivos
+muestreo$prevalencia <- muestreo$positivos / muestreo$n
+muestreo$tipo <- c("Entrenamiento completo", "Entrenamiento usado en modelos", "Prueba final")
+muestreo$n <- fmt_int(muestreo$n)
+muestreo$positivos <- fmt_int(muestreo$positivos)
+muestreo$negativos <- fmt_int(muestreo$negativos)
+muestreo$prevalencia <- fmt_pct(muestreo$prevalencia, 3)
+names(muestreo) <- c("Particion", "Beneficiarios", "Positivos", "Negativos", "Prevalencia")
+pretty_table(muestreo, "Muestreo estratificado y submuestreo de entrenamiento")
+```
+
+Esta estrategia permite trabajar con informacion agregada de todos los beneficiarios de la base, pero evita que el entrenamiento se convierta en un problema trivial dominado por la clase negativa. La evaluacion final no usa el submuestreo: se realiza sobre el test estratificado con prevalencia natural.
+
+# Modelamiento
+
+Se compararon cuatro modelos:
+
+1. **Regresion logistica** con `class_weight = "balanced"`, como modelo interpretable.
+2. **Arbol de decision**, como baseline visual e interpretable.
+3. **Random Forest**, como modelo robusto para datos tabulares.
+4. **Gradient Boosting**, como modelo no lineal de mayor capacidad.
+
+```{r tabla-metricas}
+tabla_metricas <- metricas_test[, c("modelo", "pr_auc", "roc_auc", "f1", "precision", "recall_sensibilidad", "especificidad")]
+names(tabla_metricas) <- c("Modelo", "PR-AUC", "ROC-AUC", "F1", "Precision", "Sensibilidad", "Especificidad")
+num_cols <- names(tabla_metricas)[-1]
+tabla_metricas[num_cols] <- lapply(tabla_metricas[num_cols], fmt_num, digits = 4)
+pretty_table(tabla_metricas, "Desempeno de modelos en conjunto de prueba")
+```
+
+```{r grafico-modelos}
+knitr::include_graphics("output/figuras/comparacion_modelos_test.png")
+```
+
+Usando PR-AUC como metrica principal, el mejor modelo fue **Random Forest**. Este modelo recupero cerca del 77 % de los positivos del test, aunque con baja precision debido a la rareza de la enfermedad. Si el objetivo fuera reducir falsos positivos, Gradient Boosting seria una alternativa mas conservadora, con mayor F1 y precision.
+
+```{r matriz-confusion}
+knitr::include_graphics("output/figuras/matriz_confusion_mejor_modelo.png")
+```
+
+# Interpretacion
+
+La regresion logistica aporta una lectura interpretable de asociaciones lineales despues del preprocesamiento. Entre las variables con coeficientes altos aparecieron especialidades asociadas a cardiologia, tipo de utilizacion e indicadores de internacion. Sin embargo, los coeficientes deben interpretarse con cautela porque el entrenamiento usa submuestreo de negativos y porque algunas categorias pueden actuar como proxies de severidad o acceso al servicio.
+
+```{r tabla-logistica}
+tabla_lr <- head(importancia_lr[, c("feature", "coeficiente", "abs_coeficiente")], 12)
+names(tabla_lr) <- c("Variable", "Coeficiente", "|Coeficiente|")
+tabla_lr$Coeficiente <- fmt_num(tabla_lr$Coeficiente, 4)
+tabla_lr$`|Coeficiente|` <- fmt_num(tabla_lr$`|Coeficiente|`, 4)
+pretty_table(tabla_lr, "Principales coeficientes de la regresion logistica")
+```
+
+En Random Forest, la importancia por permutacion mostro como variables principales la internacion, edad, tipo de utilizacion, sexo y costos agregados.
+
+```{r tabla-importancia-rf}
+tabla_rf <- head(importancia_rf[, c("feature_original", "importancia_media_pr_auc", "importancia_sd")], 12)
+names(tabla_rf) <- c("Variable", "Importancia media PR-AUC", "Desv. est.")
+tabla_rf$`Importancia media PR-AUC` <- fmt_num(tabla_rf$`Importancia media PR-AUC`, 4)
+tabla_rf$`Desv. est.` <- fmt_num(tabla_rf$`Desv. est.`, 4)
+pretty_table(tabla_rf, "Importancia por permutacion - Random Forest")
+```
+
+```{r grafico-importancia}
+knitr::include_graphics("output/figuras/importancia_permutacion_random_forest.png")
+```
+
+Estos resultados son clinicamente razonables: la cardiopatia isquemica se asocia con mayor edad, mayor intensidad de uso del sistema y eventos de mayor complejidad como internaciones.
+
+# Estimacion de costos
+
+La unidad de analisis para el costo fue la **utilizacion**, aproximada por la combinacion `CHAVE_FUNCIONAL + DT_UTILIZACAO`. Esta decision evita contar varias veces una misma atencion cuando una utilizacion tiene multiples procedimientos.
+
+```{r tabla-costos}
+tabla_costos <- data.frame(
+  Metrica = c(
+    "Utilizaciones",
+    "Costo total",
+    "Costo promedio por utilizacion",
+    "Mediana",
+    "Q1",
+    "Q3",
+    "P95",
+    "Maximo"
+  ),
+  Valor = c(
+    "693",
+    "6.151.092,29",
+    "8.876,04",
+    "3.721,78",
+    "344,14",
+    "8.816,38",
+    "32.020,32",
+    "243.678,10"
+  )
+)
+pretty_table(tabla_costos, "Costo observado en utilizaciones I20-I25")
+```
+
+La distribucion de costos es fuertemente asimetrica y presenta una cola derecha larga. Por eso la figura se presenta en escala `log10(costo + 1)` y se complementa con una curva acumulada. La mediana se ubica alrededor de 3.722, mientras que el percentil 95 llega a 32.020 y el maximo alcanza 243.678. Esto muestra que la mayoria de las utilizaciones se concentra en valores bajos o intermedios, pero un grupo pequeno de eventos de alto costo eleva de forma importante la media.
+
+```{r grafico-costos}
+knitr::include_graphics("output/figuras/costos_cardio_utilizacion.png")
+```
+
+# Conclusiones
+
+La cardiopatia isquemica fue una buena eleccion para el taller porque tiene una definicion CID clara, relevancia clinica y costo total importante. No obstante, la prevalencia a nivel de beneficiario fue extremadamente baja: 222 positivos entre 653.631 beneficiarios. Esto convierte el problema en una tarea de deteccion de eventos raros.
+
+El mejor modelo por PR-AUC fue Random Forest. Su desempeno en ROC-AUC fue alto, pero la precision fue baja, lo cual es esperable con una prevalencia de 0,034 %. Por tanto, el modelo es mas util como herramienta de priorizacion o tamizaje que como clasificador definitivo.
+
+Las variables mas relacionadas con la prediccion fueron edad, internacion, tipo de utilizacion, costos agregados y especialidades. Estos patrones son consistentes con una enfermedad cardiovascular de mayor complejidad clinica.
+
+# Limitaciones
+
+- La base tiene muchos registros sin CID, lo que puede subestimar la enfermedad.
+- La clase positiva es extremadamente pequena.
+- La estrategia excluye filas I20-I25 para reducir fuga, pero no garantiza temporalidad causal.
+- El entrenamiento uso submuestreo de negativos por eficiencia y balance.
+- No se hizo validacion externa.
+- Los modelos no deben interpretarse causalmente.
+- Los costos tienen alta asimetria, valores extremos y algunos valores negativos.
+
+# Trabajos futuros
+
+- Construir un split temporal para predecir eventos futuros.
+- Calibrar probabilidades con un conjunto de validacion.
+- Probar XGBoost o LightGBM con `scale_pos_weight`.
+- Usar SHAP para explicacion local y global.
+- Incorporar grupos de comorbilidades no I20-I25.
+- Validar reglas de codificacion clinica con una fuente medica o administrativa.

@@ -1,0 +1,17 @@
+modelo,real,predicho,n
+Regresion logistica,0,0,129186
+Regresion logistica,0,1,1497
+Regresion logistica,1,0,23
+Regresion logistica,1,1,21
+Arbol de decision,0,0,130094
+Arbol de decision,0,1,589
+Arbol de decision,1,0,15
+Arbol de decision,1,1,29
+Random Forest,0,0,128942
+Random Forest,0,1,1741
+Random Forest,1,0,10
+Random Forest,1,1,34
+Gradient Boosting,0,0,130243
+Gradient Boosting,0,1,440
+Gradient Boosting,1,0,21
+Gradient Boosting,1,1,23
