@@ -1,0 +1,18 @@
+# Base original y archivos procesados pesados
+data/raw/db_2026.csv
+data/processed/*.sqlite
+data/processed/*.sqlite-wal
+data/processed/*.sqlite-shm
+data/processed/*.sqlite-journal
+data/processed/duckdb_tmp/
+data/processed/*.parquet
+
+# Sesiones de R
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+
+# Temporales
+*.tmp
+~$*
