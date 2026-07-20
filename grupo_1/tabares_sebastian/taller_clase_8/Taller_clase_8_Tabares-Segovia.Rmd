@@ -1,0 +1,186 @@
+---
+title: "Taller clase 8"
+author: "Sebastian Tabares Segovia"
+date: "2026-07-20"
+output: html_document
+---
+
+# Ejercicio 1
+
+Diagnóstico de valores faltantes
+Dado el siguiente conjunto de datos simulado en R, responde las preguntas analíticas.
+
+Código esqueleto
+```{r}
+set.seed(42)
+
+n <- 200
+
+datos <- data.frame(
+  edad = c(
+    sample(18:65, 160, replace = TRUE),
+    rep(NA, 40)
+  ),
+  ingreso = c(
+    rnorm(100, 3e6, 5e5),
+    rep(NA, 100)
+  ),
+  ciudad = sample(
+    c("Bogotá", "Medellín", "Cali", NA),
+    n,
+    replace = TRUE,
+    prob = c(0.4, 0.3, 0.2, 0.1)
+  ),
+  compra = rbinom(n, 1, 0.5)
+)
+```
+
+
+## Pregunta 1
+
+Calcula el porcentaje de faltantes por variable con colMeans(is.na(datos)).
+
+```{r}
+
+library(tidyverse)
+porcentaje_faltantes <- colMeans(is.na(datos)) * 100
+
+tibble(
+  Variable = names(porcentaje_faltantes),
+  Porcentaje_faltantes = as.numeric(porcentaje_faltantes)
+) |>
+  knitr::kable(
+    digits = 2,
+    caption = "Porcentaje de valores faltantes por variable"
+  )
+```
+
+
+## Pregunta 2
+
+¿Cuántas filas tienen al menos un NA? Usa sum(!complete.cases(datos)).
+
+```{r}
+filas_con_faltantes <- sum(!complete.cases(datos))
+
+data.frame(
+  Filas_con_al_menos_un_NA = filas_con_faltantes
+) |>
+  knitr::kable(
+    caption = "Número de filas con al menos un valor faltante"
+  )
+```
+
+
+
+## Pregunta 3
+
+Visualiza el patrón con naniar::gg_miss_var(datos) y visdat::vis_miss(datos).
+
+
+```{r}
+library(naniar)
+library(visdat)
+
+naniar::gg_miss_var(datos) +
+  labs(
+    title = "Valores faltantes por variable",
+    x = "Variable",
+    y = "Número de valores faltantes"
+  ) +
+  theme_classic()
+
+visdat::vis_miss(datos) +
+  labs(
+    title = "Patrón de valores faltantes en el conjunto de datos"
+  ) +
+  theme_classic()
+```
+
+## Pregunta 4
+
+Clasifica el mecanismo probable (MCAR, MAR o MNAR) para ingreso y edad. Justifica tu respuesta.
+
+### Interpretación
+
+Los valores faltantes de las variables **edad** e **ingreso** corresponden probablemente a un mecanismo **MCAR (Missing Completely at Random)**. Esto se debe a que los valores ausentes fueron incorporados de manera artificial durante la generación del conjunto de datos, sin depender de los valores de la propia variable ni de otras variables presentes en la base de datos.
+
+Aunque la visualización de `vis_miss()` muestra que los valores faltantes aparecen agrupados debido al orden en que fueron creados los datos, dicho patrón responde únicamente a la construcción del conjunto de datos y no a una relación con las variables observadas o no observadas. Por esta razón, no existe evidencia para clasificarlos como **MAR (Missing at Random)** o **MNAR (Missing Not at Random)**.
+
+
+## Pregunta 5
+
+Imputa edad con la mediana e ingreso con la media. ¿Cambia la distribución? Compara con summary() antes y después.
+
+```{r}
+summary(datos)
+
+datos_imputados <- datos |>
+  mutate(
+    edad = if_else(
+      is.na(edad),
+      median(edad, na.rm = TRUE),
+      edad
+    ),
+    ingreso = if_else(
+      is.na(ingreso),
+      mean(ingreso, na.rm = TRUE),
+      ingreso
+    )
+  )
+
+summary(datos_imputados)
+```
+### Interpretación
+
+La imputación eliminó por completo los valores faltantes en las variables **edad** e **ingreso**, permitiendo disponer de un conjunto de datos completo para los análisis posteriores. En ambos casos, los valores imputados corresponden a medidas de tendencia central, utilizando la **mediana** para la edad y la **media** para el ingreso.
+
+En la variable **edad**, la mediana permaneció inalterada (43.5), mientras que la media cambió ligeramente de 42.46 a 42.67. También se observó un incremento en el primer cuartil y una leve disminución en el tercer cuartil, indicando que la distribución general se conservó y que la imputación con la mediana tuvo un efecto mínimo sobre la tendencia central.
+
+En la variable **ingreso**, la media permaneció exactamente igual después de la imputación, ya que los valores faltantes fueron reemplazados por este mismo estadístico. La mediana y el tercer cuartil presentaron ligeras variaciones debido a la incorporación de numerosos valores iguales a la media, aunque los valores mínimo y máximo permanecieron sin cambios. En conjunto, la distribución general de ambas variables se mantuvo similar, evidenciando que la imputación modificó únicamente algunos estadísticos descriptivos sin alterar de manera importante la estructura de los datos.
+
+# Ejercicio 
+
+## Ejercicio 3: Razonamiento conceptual
+
+### 1. En una encuesta de salud, las personas con peor estado de salud tienden a no responder la pregunta sobre su propia salud. ¿Qué mecanismo de ausencia aplica (MCAR, MAR o MNAR)? ¿Cómo afecta esto a un modelo predictivo?
+
+### Respuesta
+
+El mecanismo de ausencia corresponde a **MNAR (Missing Not at Random)**, porque la probabilidad de que el dato esté ausente depende directamente del valor no observado de la misma variable. En este caso, las personas con peor estado de salud son precisamente quienes tienen mayor probabilidad de no responder la pregunta sobre su salud.
+
+Este mecanismo puede sesgar un modelo predictivo, ya que los casos con peor estado de salud quedarían subrepresentados en los datos disponibles. Como consecuencia, el modelo podría aprender una visión demasiado favorable de la población, subestimar la frecuencia de estados de salud graves y producir predicciones menos precisas para las personas más vulnerables.
+
+### 2. Un pipeline imputa la media de `ingreso` usando el dataset completo y luego separa train/test. ¿Cuál es el error? ¿Cómo lo corregirías?
+
+### Respuesta
+
+El error consiste en utilizar información del conjunto de prueba para calcular la media empleada en la imputación. Esto produce **fuga de información** o *data leakage*, porque el conjunto de entrenamiento recibe indirectamente información procedente de observaciones que deberían permanecer completamente desconocidas durante el ajuste del modelo.
+
+Para corregirlo, primero se debe dividir el conjunto de datos en entrenamiento y prueba. Posteriormente, la media debe calcularse únicamente con el conjunto de entrenamiento. Ese mismo valor se utiliza después para imputar tanto los datos de entrenamiento como los de prueba. En un pipeline con `recipes`, la receta debe ajustarse con los datos de entrenamiento mediante `prep()` y aplicarse posteriormente a ambos conjuntos mediante `bake()`.
+
+### 3. Una variable tiene 65 % de valores faltantes. ¿La eliminarías directamente? ¿Qué considerarías antes de decidir?
+
+### Respuesta
+
+No la eliminaría automáticamente únicamente por presentar un 65 % de valores faltantes. Antes de decidir, evaluaría su relevancia teórica, su capacidad predictiva, el mecanismo de ausencia y la calidad de los valores observados.
+
+También consideraría si la ausencia contiene información útil, si existen otras variables capaces de predecir razonablemente sus valores y si la variable es indispensable para responder la pregunta de investigación. Además, compararía el desempeño del modelo con y sin la variable. Si aporta poca información, introduce inestabilidad o no puede imputarse de manera confiable, su eliminación podría ser la opción más adecuada.
+
+### 4. ¿Cuándo conviene agregar un indicador binario de ausencia (`ingreso_faltante = 1`) además de imputar el valor? Da un ejemplo concreto.
+
+### Respuesta
+
+Conviene agregar un indicador binario cuando el hecho de que un valor esté ausente puede aportar información adicional para el análisis o la predicción. Esto ocurre principalmente cuando la ausencia no es completamente aleatoria y puede estar relacionada con características relevantes de la persona o del proceso de recolección de datos.
+
+Por ejemplo, en una solicitud de crédito, algunas personas pueden omitir su ingreso porque trabajan informalmente o porque tienen ingresos inestables. En ese caso, se puede imputar el ingreso con una medida de tendencia central y crear simultáneamente la variable `ingreso_faltante`, que toma el valor de 1 cuando el ingreso original no fue reportado. El modelo podría utilizar este indicador como una señal adicional asociada al perfil financiero del solicitante.
+
+### 5. ¿En qué situación preferirías imputación múltiple con `mice` sobre imputación simple con la mediana?
+
+### Respuesta
+
+Preferiría la imputación múltiple con `mice` cuando existe una proporción relevante de valores faltantes, varias variables presentan ausencias y se desea conservar la incertidumbre asociada a los valores imputados. También resulta adecuada cuando las relaciones entre las variables son importantes y el objetivo es realizar inferencia estadística, estimar efectos o calcular intervalos de confianza.
+
+La imputación simple con la mediana reemplaza todos los valores faltantes por un único valor, lo que reduce artificialmente la variabilidad y puede distorsionar asociaciones entre variables. En cambio, `mice` genera varios conjuntos de datos plausibles, realiza el análisis en cada uno y combina posteriormente los resultados. Esto permite representar mejor la incertidumbre de la imputación y producir estimaciones más confiables.
+
+
