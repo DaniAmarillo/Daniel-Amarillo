@@ -661,7 +661,7 @@ referencias.
 
 <!-- -->
 
--  La integración entre técnicas de Web Scraping, procesamiento de datos
+- La integración entre técnicas de Web Scraping, procesamiento de datos
   y bases de datos relacionales permitió construir una estructura
   robusta y escalable en SQLite. La separación de entidades como
   artículos, autores y referencias mediante relaciones muchos-a-muchos
@@ -672,7 +672,7 @@ referencias.
 
 <!-- -->
 
--  El proyecto también evidenció las limitaciones comunes en procesos de
+- El proyecto también evidenció las limitaciones comunes en procesos de
   extracción de datos desde fuentes web académicas, especialmente
   relacionadas con métricas no disponibles directamente en el sitio,
   como descargas y referencias completas. Sin embargo, el uso
