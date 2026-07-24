@@ -1,0 +1,2 @@
+﻿modelo,conjunto,n,costo_observado_promedio,costo_predicho_promedio,mae,rmse,rmsle,smape,r2,sesgo_medio,razon_totales
+Regresión lognormal,Validación,45,12417.3586666667,11960.6817476573,4607.61099342148,6388.2858167642,0.53907493946192,0.401234974665918,0.502099632452751,-456.676919009346,0.963222700473712

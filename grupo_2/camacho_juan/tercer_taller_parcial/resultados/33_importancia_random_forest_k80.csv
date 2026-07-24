@@ -1,0 +1,39 @@
+﻿variable,importancia,analisis,modelo
+prop_examenes,0.0137087423550584,Principal,Random Forest
+log_n_procedimientos,0.0107387595979104,Principal,Random Forest
+log_n_examenes,0.00886701544816975,Principal,Random Forest
+prop_consultas,0.00756570367530807,Principal,Random Forest
+log_n_consultas,0.00501403299730204,Principal,Random Forest
+prop_unidad_faltante,0.00340721400270256,Principal,Random Forest
+estado_predominante,0.00333489610252057,Principal,Random Forest
+prop_terapias,0.00255588599258759,Principal,Random Forest
+prop_urgencias,0.00236605213732571,Principal,Random Forest
+unidad_predominante,0.00194939109150962,Principal,Random Forest
+log_n_terapias,0.00164303510461488,Principal,Random Forest
+log_dias_observacion,0.00158596045366966,Principal,Random Forest
+log_n_urgencias,0.00141320371552051,Principal,Random Forest
+edad,0.00071738578589029,Principal,Random Forest
+prop_especialidad_faltante,0.00036985213526137,Principal,Random Forest
+sexo,0.000251862800311109,Principal,Random Forest
+tipo_beneficiario,0.000130417958638152,Principal,Random Forest
+sexo_inconsistente,-0.000000694938790143818,Principal,Random Forest
+tipo_beneficiario_inconsistente,-0.00000463546461221553,Principal,Random Forest
+log_n_procedimientos,0.0074541187574716,Sensibilidad CID observado,Random Forest
+prop_consultas,0.00554644417660027,Sensibilidad CID observado,Random Forest
+log_n_examenes,0.00502775948786838,Sensibilidad CID observado,Random Forest
+prop_examenes,0.00460607136958945,Sensibilidad CID observado,Random Forest
+log_dias_observacion,0.00359659686558699,Sensibilidad CID observado,Random Forest
+prop_terapias,0.00305205164131896,Sensibilidad CID observado,Random Forest
+log_n_terapias,0.00298940702271343,Sensibilidad CID observado,Random Forest
+log_n_consultas,0.00287722733868707,Sensibilidad CID observado,Random Forest
+log_n_urgencias,0.000997204443456332,Sensibilidad CID observado,Random Forest
+prop_urgencias,0.000980639987824137,Sensibilidad CID observado,Random Forest
+prop_unidad_faltante,0.000811359915407087,Sensibilidad CID observado,Random Forest
+unidad_predominante,0.000684599554461252,Sensibilidad CID observado,Random Forest
+estado_predominante,0.000602704923586379,Sensibilidad CID observado,Random Forest
+edad,0.000581806677364517,Sensibilidad CID observado,Random Forest
+sexo,0.000340174854219487,Sensibilidad CID observado,Random Forest
+tipo_beneficiario,0.000297790384424842,Sensibilidad CID observado,Random Forest
+prop_especialidad_faltante,0.000227423502857777,Sensibilidad CID observado,Random Forest
+tipo_beneficiario_inconsistente,-0.000000814617770121151,Sensibilidad CID observado,Random Forest
+sexo_inconsistente,-0.0000033927202370434,Sensibilidad CID observado,Random Forest

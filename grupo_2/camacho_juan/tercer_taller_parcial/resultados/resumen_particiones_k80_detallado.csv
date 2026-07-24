@@ -1,0 +1,10 @@
+﻿particion,target_k80,tiene_cid_registrado,N
+entrenamiento,0,0,444276
+entrenamiento,0,1,13051
+entrenamiento,1,1,214
+validacion,0,0,95202
+validacion,0,1,2796
+validacion,1,1,45
+prueba,0,0,95202
+prueba,0,1,2798
+prueba,1,1,47
