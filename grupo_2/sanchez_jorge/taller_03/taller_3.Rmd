@@ -1,0 +1,558 @@
+---
+title: "Taller 3 -- Minería de Datos"
+subtitle: "Predicción de hernias abdominales (CID K40-K46) "
+author: "Jorge Andres Sanchez Duarte"
+date: "`r format(Sys.Date(), '%d de %B de %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+    theme: flatly
+    df_print: kable
+  pdf_document:
+    toc: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.align = "center")
+library(dplyr)
+library(ggplot2)
+library(knitr)
+```
+
+# Objetivo
+
+El objetivo de este taller es desarrollar un análisis completo de minería de datos aplicado a una base real de utilización de servicios de salud. La condición clínica seleccionada son las **hernias abdominales**, identificadas mediante el bloque de códigos CID **K40 a K46** de la Clasificación Internacional de Enfermedades (CIE-10). Se construye una variable objetivo binaria a nivel de beneficiario, se entrenan y evalúan tres modelos predictivos, se interpretan los resultados obtenidos y se estima el costo esperado asociado a la enfermedad.
+
+El trabajo integra las fases del proceso de minería de datos: comprensión del problema, preparación de los datos, análisis descriptivo, construcción de variables, modelamiento, evaluación, interpretación de resultados, estimación de costos y comunicación de hallazgos. Todo el código detallado vive en la carpeta `C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/code/` de este repositorio (scripts `01` a `07`); este documento resume las decisiones tomadas en cada uno, los resultados obtenidos y su interpretación.
+
+
+# Contexto de la base de datos y enfermedad seleccionada
+
+## Descripción general
+
+La base de datos contiene registros de utilización de servicios de un plan de salud suplementario. Cada fila corresponde a una utilización médica o procedimiento asociado a un beneficiario, identificado por `CHAVE_FUNCIONAL`. Como se trata de una base real, presenta los problemas de calidad típicos de datos administrativos: valores faltantes, categorías codificadas como texto en vez de como `NA`, inconsistencias entre registros de un mismo beneficiario, fechas inválidas y valores extremos. Todos identificados y tratados en el script `01_limpieza_datos.R` (sección 4 de este documento).
+
+## Enfermedad seleccionada y por qué se amplió su definición
+
+La enfermedad seleccionada inicialmente fue **hernia inguinal (CID K40)**. Sin embargo, al construir la variable objetivo, se encontraronse encontraron muy pocos beneficiarios positivos, lo que genero un desbalance de clases tan extremo que, al entrenar los modelos (ver sección 7), causó fallas reales de convergencia, la regresión logística no convergía con el conjunto completo de variables, el mecanismo de ponderación de clases nativo de `randomForest` (`classwt`) no lograba ningún efecto práctico, y la validación cruzada interna de `gbm` era inestable.
+
+Por esta razón, se decidió **ampliar la definición de la enfermedad al bloque completo de hernias abdominales de la CIE-10 (K40 a K46)**, que agrupa:
+
+| Código | Hernia                            |
+|--------|-----------------------------------|
+| K40    | Hernia inguinal                   |
+| K41    | Hernia femoral                    |
+| K42    | Hernia umbilical                  |
+| K43    | Hernia ventral                    |
+| K44    | Hernia diafragmática              |
+| K45    | Otras hernias abdominales         |
+| K46    | Hernia abdominal, no especificada |
+
+Esta decisión es una condición clínica igualmente identificable mediante códigos CID, aumenta considerablemente el número de positivos disponibles para el modelamiento.
+
+**Fuentes de consulta usadas para justificar la enfermedad y sus códigos**:
+
+-   OMS -- ICD-10 Browser: <https://icd.who.int/browse10/2019/en> (capítulo XI, bloque K40-K46).
+-   OMS -- International Classification of Diseases: <https://www.who.int/standards/classifications/classification-of-diseases>
+
+# Calidad de datos y limpieza {#limpieza}
+
+**Código completo:** `C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/code/01_limpieza_datos.R`
+
+Antes de tomar cualquier decisión de limpieza se hizo un diagnóstico completo de la base cruda : `purrr::map_df(~ sum(is.na(.x)))` para el mapa de valores `NA` reales por columna, y una revisión manual de los valores únicos de cada columna categórica para detectar códigos de "faltante" disfrazados de texto.
+
+## Problemas detectados y tratamiento aplicado
+
+```{r tabla-limpieza, echo=FALSE}
+tabla_limpieza <- tibble::tribble(
+  ~Problema, ~Magnitud, ~Tratamiento,
+  "CID = 'N/A' o '-' (texto, no NA real)", "7,667,147 filas (82 %)", "Convertido a NA real con na_if()",
+  "CID con formato inconsistente (con/sin punto CIE-10)", "~5.6 % de las filas con CID", "Punto eliminado con str_remove_all(); texto normalizado con str_squish() y str_to_upper()",
+  "Categorías '-' en especialidad, tipo de unidad, UF", "Hasta 73 % de las filas", "Convertido a NA real con na_if()",
+  "'Não Informado'/'IGNORADO' en tipo y sexo de beneficiario", "~6.4 % de las filas", "Convertido a NA real",
+  "Variante de escritura 'MASCULINO' en sexo", "1 fila (detectada en la base completa)", "Normalizado a 'M' antes de cualquier diagnóstico",
+  "Beneficiarios con sexo M y F en transacciones distintas", "525 beneficiarios", "Resuelto por moda; empates exactos -> NA",
+  "Fecha de nacimiento centinela (1900-01-01)", "4,245 filas", "Convertida a NA",
+  "Fecha de nacimiento posterior a la utilización", "31,173 filas", "Convertida a NA",
+  "Filas duplicadas exactas (16 columnas idénticas)", "743,862 filas (8.0 %)", "Eliminadas con distinct(); alternativa de conservarlas documentada y comentada en el script",
+  "VALOR_UTILIZACAO negativo o en cero", "Documentado, no eliminado", "Conservado: compatible con reversos/ajustes contables y con tarifas nulas legítimas")
+kable(tabla_limpieza, caption = "Resumen de problemas de calidad de datos y su tratamiento (script 01_limpieza_datos.R)")
+```
+
+## Justificación de las decisiones principales
+
+-   **Normalización del CID antes de cualquier análisis**: el mismo diagnóstico (p. ej. hernia inguinal) aparecía escrito como `K409`, `K40.9`, `K40` o `K40.`. Sin normalizar, el filtro por prefijo para construir la variable objetivo habría fallado en varias de estas variantes.
+-   **Resolución de sexo por moda, no por la primera observación**: como el modelo se construye a nivel de beneficiario, cada persona necesita un único valor de sexo. La moda es más robusta que "tomar el primer valor observado" porque usa toda la información disponible por beneficiario; los empates exactos (mismo número de registros "M" y "F") se dejan como `NA` en vez de escoger arbitrariamente uno de los dos.
+-   **Conservar (no eliminar) valores negativos y ceros en `VALOR_UTILIZACAO`**: son compatibles con reversos/glosas contables y con procedimientos de tarifa nula, respectivamente; eliminarlos borraría información real del comportamiento de facturación.
+-   **Duplicados exactos**: se eliminaron por defecto, pero el script deja comentada la alternativa de conservarlos (podrían ser procedimientos genuinamente repetidos el mismo día), para que la decisión quede a discreción de quien reproduzca el análisis.
+
+## Resultado
+
+Tras la limpieza, la base pasó de **9,345,278** a **8,601,208** filas (-7.96 %), manteniendo **653,631** beneficiarios únicos.
+
+# Construcción de la variable objetivo {#variable-objetivo}
+
+**Código completo:** `C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/code/02_variable_objetivo.R`
+
+## Regla de construcción
+
+Siguiendo la regla del enunciado (sección 2.4): *"si un beneficiario presenta al menos una transacción con un CID asociado a la enfermedad seleccionada, dicho beneficiario deberá recibir la etiqueta 1; en caso contrario, deberá recibir la etiqueta 0"*. La unidad de análisis es el **beneficiario** (`CHAVE_FUNCIONAL`), no la fila ni la utilización.
+
+El código usa `group_by(CHAVE_FUNCIONAL) + summarise(any(str_detect(CID, "^K4[0-6]"), na.rm = TRUE))` para colapsar de nivel transacción a nivel beneficiario.
+
+## Verificaciones de consistencia
+
+El script incluye tres `stopifnot()` que confirman automáticamente:
+
+1.  Que el número de filas de la variable objetivo coincide con el número de beneficiarios únicos de la base limpia (nadie se pierde ni se duplica).
+2.  Que el número de positivos coincide exactamente con el número de beneficiarios distintos que tienen al menos una transacción con un CID del bloque K40-K46.
+3.  (Implícita en el diseño) que `str_detect(NA, ...)` no genera positivos ni negativos espurios, gracias al uso de `na.rm = TRUE` dentro de `any()`.
+
+## Composición de la variable objetivo por tipo de hernia
+
+```{r tabla-composicion-hernia, echo=FALSE}
+tabla_hernia <- tibble::tribble(
+  ~Tipo, ~Transacciones, ~Porcentaje,
+  "Hernia inguinal (K40)", 7690, "48.1 %",
+  "Hernia umbilical (K42)", 3652, "22.8 %",
+  "Hernia ventral (K43)", 2354, "14.7 %",
+  "Hernia abdominal no especificada (K46)", 1385, "8.7 %",
+  "Hernia femoral (K41)", 562, "3.5 %",
+  "Otras hernias abdominales (K45)", 233, "1.5 %",
+  "Hernia diafragmática (K44)", 109, "0.7 %"
+)
+kable(tabla_hernia, caption = "Composición de la variable objetivo por tipo de hernia (transacciones, base completa)")
+```
+
+![Composición de la variable objetivo por tipo de hernia](C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/output/fig_01b_composicion_tipos_hernia.png)
+
+La hernia inguinal (la enfermedad seleccionada originalmente) sigue siendo el subtipo más frecuente dentro de la variable ampliada (48.1 % de las transacciones), lo cual respalda que la ampliación no diluye por completo la enfermedad de interés original.
+
+## Resultado
+
+```{r tabla-objetivo-final, echo=FALSE}
+tabla_obj <- tibble::tribble(
+  ~hernia, ~n, ~Porcentaje,
+  0, 653189, "99.932 %",
+  1, 442, "0.068 %"
+)
+kable(tabla_obj, caption = "Distribución final de la variable objetivo (653,631 beneficiarios)")
+```
+
+Solo **1 beneficiario** de los 442 positivos presentó más de un tipo de hernia distinto registrado, lo que descarta que la ampliación esté generando muchos casos "mixtos" difíciles de interpretar.
+
+# Análisis descriptivo {#descriptivo}
+
+**Código completo:** `C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/code/03_analisis_descriptivo.R`
+
+## Conteos básicos y granularidad
+
+Respetando la distinción de granularidad del enunciado (sección 2.3):
+
+```{r tabla-conteos, echo=FALSE}
+tabla_conteos <- tibble::tribble(
+  ~Concepto, ~N,
+  "Beneficiarios", "653,631",
+  "Utilizaciones (beneficiario x fecha)", "2,250,307",
+  "Procedimientos (filas)", "8,601,208"
+)
+kable(tabla_conteos, caption = "Conteos básicos de la base analizada")
+```
+
+## Distribución de la variable objetivo
+
+![Distribución de la variable objetivo (escala log10)](C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/output/fig_01_distribucion_objetivo.png)
+
+De 653,631 beneficiarios, **442 (0.068 %)** tienen al menos una transacción con un CID del bloque K40-K46. Dado este desbalance extremo, el eje Y del gráfico usa escala logarítmica: en escala lineal la barra de positivos sería invisible.
+
+**Nota metodológica** (retomada en la sección de modelamiento): con esta prevalencia, *accuracy* no es una métrica informativa. Un modelo que siempre prediga "0" tendría accuracy \> 99.9 % y sería inútil. Se prioriza PR-AUC, sensibilidad/especificidad y F1-score, y se usan técnicas de ponderación de clases al entrenar los modelos.
+
+## Distribución por sexo, edad, tipo de beneficiario y especialidad
+
+**Sexo** (tabla de contingencia y `chisq.test`, se usa `simulate.p.value = TRUE` porque, con celdas esperadas menores a 5 dado el desbalance, la aproximación chi-cuadrado clásica no es fiable):
+
+```{r tabla-sexo, echo=FALSE}
+tabla_sexo <- tibble::tribble(
+  ~Sexo, ~Sin_hernia, ~Con_hernia, ~Pct_con_hernia,
+  "F", 359716, 101, "0.028 %",
+  "M", 263048, 302, "0.115 %",
+  "NA", 30425, 39, "0.128 %"
+)
+kable(tabla_sexo, caption = "Sexo vs. variable objetivo (chi-cuadrado simulado: p = 0.0005)")
+```
+
+El sexo masculino presenta una prevalencia de hernia más de 4 veces mayor que el femenino, coherente con la literatura médica (la hernia inguinal, predominante en esta base, es varias veces más común en hombres por razones anatómicas).
+
+**Edad**:
+
+![Distribución de edad por grupo](C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/output/fig_02_edad_por_grupo.png)
+
+![Edad por sexo y grupo](C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/output/fig_03_edad_por_sexo_grupo.png)
+
+La edad media del grupo con hernia (45.4 años) es superior a la del grupo sin hernia (39.1 años), con un rango que va desde menos de 1 año hasta 89.4 años, coherente con que la hernia (especialmente la umbilical e inguinal) puede presentarse a cualquier edad, incluida la pediátrica.
+
+**Especialidad** (a nivel de utilización, no de beneficiario): las especialidades más frecuentes en beneficiarios con hernia son *Pronto Atendimento Geral* (23.6 %), *Médico Clínico* (22.7 %), *Médico Pediatra* (11.6 %), *Clínico Geral* (5.6 %), *Anestesiologista* (5.6 %) y *Cirurgião Geral* (4.2 %) -- un patrón clínicamente coherente con el manejo de una condición quirúrgica.
+
+## Valores faltantes (post-limpieza)
+
+```{r tabla-na-post, echo=FALSE}
+tabla_na <- tibble::tribble(
+  ~Columna, ~N_NA, ~Pct,
+  "CID", 7767122, "90.3 %",
+  "DESC_ESPECIALIDADE", 6295891, "73.2 %",
+  "PORTE_ANESTESICO", 3621327, "42.1 %",
+  "TIPO_UNIDADE_PREST_HOSPITALAR", 2410502, "28.0 %",
+  "UF_CNES_PREST_HOSPITALAR", 2410502, "28.0 %",
+  "TIPO_BENEFICIARIO", 553973, "6.4 %",
+  "SEXO_BENEFICIARIO", 546370, "6.4 %",
+  "DT_NASCIMENTO_BENEFICIARIO", 35433, "0.4 %"
+)
+kable(tabla_na, caption = "Valores NA reales tras la limpieza")
+```
+
+Solo el 0.2 % de las filas están completamente libres de `NA` en todas las columnas.  Esto es esperado dado que `CID` (90.3 % NA) es, por definición, un campo que solo se completa cuando hay un diagnóstico asociado a esa transacción específica.
+
+## Valores extremos en `VALOR_UTILIZACAO`
+
+Usando la regla 1.5×IQR :
+
+-   Q3 = 74.06, IQR = 69.38 → límite superior = **178.13**
+-   **640,836 filas (7.45 %)** superan ese límite.
+
+Como se decidió en la limpieza, estos valores no se eliminan: son compatibles con procedimientos de alta complejidad (cirugías, UCI prolongada).
+
+![VALOR_UTILIZACAO por grupo (escala log10)](C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/output/fig_04_valor_utilizacao_por_grupo.png)
+
+Los procedimientos de beneficiarios con hernia muestran mediana y dispersión de costo más altas que el resto. Esto es coherente con que la hernia suele requerir manejo quirúrgico (cirugía + anestesia + posible hospitalización), más costoso que una consulta ambulatoria típica.
+
+# Construcción de variables {#variables}
+
+**Código completo:** `C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/code/04_construccion_variables.R`
+
+
+La variable objetivo se construyó a partir de si el `CID` de una transacción pertenece al bloque K40-K46. Por tanto, **cualquier variable derivada directamente del `CID`** (número de diagnósticos, diagnóstico más frecuente, o dejar el CID crudo como predictor) filtraría la respuesta al modelo casi perfectamente. El script:
+
+-   Descarta el `CID` por completo como fuente de variables predictoras.
+-   Construye todas las variables de conteo (procedimientos, utilizaciones, especialidades, etc.) sin distinguir si la fila tenía o no un CID de hernia.
+-   Incluye una verificación automática (`stopifnot(!("CID" %in%   names(dataset_modelamiento)))`) que haría fallar el script si en el futuro alguien reintrodujera el `CID` por error.
+
+## Variables construidas (38 columnas, una fila por beneficiario)
+
+| Bloque | Variables | Técnica |
+|------------------------|------------------------|------------------------|
+| Demográficas | `sexo`, `tipo_beneficiario`, `edad` | `group_by` + `first()`; edad calculada a la fecha máxima de `DT_UTILIZACAO` observada |
+| Volumen | `n_procedimientos`, `n_utilizaciones`, `procedimientos_por_utilizacion` | Distinción de granularidad del enunciado (2.3): utilización = combinación única beneficiario+fecha |
+| Clínicas | `tuvo_internacion`, `n_internaciones`, `tuvo_uci`, `n_uci`, `porte_anestesico_max`, `porte_anestesico_promedio` | Indicador binario "alguna vez" + conteo, como sugiere el enunciado (2.6) |
+| Tipo de utilización | `n_cetipo_*` (consulta, exame, terapia, internação, pronto_socorro, outros) | `pivot_wider`  |
+| Especialidad | `n_esp_*` (top 8 especialidades globales + "otras"), `n_especialidades_distintas` | `pivot_wider` + conteo de categorías distintas (diversidad de atención) |
+| Costos | `costo_total`, `costo_total_sin_neg`, `costo_promedio`, `costo_maximo` | Se calculan sobre TODOS los procedimientos del beneficiario, no solo los de hernia |
+| Ubicación/institución | `uf_mas_frecuente`, `n_uf_distintas`, `tipo_unidad_mas_frecuente`, `n_tipos_unidad_distintos` | Moda por beneficiario + conteo de categorías distintas |
+
+Los conteos de especialidad top se basan en las 8 especialidades **más frecuentes de la base completa** (no solo del grupo positivo), para no sesgar la elección de categorías hacia la enfermedad buscada.
+
+
+# Modelamiento predictivo {#modelamiento}
+
+**Código completo:** `C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/code/05_modelamiento.R`
+
+## Decisiones metodológicas clave
+
+**a) Validación**: split simple 80/20 estratificado con `caret::createDataPartition`, en vez de validación cruzada k-fold. Con 442 positivos en 653,631 beneficiarios, un k-fold repetiría el mismo problema de pocos positivos por fold, con la complicación añadida de variabilidad entre folds; el split simple es más simple de interpretar y suficiente para esta primera aproximación.
+
+**b) Balanceo de clases**: se usó ponderación de clases como estrategia principal, con un mecanismo distinto por algoritmo:
+
+| Modelo | Mecanismo | Nota |
+|------------------------|------------------------|------------------------|
+| Regresión logística  | `weights` en `glm()` | Funciona como se espera: cada positivo pesa `ratio_desbalance` veces más que un negativo |
+| Random Forest  | `sampsize` (no `classwt`) | `classwt`, se probó primero mas incluso con pesos extremos el modelo no detectaba ningún positivo (limitación conocida de esa implementación); se usa en su lugar `sampsize`, otro mecanismo nativo del mismo paquete, que sí logra el balanceo buscado |
+| GBM  | `weights` en `gbm()` | Igual que en `glm`, re-pesa la función de pérdida |
+
+**c) Métricas**: dado el desbalance extremo, no se prioriza *accuracy*. Se reportan sensibilidad, especificidad, F1-score, ROC-AUC y **PR-AUC como métrica principal** (`MLmetrics::PRAUC()`): con una clase positiva tan rara, la curva ROC puede verse artificialmente buena porque su denominador (negativos totales) es enorme; PR-AUC, cuyo denominador es el número de positivos *predichos*, es más sensible a los falsos positivos y es la métrica que recomienda el enunciado del taller para este tipo de problema.
+
+## Selección de variables para la regresión logística
+
+Con las 36 variables candidatas completas, `glm()` no convergía (coeficientes del orden de 10¹⁴, *"algorithm did not converge"*): con solo 354 positivos en entrenamiento y 36 variables, se está muy por debajo de la regla práctica de \~10 eventos por variable (que pediría \~360 positivos). Se restringió el modelo a 9 variables elegidas por mayor diferencia estandarizada de medias entre grupos y evitando pares muy correlacionados entre sí:
+
+`tuvo_internacion`, `porte_anestesico_max`, `edad`, `n_procedimientos`, `costo_total`, `n_especialidades_distintas`, `sexo`, `tuvo_uci`, `n_utilizaciones`.
+
+## Resultados en el conjunto de prueba
+
+```{r tabla-modelos, echo=FALSE}
+tabla_modelos <- tibble::tribble(
+  ~Modelo, ~Accuracy, ~Sensibilidad, ~Especificidad, ~F1, ~ROC_AUC, ~PR_AUC, ~VP, ~FP, ~FN, ~VN,
+  "Random Forest", 0.980, 0.977, 0.980, 0.0624, 0.998, 0.336, 86, 2583, 2, 128054,
+  "Gradient Boosting (GBM)", 0.977, 1.000, 0.977, 0.0558, 0.997, 0.161, 88, 2976, 0, 127661,
+  "Regresión logística", 0.966, 0.989, 0.966, 0.0372, 0.982, 0.019, 87, 4505, 1, 126132
+)
+kable(tabla_modelos, caption = "Comparación de modelos (test: 130,725 beneficiarios, 88 positivos)", digits = 4)
+```
+
+*(Nota de lectura: el F1-score bajo, a pesar de sensibilidades altas, es esperado y se explica en la sección de interpretación.)*
+
+## Importancia de variables
+
+```{r tabla-importancia, echo=FALSE}
+tabla_imp <- tibble::tribble(
+  ~Variable, ~RF_Gini, ~GBM_pct,
+  "n_cetipo_internacao", 120.58, "82.61 %",
+  "porte_anestesico_max", 74.61, "4.38 %",
+  "costo_total", 63.43, "0.51 %",
+  "porte_anestesico_promedio", 60.30, "0.62 %",
+  "costo_total_sin_neg", 48.52, "--",
+  "costo_maximo", 44.65, "2.04 %"
+)
+kable(tabla_imp, caption = "Importancia de variables en Random Forest (MeanDecreaseGini) y GBM (influencia relativa)")
+```
+
+![Curvas ROC comparadas](C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/output/fig_05_curvas_roc.png)
+
+![Curvas Precisión-Recall comparadas](C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/output/fig_06_curvas_pr.png)
+
+![Importancia de variables - Random Forest](C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/output/fig_07_importancia_rf.png)
+
+![Importancia de variables - GBM](C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/output/fig_08_importancia_gbm.png)
+
+
+# Interpretación de resultados {#interpretacion}
+
+**Código completo:** `C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/code/06_interpretacion_resultados.R`
+
+## 1. Variables más importantes
+
+Se buscó **consenso entre los tres modelos** (variables que aparecen en el top 10 de más de un modelo), evidencia más robusta que la importancia de un solo algoritmo:
+
+```{r tabla-consenso, echo=FALSE}
+tabla_consenso <- tibble::tribble(
+  ~Variable, ~Logística, ~RF, ~GBM, ~N_modelos,
+  "costo_total", "Sí", "Sí", "Sí", 3,
+  "porte_anestesico_max", "Sí", "Sí", "Sí", 3,
+  "costo_maximo", "No", "Sí", "Sí", 2,
+  "n_cetipo_internacao", "No", "Sí", "Sí", 2,
+  "porte_anestesico_promedio", "No", "Sí", "Sí", 2,
+  "tipo_unidad_mas_frecuente", "No", "Sí", "Sí", 2,
+  "tuvo_internacion", "Sí", "Sí", "No", 2
+)
+kable(tabla_consenso, caption = "Variables en consenso entre modelos (top 10)")
+```
+
+## 2. Relación con la enfermedad (Partial Dependence Plots)
+
+Se calcularon PDP (fórmula $f_j(x_j) = \frac{1}{n}\sum_i f(x_j, x_{-j}^{(i)})$) implementados manualmente sobre Random Forest, ya que el paquete `pdp` no estaba disponible en el entorno de desarrollo original.
+
+![PDP: porte anestésico máximo](C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/output/fig_09_pdp_porte_anestesico.png)
+
+![PDP: costo total acumulado](C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/output/fig_10_pdp_costo_total.png)
+
+**Discusión clínica:**
+
+-   **`porte_anestesico_max`**: la reparación de una hernia es, en la gran mayoría de los casos, un procedimiento quirúrgico que requiere anestesia. El PDP confirma que la probabilidad predicha aumenta marcadamente con el porte anestésico observado.
+-   **`costo_total` / `costo_maximo`**: consecuencia directa de lo anterior; actúan como proxy agregado de "intensidad de atención".
+-   **`n_cetipo_internacao`**: mide cuántas veces el beneficiario tuvo una utilización clasificada como "Internação". Es la variable individual más influyente en GBM (82.6 % de la influencia relativa).
+-   **`sexoM`**: coeficiente positivo grande en la regresión logística, coherente con que la hernia inguinal (48.1 % de los casos) es más común en hombres por razones anatómicas.
+
+El patrón es clínicamente sensato: el modelo no aprende una asociación espuria, sino la consecuencia lógica de que la hernia se trata quirúrgicamente.
+
+## 3. Comparación entre los modelos
+
+-   **Regresión logística**: mayor interpretabilidad directa (coeficientes en log-odds), pero tuvo que restringirse a 9 de 36 variables para converger; es el modelo con menor PR-AUC.
+-   **Random Forest**: usa las 36 variables sin problemas de convergencia, captura relaciones no lineales; mejor PR-AUC (0.336) y mejor ROC-AUC (0.998) de los tres.
+-   **GBM**: buen desempeño (PR-AUC 0.161), pero depende fuertemente de un solo predictor dominante (`n_cetipo_internacao`, 82.6 % de la influencia), lo que podría fragilizar su desempeño si esa variable faltara en datos futuros.
+
+Los tres modelos identifican consistentemente las mismas variables clave, lo cual es una señal de robustez del hallazgo, no un artefacto de un solo algoritmo.
+
+## 4. Análisis de errores (modelo con mejor PR-AUC: Random Forest)
+
+```{r tabla-errores, echo=FALSE}
+tabla_err <- tibble::tribble(
+  ~Categoría, ~N,
+  "Verdaderos positivos", 86,
+  "Falsos negativos", 2,
+  "Falsos positivos", 2583
+)
+kable(tabla_err, caption = "Matriz de aciertos y errores (Random Forest, umbral 0.5)")
+```
+
+Los **2 falsos negativos** tenían `porte_anestesico_max` bajo (0 y 2) y `tuvo_internacion = 0`, muy por debajo del perfil promedio de los verdaderos positivos (`porte_anestesico_max` = 3.06, `tuvo_internacion` = 0.43): son casos donde el registro de esa transacción específica no captó la señal quirúrgica típica.
+
+Los **falsos positivos con mayor probabilidad predicha** comparten perfil con los verdaderos positivos (alto costo, alto porte anestésico, alguna internación): probablemente son beneficiarios con otras cirugías abdominales (apendicitis, colecistectomía) que el modelo confunde porque comparte el mismo patrón de "utilización intensiva de servicios". Esto sugiere que las variables actuales capturan bien la intensidad de atención en general, pero no son suficientemente específicas para distinguir la hernia de otras condiciones quirúrgicas.
+
+## 5. Sesgos y limitaciones de los datos
+
+1.  **Desbalance extremo de clases** (0.068 % de prevalencia, incluso tras ampliar de K40 a K40-K46): cualquier métrica en test tiene alta varianza.
+2.  **Sesgo de definición**: agrupar 7 subtipos clínicos en una etiqueta binaria mitiga el desbalance, pero hace la condición predicha más heterogénea que "hernia inguinal" específicamente.
+3.  **La variable objetivo proviene de registros administrativos, no de diagnóstico clínico directo**: posible subregistro (falsos negativos por hernias no codificadas) y sin control de calidad diagnóstica.
+4.  **Multicolinealidad** entre variables de costo entre sí y entre variables de internación entre sí: dificulta atribuir causalidad a una variable específica.
+5.  **Falta de variables clínicas de fondo** (IMC, antecedentes quirúrgicos, comorbilidades, esfuerzo físico): el modelo solo aprende de proxies indirectos (patrones de atención), no de determinantes clínicos directos.
+6.  **Valores faltantes potencialmente MNAR** (Missing Not At Random) en especialidad y tipo de unidad: si la ausencia depende del tipo de atención, la imputación simple no corrige el sesgo subyacente.
+7.  **Generalización limitada**: la base corresponde a un plan de salud suplementario brasileño; los hallazgos no deberían extrapolarse a otro sistema de salud sin validación adicional.
+
+# Estimación de costos {#costos}
+
+**Código completo:** `C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/code/07_estimacion_costos.R`
+
+## Unidad de análisis: el procedimiento
+
+Se usa el **procedimiento** (cada fila de la base, con su propio `VALOR_UTILIZACAO`) como unidad de análisis del costo, en vez de utilización o beneficiario, porque:
+
+-   Es la unidad más granular observada **directamente** en la base, sin necesidad de decidir primero cómo agregar (un "costo por beneficiario" ya mezcla "cuánto cuesta un procedimiento" con "cuántos procedimientos consumió" esa persona).
+-   Permite modelar el costo en función de las características *del procedimiento específico* (porte anestésico, tipo de unidad, etc.), tal como pide el enunciado (sección 2.9).
+
+## Costo promedio y variabilidad
+
+```{r tabla-costo-resumen, echo=FALSE}
+tabla_costo <- tibble::tribble(
+  ~Grupo, ~N, ~Media, ~Mediana, ~SD, ~P95, ~Max, ~CV,
+  "Procedimientos de hernia", 15985, 196.05, 14.40, 634.36, 999.71, 14483.15, 3.24,
+  "Todos los procedimientos", 8601208, 107.31, 17.96, 1182.74, 271.38, NA_real_, 11.02
+)
+kable(tabla_costo, caption = "Costo por procedimiento: hernia vs. base general (VALOR_UTILIZACAO)")
+```
+
+El costo promedio de un procedimiento de hernia (**\$196.05**) es **1.8 veces** el de un procedimiento típico (**\$107.31**). La mediana muy por debajo de la media (14.40 vs. 196.05) confirma el fuerte sesgo a la derecha ya visto en el análisis descriptivo. El coeficiente de variación de hernia (3.24) es menor que el general (11.02): el costo de hernia, aunque disperso, es relativamente más predecible que el de la base general (que mezcla desde consultas de bajo costo hasta cirugías de alta complejidad de otras especialidades).
+
+![Distribución del costo: hernia vs. general](C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/output/fig_11_costo_hernia_vs_general.png)
+
+## Modelo de estimación del costo esperado
+
+Se ajustó un modelo `lm(log(costo) ~ ...)` ( la transformación logarítmica es la recomendada  para variables de respuesta con sesgo fuerte a la derecha y heterocedasticidad). Variables incluidas: porte anestésico (categórico, con nivel `sin_dato` explícito en vez de imputar), sexo, edad y tipo de unidad hospitalaria agrupado (`HOSPITAL GERAL` vs. `otro` vs. `sin_dato`). `CETIPO`, `INTERNADO` y `UTI` se excluyeron por no variar prácticamente dentro de los procedimientos de hernia (\>99 % son "Internação", 0 % con UCI).
+
+```{r tabla-modelo-costo, echo=FALSE}
+tabla_coef_costo <- tibble::tribble(
+  ~Variable, ~Cambio_pct, ~p_valor,
+  "Porte anestésico 2", "+843.2 %", "< 0.001",
+  "Porte anestésico 3", "+1,115.7 %", "< 0.001",
+  "Porte anestésico 4", "+1,605.7 %", "< 0.001",
+  "Porte anestésico 5", "+1,766.3 %", "< 0.001",
+  "Porte anestésico 6", "+3,249.7 %", "< 0.001",
+  "Porte anestésico 7", "+9,556.2 %", "0.0015",
+  "Sexo masculino", "+12.0 %", "0.0027",
+  "Edad (por año)", "+0.3 %", "0.0001",
+  "Tipo unidad 'sin_dato'", "+25.3 %", "< 0.001",
+  "Tipo unidad 'otro'", "+10.3 % (no significativo)", "0.070"
+)
+kable(tabla_coef_costo, caption = "Efecto porcentual estimado sobre el costo (n = 15,933; R² ajustado = 0.168)")
+```
+
+## Estimación bajo distintos perfiles
+
+Se aplicó la **corrección de Duan** (*smearing estimator*: factor de corrección = 11.217, el promedio empírico de `exp(residuo)` del modelo) para destransformar las predicciones de escala log a escala original sin sesgo sistemático:
+
+```{r tabla-perfiles-costo, echo=FALSE}
+tabla_perfiles <- tibble::tribble(
+  ~Perfil, ~Costo_esperado, ~IC_95,
+  "Sin cirugía mayor, mujer adulta", "$143", "$133 - $154",
+  "Cirugía menor (porte 2), hombre adulto", "$2,296", "$1,993 - $2,644",
+  "Cirugía compleja (porte 5), mujer adulta", "$4,055", "$3,270 - $5,029",
+  "Cirugía compleja (porte 5), hombre adulto", "$4,543", "$3,690 - $5,592",
+  "Cirugía compleja (porte 5), hombre adulto, otro tipo de unidad", "$5,009", "$4,047 - $6,199",
+  "Cirugía compleja (porte 5), hombre 70 años", "$5,027", "$4,089 - $6,178"
+)
+kable(tabla_perfiles, caption = "Costo esperado por procedimiento según perfil clínico")
+```
+
+![Costo esperado por procedimiento según perfil](C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/output/fig_12_costo_esperado_perfiles.png)
+
+## Variables más asociadas al costo y limitaciones
+
+**Porte anestésico** domina por mucha diferencia (hasta +9,556 % en el nivel más alto): es una escala directa de complejidad quirúrgica. El **sexo masculino** (+12 %) y la **edad** (+0.3 % por año) tienen efectos más modestos pero significativos.
+
+**Limitaciones de esta estimación:**
+
+-   R² ajustado modesto (0.168): las variables disponibles explican una fracción limitada de la variabilidad total del costo; factores no observados (duración exacta de cirugía, insumos, complicaciones) quedan fuera de la base.
+-   **87 % de valores faltantes en porte anestésico** (la variable más importante para el costo es, a la vez, la que menos se observa).
+-   No se pudo incluir especialidad como predictor por su altísimo porcentaje de `NA` específicamente en los procedimientos de hernia.
+-   La corrección de Duan asume homocedasticidad en escala log entre todos los perfiles, supuesto que podría no cumplirse exactamente entre cirugías de bajo y alto porte.
+-   El "costo esperado por procedimiento" no equivale al costo total de un episodio de atención (que puede incluir varios procedimientos).
+
+# Conclusiones, limitaciones y trabajos futuros
+
+## ¿Qué tan bien se logró identificar a los beneficiarios asociados a la enfermedad seleccionada?
+
+Razonablemente bien dado el desbalance extremo: el mejor modelo (Random Forest) alcanzó **sensibilidad de 97.7 %** (detectó 86 de 88 positivos de prueba) y **PR-AUC de 0.336**, muy por encima de la línea base de un modelo aleatorio (\~0.0007, la prevalencia). Sin embargo, la **precisión es baja** (muchos falsos positivos en términos absolutos, 2,583), por lo que el modelo es más útil como herramienta de **cribado** (priorizar a quién revisar con más atención) que como clasificador definitivo.
+
+## ¿Qué variables parecen estar más relacionadas con la enfermedad?
+
+En consenso entre los tres modelos: **`costo_total`** y **`porte_anestesico_max`**, seguidas de indicadores de internación (`n_cetipo_internacao`, `tuvo_internacion`) y de costo máximo. Todas reflejan, directa o indirectamente, que la hernia se resuelve quirúrgicamente. El **sexo masculino** es el principal factor demográfico asociado, coherente con la literatura médica para hernia inguinal.
+
+## ¿Qué tan confiable es el modelo construido?
+
+Con reservas importantes. Las métricas fueron calculadas sobre solo 88 positivos en el conjunto de prueba, lo que les da alta varianza (un solo caso mal clasificado cambia sensiblemente la sensibilidad reportada). El modelo también depende de variables que son consecuencia de la enfermedad ya tratada (costo, internación, anestesia) más que de factores de riesgo previos al diagnóstico, por lo que su utilidad predictiva *prospectiva* (antes de que ocurra la atención) es limitada; es más un modelo que reconoce el *patrón de atención típico* de una hernia ya en tratamiento.
+
+## ¿Qué limitaciones tiene la base de datos?
+
+Es una base administrativa (registros de utilización y facturación), no clínica: carece de variables de riesgo directas (IMC, antecedentes quirúrgicos, esfuerzo físico ocupacional). Tiene además valores faltantes muy altos en columnas clave (90.3 % en CID, 73.2 % en especialidad, 42.1 % en porte anestésico) y depende de la calidad y consistencia de la codificación (CID, CETIPO) hecha por cada prestador.
+
+## ¿Qué limitaciones tiene la estrategia de modelamiento utilizada?
+
+Se tuvo que ampliar la definición de la enfermedad (de K40 a K40-K46) para lograr un número de positivos manejable, lo que diluye la especificidad clínica del hallazgo original. La regresión logística tuvo que restringirse a 9 de 36 variables para converger. El *split* simple 80/20 (en vez de validación cruzada) da una sola estimación de desempeño, sin cuantificar su variabilidad entre particiones distintas.
+
+## ¿Qué mejoras podrían realizarse en un trabajo futuro?
+
+-   Repetir el análisis usando validación cruzada estratificada repetida (o *bootstrap*) para cuantificar la variabilidad real de las métricas.
+-   Instalar y usar `xgboost` para comparar contra un cuarto algoritmo de boosting.
+-   Explorar técnicas de sobremuestreo (SMOTE) como alternativa/complemento a la ponderación de clases.
+-   Incorporar variables clínicas adicionales si estuvieran disponibles en otra fuente (IMC, comorbilidades, antecedentes quirúrgicos).
+-   Modelar por separado los subtipos de hernia más frecuentes (inguinal, umbilical) en vez de agruparlos todos, si se logra recolectar más datos para K40 específicamente.
+-   Usar SHAP values para una atribución de importancia más rigurosa que las medidas nativas de cada paquete, si se dispone de un entorno con más recursos para instalar los paquetes correspondientes.
+
+# Reproducibilidad
+
+## Ubicación del proyecto
+
+Todos los archivos de este taller (datos, código y salidas) viven en:
+
+```         
+C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03
+```
+
+## Estructura de la carpeta personal
+
+```         
+taller_03/
+├── db_2026.csv
+│     
+├── code/
+│   ├── 01_limpieza_datos.R
+│   ├── 02_variable_objetivo.R
+│   ├── 03_analisis_descriptivo.R
+│   ├── 04_construccion_variables.R
+│   ├── 05_modelamiento.R
+│   ├── 06_interpretacion_resultados.R
+│   └── 07_estimacion_costos.R
+├── output/                        # se genera al correr los scripts
+│   ├── datos_limpios.rds
+│   ├── variable_objetivo.rds
+│   ├── dataset_modelamiento.rds
+│   ├── modelo_*.rds
+│   ├── resultados_modelamiento.rds
+│   └── fig_*.png
+└── taller_3.Rmd                   # este documento
+```
+
+## Pasos para reproducir el análisis
+
+1.  Colocar la base de datos en `C:/Users/jorge/OneDrive/Escritorio/Materias/Mineria/dm_2016325/grupo_2/sanchez_jorge/taller_03/data/`.
+2.  Correr los scripts en orden estricto (`01` a `07`) desde esa misma carpeta como directorio de trabajo (`setwd()` a la ruta de arriba, o abrir el proyecto de RStudio desde ahí): cada uno depende de los `.rds` que genera el anterior en `output/`.
+3.  Paquetes de R requeridos: `dplyr`, `readr`, `stringr`, `lubridate`, `tidyr`, `ggplot2`, `scales`, `knitr`, `purrr`, `caret`, `randomForest`, `gbm`, `pROC`, `MLmetrics`.
+4.  Una vez que existan todos los `.rds` y `.png` en `output/`, compilar este documento con `rmarkdown::render("taller_3.Rmd")` (o el botón *Knit* de RStudio) desde la misma ruta del proyecto. Las imágenes y el chunk de `setup` ya apuntan a la ruta absoluta indicada arriba, así que el documento compila correctamente sin importar desde qué carpeta se invoque el render, siempre que los archivos existan en esa ruta.
+
+## Referencias de clase usadas en este taller
+
+| Clase | Tema | Uso en este taller |
+|------------------------|------------------------|------------------------|
+| Clase 7 | Limpieza, transformación y normalización de datos | Diagnóstico inicial, `na_if`, `str_squish`, `pivot_wider`, regla 1.5×IQR |
+| Clase 8 | Git, Valores Faltantes e Integración | Marco MCAR/MAR/MNAR para justificar tratamiento de NA |
+| Clase 9 | Tablas, Gráficos y Distribuciones de Frecuencia | `ggplot2`, `theme_minimal`, `scales` |
+| Clase 12 | Tablas de contingencia | `table()`, `prop.table()`, `chisq.test()` |
+| Clase 13 | Regresión lineal y logística | `glm(family=binomial)`, `lm(log(y)~...)`, `pROC` |
+| Clase 15 | Random Forest | `randomForest()`, `importance()`, `varImpPlot()`, PDP |
+| Clase 16 | Gradient Boosting / XGBoost | `gbm()`, `xgb.train()`, `scale_pos_weight` |
+
+## Fuentes externas citadas
+
+-   OMS -- ICD-10 Browser: <https://icd.who.int/browse10/2019/en>
+-   OMS -- International Classification of Diseases: <https://www.who.int/standards/classifications/classification-of-diseases>
