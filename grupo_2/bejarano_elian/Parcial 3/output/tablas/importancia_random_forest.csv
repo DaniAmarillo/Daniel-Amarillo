@@ -1,0 +1,41 @@
+feature,importancia
+n_cetipo_internacao,0.19444603122930673
+edad_referencia,0.1471012277181589
+costo_total_no_cardio,0.060724344202465745
+cetipo_moda_Internação,0.057531026456970905
+costo_min_no_cardio,0.052834741555783465
+costo_max_no_cardio,0.04929386635201789
+n_registros_no_cardio,0.04915796159129114
+n_cetipos_no_cardio,0.046666838434474965
+n_procedimientos_distintos_no_cardio,0.04350179748385229
+costo_sd_no_cardio,0.03777008219643711
+n_utilizaciones_no_cardio,0.032944369123817395
+costo_promedio_no_cardio,0.02728155001087743
+n_cetipo_exame,0.020652836182335862
+n_cetipo_consulta,0.01881416993866389
+n_unidades_no_cardio,0.009937774129450643
+n_cetipo_outros,0.009159401315730842
+sexo_moda_F,0.008698754122280453
+cetipo_moda_Consulta,0.008586307146417066
+n_especialidades_no_cardio,0.007015573061802313
+estado_moda_SP,0.006917201749023598
+n_cetipo_pronto_socorro,0.006513713385949633
+tasa_internado_no_cardio,0.005993999669935802
+n_cetipo_terapia,0.005775861639160946
+tipo_beneficiario_moda_DEPENDENTE,0.0056116815942941056
+estado_moda_PR,0.0054680635360156655
+sexo_moda_M,0.0051685961968192
+tipo_unidad_moda_HOSPITAL GERAL,0.004885909477685053
+especialidad_moda_Desconocido,0.004613207883488481
+cetipo_moda_Exame,0.00440367453754498
+tipo_beneficiario_moda_Não Informado,0.004274477029207754
+tipo_beneficiario_moda_TITULAR,0.004129373850147819
+estado_moda_MT,0.003944843807371133
+paso_internado_no_cardio,0.003787501435613043
+n_internado_no_cardio,0.0036474377573470318
+estado_moda_Desconocido,0.0036216982470879135
+sexo_moda_Não Informado,0.0030126651329859112
+cetipo_moda_Outros,0.0028034565075650856
+tipo_unidad_moda_UNIDADE DE APOIO DIAGNOSE E TERAPIA (SADT ISOLADO),0.0026881840187589147
+n_estados_no_cardio,0.002569477797938203
+tipo_unidad_moda_Desconocido,0.002444559526854797
