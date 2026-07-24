@@ -5,6 +5,8 @@ account: qwbdau-wlucano
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 17479886
-bundleId: 12097186
+bundleId: 12106042
 url: https://qwbdau-wlucano.shinyapps.io/entrega_2/
 version: 1
+asMultiple: FALSE
+asStatic: FALSE

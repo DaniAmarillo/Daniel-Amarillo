@@ -10,6 +10,16 @@ library(jsonlite)
 library(DT)
 library(shinyjs)
 library(chromote)
+library(curl)
+library(pagedown)
+
+if (Sys.getenv('SHINY_PORT') != "") { 
+  chromote::set_chrome_args(c(
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu"
+  ))
+}
 
 # --- CLAVE DE SUPERUSUARIO ---
 SUPERUSER_PASS <- "mineria2026"
