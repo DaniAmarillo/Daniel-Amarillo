@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.37">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>taller</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+</style>
+
+
+<script src="taller_files/libs/clipboard/clipboard.min.js"></script>
+<script src="taller_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="taller_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="taller_files/libs/quarto-html/popper.min.js"></script>
+<script src="taller_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="taller_files/libs/quarto-html/anchor.min.js"></script>
+<link href="taller_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="taller_files/libs/quarto-html/quarto-syntax-highlighting-7f8f88aac4f3542376d5c11b86a4c14d.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="taller_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="taller_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="taller_files/libs/bootstrap/bootstrap-efbb37e9afcc02144ebbc7afd12a776f.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+</head>
+
+<body class="fullcontent quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+
+<main class="content" id="quarto-document-content">
+
+
+
+
+<section id="minería-de-datos-sobre-utilización-en-salud-identificación-de-beneficiarios-con-enfermedad-hipertensiva-cid-i10i15" class="level1">
+<h1>Minería de datos sobre utilización en salud: identificación de beneficiarios con enfermedad hipertensiva (CID I10–I15)</h1>
+<p><strong>Taller 3 — Minería de Datos (2016325)</strong> Tomás Nicolás Jerez Garcia · Universidad Nacional de Colombia</p>
+<hr>
+<section id="resumen-ejecutivo" class="level2">
+<h2 class="anchored" data-anchor-id="resumen-ejecutivo">Resumen ejecutivo</h2>
+<p>Se analizó una base de <strong>9.345.278 utilizaciones</strong> en salud correspondientes a <strong>653.631 beneficiarios</strong> para construir un clasificador binario que identifique a los beneficiarios con <strong>enfermedad hipertensiva (CID I10–I15)</strong> a partir de sus patrones de uso. El reto central resultó ser la <strong>subcodificación del diagnóstico</strong>: el 90 % de los beneficiarios tiene el CID como el literal <code>"N/A"</code>, de modo que solo <strong>272 beneficiarios (0.042 %)</strong> quedan etiquetados como positivos. Es, por lo tanto, un problema de <strong>clasificación de evento raro extremo</strong> (desbalance ≈ 1:2400).</p>
+<p>Pese a ello, un modelo <strong>Random Forest</strong> alcanzó <strong>ROC-AUC = 0.93</strong> y <strong>PR-AUC = 0.36</strong> frente a una línea base de 0.0004 (un <em>lift</em> de ~600×). Un <strong>test de permutación de etiquetas</strong> (AUC con el target barajado → 0.51) descarta fuga de información. La interpretación muestra que la señal proviene mayoritariamente de la <strong>intensidad de uso y el costo</strong> —el <em>footprint</em> del manejo ambulatorio crónico— más que de marcadores fisiológicos de la enfermedad, lo que introduce un sesgo de selección que se discute en detalle. Finalmente, el costo de una utilización codificada como hipertensión es bajo en la mediana (R$ 18), pero los beneficiarios hipertensos cuestan en promedio <strong>3.7× más al año</strong> por una cola de casos complejos.</p>
+<hr>
+</section>
+<section id="comprensión-del-problema" class="level2">
+<h2 class="anchored" data-anchor-id="comprensión-del-problema">1. Comprensión del problema</h2>
+<p>El objetivo es predecir, a nivel de <strong>beneficiario</strong>, si presenta enfermedad hipertensiva, definida como la presencia de al menos una utilización con un código CID en el rango <strong>I10–I15</strong> (hipertensión esencial y enfermedades hipertensivas asociadas). Se eligió el bloque completo I10–I15 en lugar de solo I10 para maximizar el número de positivos, de forma análoga al ejemplo de diabetes (E10–E14) del enunciado.</p>
+<p>La variable objetivo se construye por agregación:</p>
+<p><span class="math display">\[\text{target}_i = \mathbb{1}\left[\exists\; t \in T_i : \text{CID}_t \in \{I10, \dots, I15\}\right]\]</span></p>
+<p>donde <span class="math inline">\(T_i\)</span> son las transacciones del beneficiario <span class="math inline">\(i\)</span>.</p>
+<p><strong>Hallazgo que condiciona todo el trabajo.</strong> Un escaneo inicial de prevalencia reveló que ninguna enfermedad identificable por CID supera el 0.2 % de prevalencia a nivel de beneficiario. La causa es que el CID está ausente (como <code>"N/A"</code> o vacío) en la gran mayoría de las utilizaciones: solo una minoría de beneficiarios tiene algún diagnóstico registrado. En consecuencia, el problema no es de clasificación balanceada sino de <strong>detección de evento raro</strong>, y esta característica —más que la elección de la enfermedad— define la metodología de todo el taller.</p>
+<hr>
+</section>
+<section id="datos-y-preparación" class="level2">
+<h2 class="anchored" data-anchor-id="datos-y-preparación">2. Datos y preparación</h2>
+<section id="fuente-y-volumen" class="level3">
+<h3 class="anchored" data-anchor-id="fuente-y-volumen">2.1 Fuente y volumen</h3>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Concepto</th>
+<th>Valor</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Transacciones (procedimientos)</td>
+<td>9.345.278</td>
+</tr>
+<tr class="even">
+<td>Beneficiarios únicos</td>
+<td>653.631</td>
+</tr>
+<tr class="odd">
+<td>Utilizaciones (visita-día distinta)</td>
+<td>2.250.307</td>
+</tr>
+<tr class="even">
+<td>Procedimientos distintos</td>
+<td>3.252</td>
+</tr>
+<tr class="odd">
+<td>Rango de fechas</td>
+<td>2026-01-01 a 2026-12-08</td>
+</tr>
+</tbody>
+</table>
+<p>Cada fila representa un procedimiento; un beneficiario puede tener múltiples procedimientos por visita-día. Se distinguió explícitamente <code>n_procedimientos</code> (filas) de <code>n_utilizaciones</code> (pares <code>CHAVE_FUNCIONAL</code>+fecha) para no inflar los conteos de uso.</p>
+</section>
+<section id="calidad-de-datos" class="level3">
+<h3 class="anchored" data-anchor-id="calidad-de-datos">2.2 Calidad de datos</h3>
+<p>Los principales problemas detectados fueron:</p>
+<ul>
+<li><strong>CID ausente en ~90 %.</strong> El código diagnóstico viene como el literal <code>"N/A"</code> para <strong>588.573 de 653.631 beneficiarios (90.0 %)</strong>, además de valores nulos/vacíos (6.6 % de las filas). Solo una minoría de beneficiarios tiene un diagnóstico real registrado. Este es el problema de calidad dominante y la razón de la baja prevalencia.</li>
+<li><strong>Valores faltantes codificados de forma heterogénea.</strong> Se encontraron al menos cuatro representaciones distintas de “faltante”: <code>NaN</code>, cadena vacía <code>''</code>, el guion <code>'-'</code> (en especialidad, UF y tipo de unidad) y las etiquetas <code>'Não Informado'</code>/<code>'IGNORADO'</code>. Tasas de faltante: especialidad <strong>73.2 %</strong>, UF <strong>28.8 %</strong>, tipo de unidad <strong>28.8 %</strong>, sexo <strong>6.5 %</strong>, valor <strong>0 %</strong>.</li>
+<li><strong>Inconsistencias por beneficiario.</strong> 525 beneficiarios tienen más de un sexo registrado entre sus transacciones; 0 tienen más de una fecha de nacimiento distinta. 3.165 beneficiarios presentan edades imposibles (&lt; 0 o &gt; 110) por fechas de nacimiento erróneas.</li>
+<li><strong>Costo (<code>VALOR_UTILIZACAO</code>) con cola pesada, negativos y ceros.</strong> Rango [−27.537 ; 628.389], media 106.85 pero mediana 17.39 (fuerte asimetría a la derecha). 3.001 valores negativos (reversas/estornos) y 70.394 ceros.</li>
+</ul>
+</section>
+<section id="tratamiento-aplicado" class="level3">
+<h3 class="anchored" data-anchor-id="tratamiento-aplicado">2.3 Tratamiento aplicado</h3>
+<ul>
+<li><strong>Unificación de faltantes:</strong> todo valor en <code>{'', '-', 'N/A', 'NA', 'NULL', 'Não Informado', 'IGNORADO'}</code> se mapeó a <code>NULL</code>; el sexo se consideró válido solo si es <code>F</code>/<code>M</code>.</li>
+<li><strong>Resolución de inconsistencias:</strong> el sexo y la fecha de nacimiento se colapsaron al valor <strong>más frecuente (moda)</strong> por beneficiario, conservando indicadores del número de valores distintos para reportar el problema.</li>
+<li><strong>Edad:</strong> calculada como (última utilización − fecha de nacimiento resuelta); las edades imposibles se acotaron a [0, 110] y se marcaron con una bandera.</li>
+<li><strong>Costo:</strong> se conservó el valor tal cual para las features (sumas netas y positivas por separado), reportando negativos y outliers; para el modelo de costo (§8) se usaron solo valores positivos.</li>
+</ul>
+<p>Todo el procesamiento de los 1.6 GB se hizo con <strong>DuckDB</strong> (SQL <em>out-of-core</em>), evitando cargar la base completa en memoria; la agregación produce una tabla compacta a nivel de beneficiario.</p>
+<hr>
+</section>
+</section>
+<section id="análisis-descriptivo" class="level2">
+<h2 class="anchored" data-anchor-id="análisis-descriptivo">3. Análisis descriptivo</h2>
+<p><strong>Distribución del target.</strong> 272 beneficiarios positivos frente a 653.359 negativos (prevalencia <strong>0.042 %</strong>). El desbalance extremo se observa en la Figura 1.</p>
+<p><img src="outputs/figures/01_balance_target.png" class="img-fluid" alt="Balance de clases"> <em>Figura 1. Balance de clases (escala logarítmica).</em></p>
+<p><strong>Perfil de los positivos.</strong> Comparando medianas por clase, los beneficiarios hipertensos son <strong>mayores</strong> (mediana de edad 53 vs 39 años) y con algo más de actividad (<code>n_procedimientos</code> 7 vs 5; <code>n_proc_distintos</code> 4 vs 3; <code>n_especialidades</code> 1 vs 0). El costo total mediano es similar o levemente menor (R$ 292 vs 330), con un costo por transacción también menor (<code>costo_promedio</code> R$ 48 vs 74): <strong>más utilizaciones, pero más baratas</strong>, consistente con el manejo ambulatorio de una condición crónica.</p>
+<p><img src="outputs/figures/02_edad_por_target.png" class="img-fluid" alt="Edad por clase"> <em>Figura 2. Distribución de edad por clase — la edad es el separador demográfico más claro.</em></p>
+<p><img src="outputs/figures/04_uso_por_target.png" class="img-fluid" alt="Uso por clase"> <em>Figura 3. Uso de servicios por clase (escala symlog).</em></p>
+<p>Las figuras de distribución por sexo/tipo, del costo (cola pesada) y de correlación entre features complementan el análisis (<code>03_*</code>, <code>05_*</code>, <code>06_*</code> en <code>outputs/figures/</code>).</p>
+<hr>
+</section>
+<section id="construcción-de-variables-features" class="level2">
+<h2 class="anchored" data-anchor-id="construcción-de-variables-features">4. Construcción de variables (features)</h2>
+<p>Se agregaron features a nivel de beneficiario en tres grupos, <strong>excluyendo por completo el CID</strong> de los predictores para evitar fuga de información (el CID define el target):</p>
+<ul>
+<li><strong>Demografía:</strong> edad, sexo (moda), tipo de beneficiario (moda).</li>
+<li><strong>Intensidad y tipo de uso:</strong> número de utilizaciones, procedimientos, procedimientos distintos, especialidades distintas, estados y unidades distintas; conteos por tipo de utilización (<code>Exame</code>, <code>Consulta</code>, <code>Internação</code>, <code>Terapia</code>, <code>Pronto Socorro</code>, <code>Outros</code>); número de internaciones y de usos de UCI; ventana temporal de actividad.</li>
+<li><strong>Costo:</strong> costo total (neto y positivo), promedio, mediano, máximo y número de transacciones negativas.</li>
+</ul>
+<p><strong>Decisión metodológica clave — naturaleza del modelo.</strong> Dado que la etiqueta se deriva de las mismas transacciones de las que se extraen las features, este es un modelo de <strong>identificación/perfilamiento concurrente</strong> del <em>footprint</em> de la enfermedad, no un modelo de riesgo prospectivo. Features como el número de consultas o el contacto con cardiología son <em>consecuencia</em> de tener la enfermedad, no causas anteriores; se mantienen por ser señales de uso legítimas, pero su carácter asociativo se hace explícito en la interpretación.</p>
+<hr>
+</section>
+<section id="modelado" class="level2">
+<h2 class="anchored" data-anchor-id="modelado">5. Modelado</h2>
+<p>Se entrenaron y compararon <strong>tres modelos</strong> con manejo del desbalance:</p>
+<ol type="1">
+<li><strong>Regresión Logística</strong> (<code>class_weight='balanced'</code>) — línea base interpretable.</li>
+<li><strong>Random Forest</strong> (<code>class_weight='balanced_subsample'</code>, submuestreo por árbol).</li>
+<li><strong>HistGradientBoosting</strong> (<code>class_weight='balanced'</code>).</li>
+</ol>
+<p><strong>Manejo del desbalance:</strong> ponderación de clases (no se usó SMOTE, poco fiable con 272 positivos en un espacio de alta dimensión). <strong>Estimación estable:</strong> validación cruzada estratificada <strong>repetida</strong> (5 folds × 2 repeticiones) para ROC-AUC y PR-AUC. <strong>Umbral:</strong> ajustado sobre predicciones <em>out-of-fold</em> mediante el índice de <strong>Youden</strong> (no en el conjunto de test). El <em>split</em> se hizo a <strong>nivel de beneficiario</strong> (una fila por persona), de modo que ningún beneficiario aparece simultáneamente en entrenamiento y test. El preprocesamiento (imputación, estandarización, one-hot) se ajusta <strong>dentro de cada fold</strong> vía <code>Pipeline</code>.</p>
+<hr>
+</section>
+<section id="evaluación" class="level2">
+<h2 class="anchored" data-anchor-id="evaluación">6. Evaluación</h2>
+<section id="comparación-de-modelos" class="level3">
+<h3 class="anchored" data-anchor-id="comparación-de-modelos">6.1 Comparación de modelos</h3>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Modelo</th>
+<th>CV ROC-AUC</th>
+<th>CV PR-AUC</th>
+<th>Test ROC-AUC</th>
+<th>Test PR-AUC</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Regresión Logística</td>
+<td>0.794 ± 0.033</td>
+<td>0.003</td>
+<td>0.825</td>
+<td>0.002</td>
+</tr>
+<tr class="even">
+<td><strong>Random Forest</strong></td>
+<td><strong>0.909 ± 0.029</strong></td>
+<td><strong>0.357</strong></td>
+<td><strong>0.927</strong></td>
+<td><strong>0.273</strong></td>
+</tr>
+<tr class="odd">
+<td>HistGradientBoosting</td>
+<td>0.920 ± 0.024</td>
+<td>0.086</td>
+<td>0.924</td>
+<td>0.052</td>
+</tr>
+</tbody>
+</table>
+<p><em>Línea base de PR-AUC = prevalencia = 0.0004.</em></p>
+<p>Los tres modelos superan ampliamente el objetivo de 0.85 en ROC-AUC. Aunque HistGB tiene un ROC-AUC marginalmente superior, se elige <strong>Random Forest como modelo campeón</strong> porque en un problema de evento raro la <strong>PR-AUC</strong> es la métrica relevante, y ahí RF domina claramente (0.357 vs 0.086 en CV): un <em>lift</em> de ~600× sobre la línea base. El modelo lineal (logística) se queda muy atrás en PR-AUC, confirmando que el patrón no es lineal.</p>
+<p><img src="outputs/figures/07_roc.png" class="img-fluid" alt="Curvas ROC"> <img src="outputs/figures/08_pr.png" class="img-fluid" alt="Curvas Precisión-Recall"> <em>Figuras 4–5. Curvas ROC y Precisión-Recall en el conjunto de test.</em></p>
+<p>En el punto de operación de Youden, el modelo mantiene <strong>especificidad muy alta</strong> con una sensibilidad ajustable según el uso; dada la prevalencia de 0.04 %, cualquier umbral con sensibilidad razonable produce muchos falsos positivos (baja precisión), lo cual es intrínseco a detectar una condición tan rara y se visualiza en la curva PR.</p>
+</section>
+<section id="validación-de-fuga-de-información-y-ablación" class="level3">
+<h3 class="anchored" data-anchor-id="validación-de-fuga-de-información-y-ablación">6.2 Validación de fuga de información y ablación</h3>
+<p>Ante la alta AUC, se realizó un <strong>test de permutación de etiquetas</strong>: se reentrenó el modelo con el target barajado al azar.</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Configuración</th>
+<th>ROC-AUC</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Etiquetas <strong>reales</strong></td>
+<td><strong>0.941 ± 0.014</strong></td>
+</tr>
+<tr class="even">
+<td>Etiquetas barajadas (promedio de 3)</td>
+<td><strong>0.506</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Con etiquetas aleatorias el modelo cae a ≈ 0.50 (azar), lo que <strong>descarta fuga de información</strong>: la señal proviene de features legítimas, no de una filtración del target. (Un pipeline con <em>leakage</em> daría &gt; 0.5 incluso con etiquetas barajadas.)</p>
+<p>Una <strong>ablación por grupos de features</strong> revela de dónde viene la señal:</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Subconjunto</th>
+<th>ROC-AUC</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Solo demografía (edad, sexo, tipo)</td>
+<td>0.661</td>
+</tr>
+<tr class="even">
+<td>Solo costo</td>
+<td>0.919</td>
+</tr>
+<tr class="odd">
+<td>Sin costo (uso + demografía)</td>
+<td>0.917</td>
+</tr>
+<tr class="even">
+<td>Todas las features</td>
+<td>0.941</td>
+</tr>
+</tbody>
+</table>
+<p>Los grupos de costo y de uso son <strong>cada uno</strong> casi tan predictivos como el modelo completo (~0.92) y <strong>redundantes</strong> entre sí (juntos solo llegan a 0.94). La demografía sola alcanza 0.66. Esto indica que la señal dominante es la <strong>intensidad de uso del sistema de salud</strong>, capturada de forma equivalente por el costo o por los conteos de utilización.</p>
+<hr>
+</section>
+</section>
+<section id="interpretación" class="level2">
+<h2 class="anchored" data-anchor-id="interpretación">7. Interpretación</h2>
+<p>La importancia por permutación (caída en ROC-AUC al permutar cada feature sobre un <em>holdout</em>) ordena:</p>
+<ol type="1">
+<li><code>costo_total</code>, <code>costo_total_pos</code>, <code>costo_mediano</code>, <code>costo_max</code></li>
+<li><code>n_exame</code>, <code>n_consulta</code>, <code>n_utilizaciones</code></li>
+<li><code>n_especialidades</code>, <code>n_proc_distintos</code></li>
+<li><code>edad</code> (posición 11)</li>
+</ol>
+<p><img src="outputs/figures/10_importancia_permutacion.png" class="img-fluid" alt="Importancia por permutación"> <img src="outputs/figures/12_shap_beeswarm.png" class="img-fluid" alt="SHAP"> <em>Figuras 6–7. Importancia por permutación y valores SHAP.</em></p>
+<p><strong>Lectura crítica.</strong> Que la edad quede en la posición 11 —pese a ser el separador univariado más claro— se explica porque la <strong>importancia por permutación subestima features correlacionadas</strong>: la edad está correlacionada con el volumen de uso y el costo, así que permutarla sola casi no afecta el desempeño porque otras features la reemplazan. Su baja posición no implica irrelevancia sino <strong>redundancia</strong>; el análisis SHAP, que reparte la contribución de forma distinta, tiende a elevarla.</p>
+<p><strong>Interpretación de fondo (y sesgo central).</strong> El modelo detecta principalmente el <strong>perfil de uso de un paciente crónico documentado</strong> —consultas y exámenes repetidos y baratos, costo total moderado— más que marcadores fisiológicos específicos de la hipertensión. Esto es coherente con la ablación (costo y uso dominan; edad aporta poco de forma independiente) y con la naturaleza de la etiqueta: como el 90 % de los diagnósticos no se codifican, los 272 positivos son “hipertensos <strong>documentados</strong>”, y quien recibe un diagnóstico documentado tiende a usar más el sistema. El modelo está, por tanto, parcialmente <strong>confundido con el <em>engagement</em></strong> y con el mecanismo de selección de quién termina con un CID registrado. La predicción del <em>label</em> es válida y robusta, pero no debe interpretarse como detección causal de la enfermedad.</p>
+<hr>
+</section>
+<section id="estimación-de-costo" class="level2">
+<h2 class="anchored" data-anchor-id="estimación-de-costo">8. Estimación de costo</h2>
+<p><strong>Costo de la utilización codificada como I10–I15</strong> (n = 2.587 líneas con costo &gt; 0): media <strong>R$ 391.81</strong>, mediana <strong>R$ 18.00</strong>, IQR [3.48 ; 87.50]. La utilización hipertensiva típica es barata (consultas, controles, labs de rutina), pero la media se dispara por una cola de eventos costosos.</p>
+<p><strong>Costo por beneficiario en la ventana observada:</strong></p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th></th>
+<th>n</th>
+<th>Media</th>
+<th>Mediana</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>No hipertenso (por transacción)</td>
+<td>9.265.178</td>
+<td>R$ 107.61</td>
+<td>R$ 17.87</td>
+</tr>
+<tr class="even">
+<td>Hipertenso (por transacción)</td>
+<td>6.705</td>
+<td>R$ 229.91</td>
+<td>R$ 16.85</td>
+</tr>
+<tr class="odd">
+<td><strong>No hipertenso (total anual)</strong></td>
+<td>—</td>
+<td><strong>R$ 1.527.66</strong></td>
+<td>R$ 330.00</td>
+</tr>
+<tr class="even">
+<td><strong>Hipertenso (total anual)</strong></td>
+<td>—</td>
+<td><strong>R$ 5.667.56</strong></td>
+<td>R$ 292.14</td>
+</tr>
+</tbody>
+</table>
+<p>El beneficiario hipertenso cuesta en promedio <strong>3.7× más al año</strong> (R$ 5.668 vs 1.528), pero su costo <strong>mediano</strong> es incluso algo menor (R$ 292 vs 330): la diferencia la produce una <strong>cola de casos complejos</strong> (complicaciones, hospitalizaciones), no un mayor costo del beneficiario típico.</p>
+<p><strong>Modelo Gamma GLM (link log)</strong> sobre 300.000 transacciones con costo positivo, <code>valor ~ tipo de utilización + línea/beneficiario hipertenso + UTI + internación</code>. Factores multiplicativos sobre el costo esperado (exp del coeficiente):</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Efecto</th>
+<th>Factor</th>
+<th>p-valor</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Intercepto (consulta de referencia)</td>
+<td>R$ 124.4</td>
+<td>&lt; 0.001</td>
+</tr>
+<tr class="even">
+<td>UTI</td>
+<td>×5.57</td>
+<td>&lt; 0.001</td>
+</tr>
+<tr class="odd">
+<td><code>Outros</code></td>
+<td>×2.15</td>
+<td>&lt; 0.001</td>
+</tr>
+<tr class="even">
+<td>Internación</td>
+<td>×1.54</td>
+<td>&lt; 0.001</td>
+</tr>
+<tr class="odd">
+<td><code>Internação</code> (CETIPO)</td>
+<td>×1.50</td>
+<td>&lt; 0.001</td>
+</tr>
+<tr class="even">
+<td><code>Terapia</code></td>
+<td>×0.61</td>
+<td>&lt; 0.001</td>
+</tr>
+<tr class="odd">
+<td><code>Pronto Socorro</code></td>
+<td>×0.45</td>
+<td>&lt; 0.001</td>
+</tr>
+<tr class="even">
+<td><code>Exame</code></td>
+<td>×0.27</td>
+<td>&lt; 0.001</td>
+</tr>
+<tr class="odd">
+<td>Línea codificada como hipertensión</td>
+<td>×2.39</td>
+<td>0.19 (n.s.)</td>
+</tr>
+<tr class="even">
+<td>Beneficiario hipertenso</td>
+<td>×0.52</td>
+<td>0.10</td>
+</tr>
+</tbody>
+</table>
+<p><img src="outputs/figures/14_costo_asociado.png" class="img-fluid" alt="Costo por tipo de utilización"> <em>Figura 8. Costo medio por tipo de utilización, hipertensos vs no.</em></p>
+<p><strong>Conclusión del costo.</strong> El costo esperado lo determina sobre todo el <strong>tipo de utilización</strong> (UCI ×5.6, internación ×1.5; exámenes y urgencias mucho más baratos). Los indicadores de hipertensión no son <em>drivers</em> significativos del costo por transacción una vez se controla el tipo (línea hipertensiva n.s.; beneficiario hipertenso incluso con factor &lt; 1). Es decir, el sobrecosto de la hipertensión es <strong>indirecto</strong>: proviene del mayor <strong>volumen</strong> de utilizaciones y de una cola de eventos graves, no de que cada transacción sea intrínsecamente más cara.</p>
+<hr>
+</section>
+<section id="limitaciones-y-sesgos" class="level2">
+<h2 class="anchored" data-anchor-id="limitaciones-y-sesgos">9. Limitaciones y sesgos</h2>
+<ol type="1">
+<li><strong>Subcodificación del diagnóstico (limitación principal).</strong> Con el CID ausente en ~90 % de las transacciones, la etiqueta captura solo hipertensión <strong>documentada</strong>. Muchos hipertensos reales están en la clase negativa (falsos negativos de etiqueta), lo que introduce ruido y sesgo.</li>
+<li><strong>Sesgo de selección / confounding de <em>engagement</em>.</strong> Los positivos son pacientes con más contacto con el sistema; el modelo detecta parcialmente ese <em>engagement</em>, no la fisiología de la enfermedad (evidenciado por la ablación).</li>
+<li><strong>Baja precisión intrínseca.</strong> Con prevalencia 0.04 %, aun un modelo con alta ROC-AUC produce baja precisión operativa; la PR-AUC (0.36) es alta en términos de <em>lift</em> pero baja en valor absoluto.</li>
+<li><strong>Pocos positivos (272).</strong> Las estimaciones tienen varianza; se mitigó con CV repetida, pero los intervalos son amplios.</li>
+<li><strong>Importancia por permutación con features correlacionadas.</strong> Subestima variables redundantes (p.&nbsp;ej. edad); se contrastó con SHAP.</li>
+<li><strong>Supuesto del GLM.</strong> El modelo Gamma asume varianza proporcional al cuadrado de la media y excluye valores ≤ 0 (reversas y ceros).</li>
+</ol>
+<hr>
+</section>
+<section id="conclusiones-y-trabajo-futuro" class="level2">
+<h2 class="anchored" data-anchor-id="conclusiones-y-trabajo-futuro">10. Conclusiones y trabajo futuro</h2>
+<ul>
+<li>Se construyó un pipeline reproducible y <em>out-of-core</em> que, pese a un desbalance de 1:2400, identifica beneficiarios con enfermedad hipertensiva con <strong>ROC-AUC 0.93</strong> y <strong>PR-AUC 0.36</strong> (Random Forest).</li>
+<li>Un <strong>test de permutación de etiquetas</strong> confirma la ausencia de fuga de información; la ablación muestra que la señal es principalmente de <strong>intensidad de uso y costo</strong>, con la edad como aporte menor y redundante.</li>
+<li>El costo de la hipertensión es <strong>indirecto</strong>: utilizaciones típicas baratas, pero un costo anual promedio 3.7× mayor por una cola de casos complejos.</li>
+</ul>
+<p><strong>Trabajo futuro:</strong> - <strong>Features de procedimiento</strong> (<code>CD_PROCEDIMENTO</code>, 0 % faltante, 3.252 códigos): ecocardiograma, ECG, creatinina/potasio, panel lipídico son muy indicativos y no se explotaron aquí; podrían aumentar la señal <em>específica</em> de la enfermedad. - <strong>Mitigar el sesgo de documentación</strong> mediante ajuste por intensidad de uso o <em>positive-unlabeled learning</em>, para separar “tener la enfermedad” de “estar documentado”. - <strong>Calibración de probabilidades</strong> y análisis de umbral orientado al caso de uso (tamizaje vs confirmación). - Validación temporal (entrenar en meses tempranos, evaluar en posteriores) para acercarse a un escenario prospectivo.</p>
+<hr>
+</section>
+<section id="reproducibilidad" class="level2">
+<h2 class="anchored" data-anchor-id="reproducibilidad">11. Reproducibilidad</h2>
+<p>Pipeline en Python (DuckDB, scikit-learn, statsmodels, SHAP). Ejecutar en orden desde la carpeta del proyecto:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Script</th>
+<th>Función</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>00b_target_scan.py</code></td>
+<td>Escaneo de viabilidad del target</td>
+</tr>
+<tr class="even">
+<td><code>01_build_dataset.py</code></td>
+<td>Limpieza + tabla de beneficiarios + reporte de calidad</td>
+</tr>
+<tr class="odd">
+<td><code>02_eda.py</code></td>
+<td>Análisis descriptivo y figuras</td>
+</tr>
+<tr class="even">
+<td><code>03_model.py</code></td>
+<td>Entrenamiento y evaluación de los 3 modelos</td>
+</tr>
+<tr class="odd">
+<td><code>03b_leakage_check.py</code></td>
+<td>Test de permutación de etiquetas + ablación</td>
+</tr>
+<tr class="even">
+<td><code>04_interpret.py</code></td>
+<td>Importancia por permutación, SHAP, PDP</td>
+</tr>
+<tr class="odd">
+<td><code>05_cost.py</code></td>
+<td>Costo descriptivo + GLM Gamma</td>
+</tr>
+</tbody>
+</table>
+<p>Dependencias en <code>requirements.txt</code>. La base <code>db_2026.csv</code> no se versiona por tamaño (1.6 GB). Salidas en <code>outputs/</code> (tablas, figuras y modelo serializado).</p>
+</section>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>
