@@ -1,0 +1,976 @@
+---
+title: "Taller clase 21"
+author: "Sebastian Tabares Segovia"
+date: "2026-07-18"
+output: html_document
+---
+
+# Taller clase 21 Parte-1
+
+```{r}
+library(tidyverse)
+
+set.seed(123)
+n <- 200
+
+# --- Pregunta 1: SVD vs PCA (centrado) ---
+datos_svd <- tibble(
+  x1 = rnorm(n, mean = 50, sd = 8),
+  x2 = 0.8 * x1 + rnorm(n, sd = 4),
+  x3 = rnorm(n, mean = 20, sd = 5)
+)
+
+# --- Pregunta 2: PCA vs NMF (conteos no negativos) ---
+conteos <- tibble(
+  clics_inicio   = rpois(n, lambda = 12),
+  clics_busqueda = rpois(n, lambda = 8),
+  clics_perfil   = rpois(n, lambda = 3),
+  clics_ayuda    = rpois(n, lambda = 2)
+)
+
+# --- Pregunta 3: ICA vs PCA (señales mezcladas) ---
+t  <- seq(0, 8 * pi, length.out = n)
+s1 <- sin(t)                 # señal cardíaca
+s2 <- runif(n, -1, 1)        # ruido muscular
+S  <- cbind(s1, s2)
+A  <- matrix(c(0.8, 0.3, 0.5, 0.7, 0.2, 0.9), nrow = 3, byrow = TRUE)
+X_mezcla <- S %*% t(A)       # 3 sensores, 2 fuentes
+
+# --- Pregunta 4: Random Projection (alta dimensión) ---
+p <- 300
+alta_dim <- matrix(rnorm(n * p), nrow = n)
+
+# --- Pregunta 5: Kernel PCA (anillos concéntricos) ---
+generar_anillo <- function(n, radio, ruido = 0.15) {
+  ang <- runif(n, 0, 2 * pi)
+  tibble(x1 = radio * cos(ang) + rnorm(n, sd = ruido),
+         x2 = radio * sin(ang) + rnorm(n, sd = ruido))
+}
+anillos <- bind_rows(
+  generar_anillo(100, 1) |> mutate(clase = "interior"),
+  generar_anillo(100, 3) |> mutate(clase = "exterior")
+)
+
+# A partir de aquí: complete las 5 preguntas del taller.
+```
+## Pregunta 1
+
+Con datos_svd, calculen la SVD directamente sobre los datos sin centrar y comparen esa primera dirección con la primera componente de un PCA clásico (con centrado). ¿Apuntan en la misma dirección? ¿Qué está capturando en realidad esa “primera componente” cuando no se centra?
+
+
+```{r}
+X <- as.matrix(datos_svd)
+
+modelo_svd <- svd(X)
+
+direccion_svd <- modelo_svd$v[, 1]
+
+modelo_pca <- prcomp(
+  X,
+  center = TRUE,
+  scale. = FALSE
+)
+
+direccion_pca <- modelo_pca$rotation[, 1]
+
+comparacion_p1 <- tibble(
+  Variable = colnames(X),
+  SVD_sin_centrar = direccion_svd,
+  PCA_centrado = direccion_pca
+)
+
+angulo_p1 <- acos(
+  abs(
+    sum(direccion_svd * direccion_pca)
+  )
+) * 180 / pi
+
+knitr::kable(
+  comparacion_p1,
+  digits = 4,
+  caption = "Comparación entre la primera dirección de la SVD sin centrar y la primera componente del PCA centrado."
+)
+
+
+```
+
+angulo
+
+```{r}
+angulo_p1
+```
+
+### Interpretación
+
+La primera dirección obtenida mediante la SVD sin centrar y la primera componente principal del PCA centrado presentan una orientación similar, aunque no son idénticas. El ángulo aproximado de **19.22°** indica que ambas direcciones difieren debido al preprocesamiento realizado por cada método.
+
+La SVD se aplicó directamente sobre los datos originales, por lo que la primera dirección está influenciada tanto por la variabilidad de las observaciones como por las medias de las variables. En contraste, el PCA centra previamente los datos, eliminando el efecto de dichas medias y buscando únicamente la dirección de máxima variabilidad alrededor del centro de la nube de datos.
+
+En consecuencia, la primera dirección de la SVD sin centrar captura parcialmente el nivel promedio de las variables, mientras que la primera componente principal del PCA representa exclusivamente la estructura de variación de los datos. Esto explica que ambas direcciones sean semejantes, pero no coincidan exactamente.
+
+
+## Pregunta 2
+
+Con conteos (número de clics, siempre ≥0), ajusten PCA y NMF con 2 componentes. Miren los loadings de PCA: ¿aparecen negativos? ¿Tiene sentido interpretar “menos 0.3 clics de inicio”? Comparen con los componentes de NMF.
+
+
+```{r}
+BiocManager::install("Biobase")
+```
+
+
+```{r}
+library(BiocManager)
+library(NMF)
+
+X <- as.matrix(conteos)
+
+modelo_pca <- prcomp(
+  X,
+  center = TRUE,
+  scale. = TRUE
+)
+
+loadings_pca <- tibble(
+  Variable = colnames(X),
+  PC1 = modelo_pca$rotation[,1],
+  PC2 = modelo_pca$rotation[,2]
+)
+
+knitr::kable(
+  loadings_pca,
+  digits = 4,
+  caption = "Loadings obtenidos mediante PCA."
+)
+
+modelo_nmf <- nmf(
+  X,
+  rank = 2,
+  seed = 123
+)
+
+componentes_nmf <- tibble(
+  Variable = colnames(X),
+  Componente_1 = coef(modelo_nmf)[1,],
+  Componente_2 = coef(modelo_nmf)[2,]
+)
+
+knitr::kable(
+  componentes_nmf,
+  digits = 4,
+  caption = "Componentes obtenidas mediante NMF."
+)
+```
+
+### Interpretación
+
+Los loadings obtenidos mediante PCA presentan tanto valores positivos como negativos. Esto indica que una misma componente principal puede aumentar con algunas variables y disminuir con otras. Sin embargo, al tratarse de conteos de clics (variables que únicamente pueden tomar valores mayores o iguales a cero), una interpretación como "−0.3 clics de inicio" carece de significado práctico, ya que no existen cantidades negativas de clics.
+
+En contraste, las componentes obtenidas mediante NMF son completamente no negativas. Cada componente representa una combinación aditiva de las variables originales, lo que facilita su interpretación en términos de patrones de uso. Por ejemplo, la primera componente está asociada principalmente con los clics de inicio y búsqueda, mientras que la segunda componente combina los clics de inicio, búsqueda y perfil. Además, algunos coeficientes son exactamente cero, indicando que ciertas variables no contribuyen a una componente específica, lo que mejora aún más la interpretabilidad.
+
+En consecuencia, aunque PCA es una herramienta muy útil para reducir la dimensionalidad, NMF resulta más apropiado para datos de conteos o frecuencias, ya que respeta la naturaleza no negativa de las variables y produce componentes con una interpretación más intuitiva.
+
+## Pregunta 3
+
+Con X_mezcla (3 sensores que mezclan 2 señales independientes, s1 y s2), apliquen PCA y luego ICA, ambos con 2 componentes, y grafiquen lo recuperado junto a las señales originales. ¿PCA logra “desenmezclar” s1 y s2 ? Sus componentes salen descorrelacionadas: ¿por qué eso no alcanza para separarlas?
+
+```{r}
+modelo_pca_ica <- prcomp(
+  X_mezcla,
+  center = TRUE,
+  scale. = FALSE,
+  rank. = 2
+)
+
+senales_pca <- modelo_pca_ica$x[, 1:2]
+
+modelo_ica <- fastICA::fastICA(
+  X_mezcla,
+  n.comp = 2
+)
+
+senales_ica <- modelo_ica$S
+
+comparacion_senales <- tibble(
+  Tiempo = rep(t, 6),
+  Señal = rep(
+    c(
+      "Original s1",
+      "Original s2",
+      "PCA 1",
+      "PCA 2",
+      "ICA 1",
+      "ICA 2"
+    ),
+    each = length(t)
+  ),
+  Valor = c(
+    s1,
+    s2,
+    senales_pca[, 1],
+    senales_pca[, 2],
+    senales_ica[, 1],
+    senales_ica[, 2]
+  )
+)
+
+ggplot(
+  comparacion_senales,
+  aes(
+    x = Tiempo,
+    y = Valor
+  )
+) +
+  geom_line() +
+  facet_wrap(
+    ~ Señal,
+    ncol = 2,
+    scales = "free_y"
+  ) +
+  labs(
+    title = "Comparación entre señales originales, PCA e ICA",
+    x = "Tiempo",
+    y = "Amplitud"
+  ) +
+  theme_minimal()
+```
+
+
+### Interpretación
+
+Las componentes obtenidas mediante PCA no logran recuperar las señales originales. Aunque las dos componentes principales están descorrelacionadas, cada una sigue siendo una combinación de la señal senoidal y del ruido, por lo que la separación entre ambas fuentes no es completa.
+
+En contraste, ICA recupera dos señales muy similares a las originales. Una componente reproduce prácticamente la señal senoidal, mientras que la otra recupera el ruido muscular, evidenciando que ambas fuentes fueron separadas de manera exitosa.
+
+La diferencia entre ambos métodos radica en su objetivo de optimización. PCA únicamente busca componentes incorrelacionadas que expliquen la mayor parte de la variabilidad de los datos, mientras que ICA busca componentes estadísticamente independientes. La independencia es una condición más fuerte que la descorrelación, por lo que ICA resulta adecuado para problemas de separación de señales mezcladas, como registros biomédicos o de audio, donde el objetivo es recuperar las fuentes originales.
+
+## Pregunta 4
+
+Con alta_dim (n=200, p=300), proyecten los datos a k=2, 10 y 50 usando una matriz aleatoria gaussiana (no PCA). Para cada k, comparen las distancias entre pares de puntos antes y después de proyectar. ¿Desde qué k casi no se distorsionan? Repitan con otra semilla: ¿cambia mucho el resultado?
+ 
+
+```{r}
+distancias_originales <- as.vector(
+  dist(alta_dim)
+)
+
+evaluar_proyeccion <- function(datos, k, semilla) {
+  
+  set.seed(semilla)
+  
+  matriz_aleatoria <- matrix(
+    rnorm(
+      ncol(datos) * k,
+      mean = 0,
+      sd = 1 / sqrt(k)
+    ),
+    nrow = ncol(datos),
+    ncol = k
+  )
+  
+  datos_proyectados <- datos %*% matriz_aleatoria
+  
+  distancias_proyectadas <- as.vector(
+    dist(datos_proyectados)
+  )
+  
+  tibble(
+    k = k,
+    semilla = semilla,
+    correlacion = cor(
+      distancias_originales,
+      distancias_proyectadas
+    ),
+    error_relativo_medio = mean(
+      abs(
+        distancias_proyectadas -
+          distancias_originales
+      ) / distancias_originales
+    ),
+    error_relativo_mediano = median(
+      abs(
+        distancias_proyectadas -
+          distancias_originales
+      ) / distancias_originales
+    )
+  )
+}
+
+resultados_proyeccion <- bind_rows(
+  map_dfr(
+    c(2, 10, 50),
+    ~ evaluar_proyeccion(
+      alta_dim,
+      .x,
+      123
+    )
+  ),
+  map_dfr(
+    c(2, 10, 50),
+    ~ evaluar_proyeccion(
+      alta_dim,
+      .x,
+      456
+    )
+  )
+)
+
+knitr::kable(
+  resultados_proyeccion,
+  digits = 4,
+  caption = "Comparación de las distancias antes y después de la proyección aleatoria."
+)
+
+comparacion_distancias <- map_dfr(
+  c(2, 10, 50),
+  function(k_actual) {
+    
+    set.seed(123)
+    
+    matriz_aleatoria <- matrix(
+      rnorm(
+        ncol(alta_dim) * k_actual,
+        mean = 0,
+        sd = 1 / sqrt(k_actual)
+      ),
+      nrow = ncol(alta_dim),
+      ncol = k_actual
+    )
+    
+    datos_proyectados <- alta_dim %*% matriz_aleatoria
+    
+    tibble(
+      Distancia_original = distancias_originales,
+      Distancia_proyectada = as.vector(
+        dist(datos_proyectados)
+      ),
+      k = factor(k_actual)
+    )
+  }
+)
+
+ggplot(
+  comparacion_distancias,
+  aes(
+    x = Distancia_original,
+    y = Distancia_proyectada
+  )
+) +
+  geom_point(
+    alpha = 0.15,
+    size = 0.7
+  ) +
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    linetype = 2
+  ) +
+  facet_wrap(
+    ~ k,
+    scales = "free"
+  ) +
+  labs(
+    title = "Conservación de distancias mediante proyecciones aleatorias",
+    x = "Distancia original",
+    y = "Distancia proyectada"
+  ) +
+  theme_minimal()
+```
+
+### Interpretación
+
+Al comparar las proyecciones aleatorias para \(k=2\), \(k=10\) y \(k=50\), se observa que la conservación de las distancias mejora a medida que aumenta la dimensión de proyección.
+
+Para \(k=2\), la correlación entre las distancias originales y las proyectadas es muy baja (≈0.06) y el error relativo medio es cercano al 39%, indicando una fuerte distorsión de la geometría de los datos.
+
+Con \(k=10\), la situación mejora notablemente. El error relativo medio disminuye aproximadamente al 17%, aunque la dispersión alrededor de la diagonal aún es considerable, por lo que las distancias todavía presentan una distorsión importante.
+
+Finalmente, con \(k=50\) se obtiene el mejor desempeño. El error relativo medio es cercano al 8% y la nube de puntos se aproxima mucho más a la línea de identidad, indicando que las distancias originales se preservan razonablemente bien después de la proyección.
+
+Al repetir el procedimiento utilizando una segunda semilla aleatoria (456), los resultados obtenidos son muy similares a los de la primera semilla (123). Tanto las correlaciones como los errores relativos presentan diferencias muy pequeñas, lo que muestra que las proyecciones aleatorias gaussianas producen resultados estables y poco sensibles a la semilla utilizada.
+
+Estos resultados ilustran el lema de Johnson-Lindenstrauss, según el cual es posible reducir considerablemente la dimensionalidad de un conjunto de datos preservando aproximadamente las distancias entre observaciones, siempre que la dimensión proyectada sea suficientemente grande. En este ejercicio, la proyección con \(k=50\) es la que mejor conserva la estructura geométrica de los datos.
+
+## Pregunta 5
+
+Codigo esqueleto
+
+```{r}
+library(tidyverse)
+library(kernlab)
+
+X_anillos <- anillos %>%
+  select(x1, x2) %>%
+  as.matrix()
+
+clase_anillos <- anillos$clase
+
+r2_anillos <- anillos$x1^2 + anillos$x2^2
+```
+
+
+Con anillos (clase interior y exterior), ajusten PCA lineal con 2 componentes y grafiquen coloreando por clase. ¿Existe alguna línea recta en el plano de componentes que separe las dos clases?
+
+```{r}
+modelo_pca_anillos <- prcomp(
+  X_anillos,
+  center = TRUE,
+  scale. = TRUE
+)
+
+resultado_pca_anillos <- tibble(
+  PC1 = modelo_pca_anillos$x[, 1],
+  PC2 = modelo_pca_anillos$x[, 2],
+  clase = clase_anillos
+)
+
+ggplot(
+  resultado_pca_anillos,
+  aes(
+    x = PC1,
+    y = PC2,
+    color = clase
+  )
+) +
+  geom_point(
+    alpha = 0.75,
+    size = 2
+  ) +
+  labs(
+    title = "PCA lineal aplicado a los anillos",
+    x = "Primera componente principal",
+    y = "Segunda componente principal",
+    color = "Clase"
+  ) +
+  theme_minimal()
+```
+
+### Interpretación
+
+El PCA lineal proyecta los datos conservando las direcciones de mayor variabilidad, pero no modifica la naturaleza lineal de la representación. En la gráfica se observa que las observaciones pertenecientes al anillo interior permanecen rodeadas por las del anillo exterior, manteniendo prácticamente la misma estructura circular que tenían en el espacio original.
+
+Como consecuencia, no existe una línea recta en el plano formado por las dos componentes principales que permita separar completamente ambas clases. Cualquier frontera lineal dejaría observaciones de ambas clases a cada lado de la recta.
+
+Este resultado evidencia una limitación importante del PCA clásico: al ser un método lineal, no puede transformar relaciones no lineales presentes en los datos. En este ejemplo, la información que distingue a las clases depende principalmente del radio de cada punto y no de una combinación lineal de las variables originales. Por ello, aunque el PCA resume adecuadamente la variabilidad de los datos, no logra hacer linealmente separables los dos anillos.
+
+
+Repitan con Kernel PCA (kernel RBF). ¿Ahora sí se separan las clases?
+
+```{r}
+modelo_kpca_anillos <- kernlab::kpca(
+  X_anillos,
+  kernel = "rbfdot",
+  kpar = list(sigma = 0.1),
+  features = 2
+)
+
+componentes_kpca <- kernlab::rotated(
+  modelo_kpca_anillos
+)
+
+resultado_kpca_anillos <- tibble(
+  KPC1 = componentes_kpca[, 1],
+  KPC2 = componentes_kpca[, 2],
+  clase = clase_anillos,
+  r2 = r2_anillos
+)
+
+ggplot(
+  resultado_kpca_anillos,
+  aes(
+    x = KPC1,
+    y = KPC2,
+    color = clase
+  )
+) +
+  geom_point(
+    alpha = 0.75,
+    size = 2
+  ) +
+  labs(
+    title = "Kernel PCA con kernel RBF aplicado a los anillos",
+    x = "Primera componente de Kernel PCA",
+    y = "Segunda componente de Kernel PCA",
+    color = "Clase"
+  ) +
+  theme_minimal()
+
+correlaciones_r2 <- tibble(
+  Componente = c("KPC1", "KPC2"),
+  Correlacion_con_r2 = c(
+    cor(resultado_kpca_anillos$r2, resultado_kpca_anillos$KPC1),
+    cor(resultado_kpca_anillos$r2, resultado_kpca_anillos$KPC2)
+  )
+)
+
+knitr::kable(
+  correlaciones_r2,
+  digits = 4,
+  caption = "Correlación entre r² y las componentes de Kernel PCA."
+)
+
+resultado_kpca_anillos %>%
+  pivot_longer(
+    cols = c(KPC1, KPC2),
+    names_to = "Componente",
+    values_to = "Valor"
+  ) %>%
+  ggplot(
+    aes(
+      x = r2,
+      y = Valor,
+      color = clase
+    )
+  ) +
+  geom_point(
+    alpha = 0.7,
+    size = 1.8
+  ) +
+  facet_wrap(
+    ~ Componente,
+    scales = "free_y"
+  ) +
+  geom_smooth(
+    method = "lm",
+    se = FALSE
+  ) +
+  labs(
+    title = "Relación entre r² y las componentes de Kernel PCA",
+    x = expression(r^2 == x[1]^2 + x[2]^2),
+    y = "Valor de la componente",
+    color = "Clase"
+  ) +
+  theme_minimal()
+```
+
+### Interpretación
+
+A diferencia del PCA lineal, Kernel PCA incorpora una transformación no lineal mediante el kernel RBF antes de calcular las componentes principales. Esto le permite capturar relaciones no lineales presentes en los datos.
+
+En este ejercicio se observa una mejor reorganización de las observaciones respecto al PCA clásico; sin embargo, las clases interior y exterior todavía presentan cierto solapamiento, por lo que no existe una separación completamente nítida entre ambas. Esto indica que, con los parámetros utilizados para el kernel, la transformación no fue suficiente para separar totalmente los dos anillos.
+
+Respecto al radio cuadrático \(r^2=x_1^2+x_2^2\), las correlaciones obtenidas con las componentes de Kernel PCA fueron bajas (0.1688 para KPC1 y 0.3622 para KPC2). Además, en los diagramas de dispersión no se observa una relación lineal fuerte entre \(r^2\) y ninguna de las dos componentes.
+
+En consecuencia, ninguna componente puede interpretarse directamente como una representación del radio de los puntos. Esto es consistente con la naturaleza de Kernel PCA, ya que las nuevas componentes corresponden a combinaciones no lineales en un espacio de características de mayor dimensión y no necesariamente mantienen una relación lineal con las variables originales.
+
+
+# Segunda Parte del Taller 
+
+Codigo esqueleto
+
+```{r}
+library(tidyverse)
+
+# --- Simulación de los datos (no contamos con los datos reales) ---
+set.seed(123)
+n <- 300
+datos <- tibble(
+  cobertura_acueducto = c(rnorm(n / 2, 85, 6),     rnorm(n / 2, 45, 8)),
+  alcantarillado      = c(rnorm(n / 2, 78, 7),     rnorm(n / 2, 38, 9)),
+  irca                = c(rnorm(n / 2, 14, 5),     rnorm(n / 2, 56, 8)),
+  poblacion           = c(rlnorm(n / 2, 10.6, 0.6), rlnorm(n / 2, 9.0, 0.7)),
+  altitud             = c(rnorm(n / 2, 1200, 400),  rnorm(n / 2, 600, 300))
+)
+datos_esc <- scale(datos)
+
+# A partir de aquí: datos_esc es su punto de partida.
+# Complete usted las cuatro tareas del ejercicio.
+```
+
+## Pregunta 1
+
+Aplique SVD truncado con k=2 y compare la varianza explicada contra PCA estándar sobre los mismos datos.
+
+```{r}
+modelo_pca <- prcomp(
+  datos_esc,
+  center = FALSE,
+  scale. = FALSE
+)
+
+varianza_pca <- modelo_pca$sdev^2
+proporcion_pca <- varianza_pca / sum(varianza_pca)
+
+svd_truncada <- svd(datos_esc)
+
+valores_singulares <- svd_truncada$d
+
+varianza_svd <- valores_singulares^2 / (nrow(datos_esc) - 1)
+proporcion_svd <- varianza_svd / sum(varianza_svd)
+
+comparacion_varianza <- tibble(
+  Componente = paste0("PC", 1:2),
+  PCA = proporcion_pca[1:2],
+  SVD = proporcion_svd[1:2]
+)
+
+knitr::kable(
+  comparacion_varianza,
+  digits = 4,
+  caption = "Varianza explicada por las dos primeras componentes."
+)
+
+
+```
+
+```{r}
+comparacion_varianza %>%
+  pivot_longer(
+    cols = c(PCA, SVD),
+    names_to = "Metodo",
+    values_to = "Varianza"
+  ) %>%
+  ggplot(
+    aes(
+      x = Componente,
+      y = Varianza,
+      fill = Metodo
+    )
+  ) +
+  geom_col(
+    position = "dodge"
+  ) +
+  labs(
+    title = "Comparación de la varianza explicada",
+    x = "Componente",
+    y = "Proporción de varianza"
+  ) +
+  theme_minimal()
+```
+### Interpretación
+
+La comparación muestra que tanto PCA como la descomposición en valores singulares (SVD) producen exactamente la misma proporción de varianza explicada para las dos primeras componentes principales. En ambos métodos, la primera componente explica aproximadamente el 72.92% de la variabilidad total, mientras que la segunda explica cerca del 11.90%.
+
+La gráfica confirma este resultado, ya que las barras correspondientes a PCA y SVD coinciden completamente para ambas componentes. Esto ocurre porque el PCA puede obtenerse directamente a partir de la SVD de la matriz de datos centrada (o estandarizada, como en este ejercicio). En consecuencia, ambos métodos identifican las mismas direcciones principales y explican exactamente la misma cantidad de variabilidad.
+
+La diferencia entre ambos procedimientos no radica en los resultados obtenidos, sino en la forma en que se calculan. Mientras que PCA se formula mediante la descomposición espectral de la matriz de covarianzas, SVD trabaja directamente sobre la matriz de datos, lo que la convierte en una alternativa más estable y eficiente cuando se trabaja con conjuntos de datos de gran tamaño o alta dimensionalidad.
+
+## Pregunta 2
+
+Proyecte los datos con t-SNE y con UMAP (mismos hiperparámetros razonables). Compare los dos mapas visualmente.
+
+```{r}
+set.seed(123)
+
+modelo_tsne <- Rtsne::Rtsne(
+  datos_esc,
+  dims = 2,
+  perplexity = 30,
+  max_iter = 1000,
+  check_duplicates = FALSE
+)
+
+modelo_umap <- uwot::umap(
+  datos_esc,
+  n_components = 2,
+  n_neighbors = 30,
+  min_dist = 0.1,
+  metric = "euclidean",
+  seed = 123
+)
+
+grupo_real <- factor(
+  rep(
+    c("Grupo 1", "Grupo 2"),
+    each = n / 2
+  )
+)
+
+resultado_tsne <- tibble(
+  Dim1 = modelo_tsne$Y[, 1],
+  Dim2 = modelo_tsne$Y[, 2],
+  Grupo = grupo_real,
+  Metodo = "t-SNE"
+)
+
+resultado_umap <- tibble(
+  Dim1 = modelo_umap[, 1],
+  Dim2 = modelo_umap[, 2],
+  Grupo = grupo_real,
+  Metodo = "UMAP"
+)
+
+comparacion_mapas <- bind_rows(
+  resultado_tsne,
+  resultado_umap
+)
+
+ggplot(
+  comparacion_mapas,
+  aes(
+    x = Dim1,
+    y = Dim2,
+    color = Grupo
+  )
+) +
+  geom_point(
+    alpha = 0.75,
+    size = 2
+  ) +
+  facet_wrap(
+    ~ Metodo,
+    scales = "free"
+  ) +
+  labs(
+    title = "Comparación entre t-SNE y UMAP",
+    x = "Dimensión 1",
+    y = "Dimensión 2",
+    color = "Grupo"
+  ) +
+  theme_minimal()
+```
+
+### Interpretación
+
+La proyección mediante **t-SNE** y **UMAP** permitió representar los datos originales en un espacio bidimensional conservando gran parte de su estructura. En ambos casos se observa una separación muy clara entre el Grupo 1 y el Grupo 2, indicando que las observaciones pertenecen a dos conglomerados bien diferenciados.
+
+En el mapa obtenido con **t-SNE**, los grupos aparecen claramente separados y relativamente compactos. Este método prioriza la conservación de las relaciones de vecindad locales, por lo que puntos cercanos en el espacio original permanecen próximos en la proyección. Sin embargo, las distancias entre grupos y la forma global de la representación no deben interpretarse literalmente.
+
+Por su parte, **UMAP** también logra una separación prácticamente perfecta entre ambos grupos, pero produce conglomerados aún más compactos y mejor definidos. Además de preservar la estructura local, UMAP tiende a conservar en mayor medida la estructura global de los datos, por lo que suele generar representaciones más estables y rápidas de calcular en conjuntos de datos grandes.
+
+En este ejercicio ambos métodos alcanzan un excelente desempeño, ya que separan completamente las dos poblaciones simuladas. La principal diferencia radica en que UMAP produce grupos más compactos y con una organización interna más consistente, mientras que t-SNE enfatiza principalmente la preservación de las vecindades locales. En consecuencia, cualquiera de los dos métodos permite visualizar adecuadamente la estructura de los datos, aunque UMAP suele ser preferido cuando se busca una representación más estable y escalable.
+
+
+## Pregunta 3
+
+Calcule el trustworthiness de ambas proyecciones. ¿Cuál preserva mejor los vecindarios originales?
+
+```{r}
+calcular_trustworthiness <- function(X, Y, k = 10) {
+  
+  X <- as.matrix(X)
+  Y <- as.matrix(Y)
+  
+  n <- nrow(X)
+  
+  dist_X <- as.matrix(dist(X))
+  dist_Y <- as.matrix(dist(Y))
+  
+  vecinos_X <- t(
+    apply(
+      dist_X,
+      1,
+      function(x) order(x)[2:(k + 1)]
+    )
+  )
+  
+  vecinos_Y <- t(
+    apply(
+      dist_Y,
+      1,
+      function(x) order(x)[2:(k + 1)]
+    )
+  )
+  
+  rangos_X <- t(
+    apply(
+      dist_X,
+      1,
+      rank,
+      ties.method = "average"
+    )
+  ) - 1
+  
+  penalizacion <- 0
+  
+  for (i in seq_len(n)) {
+    
+    vecinos_intrusos <- setdiff(
+      vecinos_Y[i, ],
+      vecinos_X[i, ]
+    )
+    
+    if (length(vecinos_intrusos) > 0) {
+      
+      penalizacion <- penalizacion +
+        sum(
+          rangos_X[i, vecinos_intrusos] - k
+        )
+    }
+  }
+  
+  1 - (
+    2 * penalizacion
+  ) / (
+    n * k * (2 * n - 3 * k - 1)
+  )
+}
+
+trust_tsne <- calcular_trustworthiness(
+  datos_esc,
+  modelo_tsne$Y,
+  k = 10
+)
+
+trust_umap <- calcular_trustworthiness(
+  datos_esc,
+  modelo_umap,
+  k = 10
+)
+
+tabla_trustworthiness <- tibble(
+  Metodo = c("t-SNE", "UMAP"),
+  Trustworthiness = c(
+    trust_tsne,
+    trust_umap
+  )
+)
+
+knitr::kable(
+  tabla_trustworthiness,
+  digits = 4,
+  caption = "Trustworthiness de las proyecciones."
+)
+```
+
+
+
+### Interpretación
+
+El índice de **trustworthiness** mide qué tan bien una proyección de baja dimensión conserva los vecinos más cercanos del espacio original. Este indicador toma valores entre 0 y 1, donde valores cercanos a 1 representan una excelente preservación de la estructura local.
+
+En este ejercicio, ambos métodos obtuvieron valores muy elevados de trustworthiness. El algoritmo **t-SNE** alcanzó un valor de **0.9766**, mientras que **UMAP** obtuvo **0.9616**. Estos resultados indican que ambos métodos representan adecuadamente los vecindarios originales de los datos.
+
+Al comparar ambos índices, se observa que **t-SNE preserva ligeramente mejor la estructura local**, ya que presenta un valor de trustworthiness superior al de UMAP. No obstante, la diferencia entre ambos métodos es pequeña (aproximadamente 0.015), por lo que puede concluirse que ambos generan proyecciones de alta calidad para este conjunto de datos.
+
+En consecuencia, si el objetivo principal es conservar las relaciones entre observaciones vecinas, **t-SNE ofrece una ligera ventaja**. Sin embargo, considerando también aspectos como la estabilidad, la velocidad de ejecución y la preservación parcial de la estructura global, **UMAP continúa siendo una alternativa muy competitiva** para la reducción de dimensionalidad y la visualización de datos.
+
+
+## Pregunta 4
+
+Entrene un autoencoder con espacio latente de 2 dimensiones y compare su error de reconstrucción contra el de PCA con 2 componentes.
+
+```{r}
+library(keras3)
+
+X <- as.matrix(datos_esc)
+
+modelo_pca_2 <- prcomp(
+  X,
+  center = FALSE,
+  scale. = FALSE,
+  rank. = 2
+)
+
+X_pca_reconstruido <- modelo_pca_2$x[, 1:2] %*%
+  t(modelo_pca_2$rotation[, 1:2])
+
+error_pca <- mean(
+  (X - X_pca_reconstruido)^2
+)
+
+set.seed(123)
+keras3::set_random_seed(123)
+
+entrada <- layer_input(
+  shape = ncol(X)
+)
+
+espacio_latente <- entrada |>
+  layer_dense(
+    units = 8,
+    activation = "relu"
+  ) |>
+  layer_dense(
+    units = 2,
+    activation = "linear",
+    name = "espacio_latente"
+  )
+
+salida <- espacio_latente |>
+  layer_dense(
+    units = 8,
+    activation = "relu"
+  ) |>
+  layer_dense(
+    units = ncol(X),
+    activation = "linear"
+  )
+
+autoencoder <- keras_model(
+  inputs = entrada,
+  outputs = salida
+)
+
+autoencoder |>
+  compile(
+    optimizer = "adam",
+    loss = "mse"
+  )
+
+historial <- autoencoder |>
+  fit(
+    x = X,
+    y = X,
+    epochs = 200,
+    batch_size = 32,
+    validation_split = 0.2,
+    verbose = 0
+  )
+
+X_autoencoder_reconstruido <- autoencoder |>
+  predict(
+    X,
+    verbose = 0
+  )
+
+error_autoencoder <- mean(
+  (X - X_autoencoder_reconstruido)^2
+)
+
+comparacion_errores <- tibble(
+  Metodo = c(
+    "PCA con 2 componentes",
+    "Autoencoder con espacio latente 2D"
+  ),
+  Error_reconstruccion_MSE = c(
+    error_pca,
+    error_autoencoder
+  )
+)
+
+knitr::kable(
+  comparacion_errores,
+  digits = 6,
+  caption = "Comparación del error de reconstrucción entre PCA y autoencoder."
+)
+
+tibble(
+  Epoca = seq_along(historial$metrics$loss),
+  Entrenamiento = historial$metrics$loss,
+  Validacion = historial$metrics$val_loss
+) %>%
+  pivot_longer(
+    cols = c(Entrenamiento, Validacion),
+    names_to = "Conjunto",
+    values_to = "Perdida"
+  ) %>%
+  ggplot(
+    aes(
+      x = Epoca,
+      y = Perdida,
+      color = Conjunto
+    )
+  ) +
+  geom_line() +
+  labs(
+    title = "Evolución del error del autoencoder",
+    x = "Época",
+    y = "Error cuadrático medio",
+    color = "Conjunto"
+  ) +
+  theme_minimal()
+```
+
+
+### Interpretación
+
+La comparación del error de reconstrucción muestra que el **autoencoder con un espacio latente de dos dimensiones** obtuvo un error cuadrático medio (**MSE = 0.092588**) inferior al obtenido mediante **PCA con dos componentes** (**MSE = 0.151297**). Esto indica que el autoencoder reconstruye los datos originales con mayor precisión.
+
+La diferencia entre ambos métodos se debe a que el PCA realiza una transformación estrictamente lineal, por lo que únicamente puede capturar relaciones lineales presentes en los datos. En contraste, el autoencoder utiliza una red neuronal con funciones de activación no lineales, lo que le permite aprender representaciones latentes más flexibles y modelar relaciones más complejas entre las variables.
+
+La curva de entrenamiento respalda este resultado, ya que tanto el error de entrenamiento como el de validación disminuyen progresivamente hasta estabilizarse alrededor de las últimas épocas. Además, ambas curvas permanecen muy próximas durante todo el entrenamiento, lo que indica que el modelo converge adecuadamente y no presenta evidencia importante de sobreajuste.
+
+En conjunto, los resultados muestran que, para este conjunto de datos, el autoencoder proporciona una representación comprimida más informativa que PCA utilizando el mismo espacio latente de dos dimensiones. No obstante, esta mejora se obtiene a costa de una mayor complejidad computacional y una menor interpretabilidad del modelo. Por el contrario, PCA continúa siendo una alternativa más sencilla, rápida e interpretable cuando las relaciones entre las variables son predominantemente lineales.
+
+
