@@ -1,0 +1,289 @@
+---
+title: "Taller clase 9"
+author: "Sebastian Tabares Segovia"
+date: "2026-07-20"
+output: html_document
+---
+
+# Dataset
+
+```{r}
+library(tidyverse)
+set.seed(2025)
+
+n <- 400
+estudiantes <- tibble(
+  id         = 1:n,
+  programa   = sample(c("Estadística","Sistemas","Economía","Matemáticas"),
+                      n, replace = TRUE, prob = c(.3,.3,.25,.15)),
+  semestre   = sample(1:10, n, replace = TRUE),
+  sexo       = sample(c("Mujer","Hombre"), n, replace = TRUE),
+  nota_final = round(rnorm(n, mean = 3.5, sd = 0.7), 1) |> pmin(5) |> pmax(0),
+  horas_sem  = round(rnorm(n, mean = 18, sd = 5)),
+  beca       = sample(c("Sí","No"), n, replace = TRUE, prob = c(.3,.7))
+)
+```
+## Ejercicio 1: ¿es normal la distribución de notas?
+
+Aplica una prueba formal de normalidad a nota_final para cada programa por separado.
+
+```{r}
+
+# Prueba de Shapiro-Wilk por programa
+estudiantes |>
+  group_by(programa) |>
+  summarise(
+    W       = shapiro.test(nota_final)$statistic,
+    p_valor = shapiro.test(nota_final)$p.value
+  )
+```
+
+### Pregunta 1.1 ¿En qué programas se rechaza normalidad con alpha = 0.05?
+
+Con un nivel de significancia de \(\alpha = 0.05\), no se rechaza la hipótesis nula de normalidad en ninguno de los programas académicos evaluados. Esto se debe a que todos los valores *p* son mayores que 0.05: Economía (0.7334), Estadística (0.6009), Matemáticas (0.1327) y Sistemas (0.2807).
+
+En consecuencia, no existe evidencia estadísticamente significativa para afirmar que la distribución de la variable **nota_final** difiera de una distribución normal dentro de alguno de los programas. Bajo este criterio, el supuesto de normalidad puede considerarse razonable para los cuatro grupos.
+
+
+### Pregunta 1.2 Construye el QQ-plot para el programa con el p-valor más bajo. ¿Qué patrón ves en las colas?
+
+```{r}
+estudiantes |>
+  filter(programa == "Matemáticas") |>
+  ggplot(aes(sample = nota_final)) +
+  stat_qq() +
+  stat_qq_line(color = "red") +
+  labs(
+    title = "QQ-plot de las notas finales - Matemáticas",
+    x = "Cuantiles teóricos",
+    y = "Cuantiles muestrales"
+  ) +
+  theme_classic()
+```
+
+
+El QQ-plot del programa **Matemáticas**, que presentó el menor valor *p* en la prueba de Shapiro-Wilk, muestra que la mayoría de las observaciones siguen de cerca la línea de referencia, lo que indica un buen ajuste a la distribución normal en la parte central de los datos.
+
+Sin embargo, en la **cola superior** se observa que varios puntos se sitúan por encima de la línea de referencia, evidenciando una ligera desviación respecto a la normalidad en los valores más altos de la distribución. En contraste, la **cola inferior** permanece cercana a la línea, sin desviaciones importantes.
+
+En conjunto, el gráfico sugiere que la distribución es aproximadamente normal, aunque presenta una leve discrepancia en la cola derecha. Este comportamiento es consistente con el resultado de la prueba de Shapiro-Wilk, la cual no rechazó la hipótesis de normalidad al nivel de significancia de 0.05.
+
+
+### Pregunta 1.3 Si la distribución no es normal, ¿qué implicaciones tiene para pruebas de hipótesis posteriores?
+
+
+Si la distribución de los datos no es normal, algunas pruebas de hipótesis **paramétricas**, como la prueba *t* de Student o el ANOVA, pueden no cumplir uno de sus supuestos fundamentales. Esto puede afectar la validez de los valores *p*, aumentar la probabilidad de cometer errores de tipo I o tipo II y disminuir la confiabilidad de las conclusiones obtenidas.
+
+Cuando la normalidad no se cumple, es recomendable evaluar si el tamaño de la muestra es suficientemente grande para que el Teorema Central del Límite permita utilizar pruebas paramétricas con seguridad. En caso contrario, pueden emplearse pruebas **no paramétricas**, como la prueba de Mann-Whitney, Wilcoxon, Kruskal-Wallis o Friedman, según el diseño del estudio, ya que estas requieren supuestos menos restrictivos sobre la distribución de los datos.
+
+
+
+## Ejercicio 2: estadísticos robustos y sesgo
+
+Construye una tabla que compare estimadores clásicos y robustos de centralidad y dispersión.
+
+```{r}
+estudiantes |>
+  group_by(programa) |>
+  summarise(
+    media       = mean(nota_final),
+    mediana     = median(nota_final),
+    media_recortada = mean(nota_final, trim = 0.1),  # trim 10%
+    mad         = mad(nota_final),                   # desv. absoluta mediana
+    cv          = sd(nota_final) / mean(nota_final), # coef. variación
+    asimetria   = (mean(nota_final) - median(nota_final)) / sd(nota_final)
+  )
+```
+
+### Pregunta 2.1 ¿Qué programa muestra mayor discrepancia entre media y media recortada? ¿Qué indica?
+
+
+El programa que presenta la **mayor discrepancia entre la media y la media recortada** es **Matemáticas**, con una diferencia aproximada de 0.0193 puntos (media = 3.5871 y media recortada = 3.5679). En los demás programas, la diferencia entre ambas medidas es menor.
+
+Esta diferencia indica que existen algunas observaciones extremas que influyen sobre la media aritmética. Al eliminar el 10 % de los valores más bajos y más altos mediante la media recortada, el promedio disminuye ligeramente, lo que sugiere que algunos valores altos incrementan la media original.
+
+No obstante, la discrepancia sigue siendo pequeña en todos los programas, lo que indica que la influencia de los valores extremos es reducida y que la media constituye una medida representativa de la tendencia central en cada grupo.
+
+### Pregunta 2.2 Interpreta el coeficiente de asimetría de Pearson: ¿en qué dirección sesga cada distribución?
+
+El coeficiente de asimetría de Pearson indica la dirección del sesgo de cada distribución a partir de la diferencia entre la media y la mediana. Un valor cercano a cero sugiere una distribución aproximadamente simétrica, un valor positivo indica asimetría hacia la derecha y un valor negativo indica asimetría hacia la izquierda.
+
+En **Economía**, el coeficiente de asimetría es ligeramente negativo (-0.0042), lo que indica una distribución prácticamente simétrica con un sesgo muy leve hacia la izquierda. En **Estadística** (0.0051), **Matemáticas** (0.0559) y **Sistemas** (0.0695), el coeficiente es positivo, lo que evidencia un sesgo hacia la derecha. Este sesgo es muy pequeño en Estadística y ligeramente más pronunciado en Matemáticas y Sistemas.
+
+En conjunto, los coeficientes son muy cercanos a cero, por lo que las cuatro distribuciones pueden considerarse aproximadamente simétricas, sin evidencia de una asimetría marcada.
+
+### Pregunta 2.3 ¿Cuándo preferirías reportar la MAD en lugar de la desviación estándar?
+
+Preferiría reportar la **MAD (Median Absolute Deviation)** cuando los datos presentan valores atípicos, distribuciones asimétricas o no cumplen el supuesto de normalidad. La MAD es una medida de dispersión robusta porque se basa en la mediana y, por tanto, es mucho menos sensible a observaciones extremas que la desviación estándar.
+
+En cambio, la **desviación estándar** es más apropiada cuando la distribución es aproximadamente normal y no existen valores atípicos importantes, ya que utiliza toda la información de los datos y describe adecuadamente la variabilidad alrededor de la media.
+
+Por ello, en conjuntos de datos con posibles observaciones extremas o distribuciones sesgadas, la MAD proporciona una medida de dispersión más representativa y estable que la desviación estándar.
+
+
+## Ejercicio 3: valores atípicos
+
+Compara dos criterios de detección de outliers y discute sus diferencias.
+
+```{r}
+detectar_outliers <- function(x) {
+  q1  <- quantile(x, 0.25); q3 <- quantile(x, 0.75)
+  iqr <- q3 - q1
+  z   <- (x - mean(x)) / sd(x)
+  tibble(
+    valor      = x,
+    outlier_iqr = x < (q1 - 1.5 * iqr) | x > (q3 + 1.5 * iqr),
+    outlier_z   = abs(z) > 3
+  )
+}
+
+estudiantes |>
+  group_by(programa) |>
+  reframe(detectar_outliers(nota_final)) |>
+  summarise(n_iqr = sum(outlier_iqr), n_z = sum(outlier_z))
+```
+
+## Pregunta 3.1 ¿Coinciden los dos criterios? ¿Cuándo podría el criterio Z fallar con muestras pequeñas?
+
+Los dos criterios de detección de valores atípicos coinciden en este conjunto de datos, ya que tanto el método basado en el **rango intercuartílico (IQR)** como el criterio de **puntajes Z** identificaron **cero valores atípicos**. Esto sugiere que las observaciones se encuentran dentro de los rangos esperados según ambos enfoques.
+
+El criterio basado en **puntajes Z** puede fallar cuando el tamaño de la muestra es pequeño porque la media y la desviación estándar son estimaciones poco estables y pueden verse afectadas considerablemente por observaciones extremas. Además, si la distribución no es aproximadamente normal, los puntajes Z pueden dejar de ser una referencia adecuada para identificar valores atípicos. En estas situaciones, el criterio del **IQR** suele ser más robusto, ya que depende de la mediana y de los cuartiles, medidas menos sensibles a valores extremos y a desviaciones de la normalidad.
+
+
+## Pregunta 3.2 Visualiza los outliers detectados por IQR sobre un boxplot con geom_point() en color rojo
+
+```{r}
+outliers_iqr <- estudiantes |>
+  group_by(programa) |>
+  reframe(detectar_outliers(nota_final)) |>
+  filter(outlier_iqr)
+
+ggplot(estudiantes, aes(x = programa, y = nota_final)) +
+  geom_boxplot() +
+  geom_point(
+    data = outliers_iqr,
+    aes(x = programa, y = valor),
+    color = "red",
+    size = 3
+  ) +
+  labs(
+    title = "Valores atípicos detectados mediante el criterio IQR",
+    x = "Programa",
+    y = "Nota final"
+  ) +
+  theme_classic()
+```
+
+El boxplot muestra que ninguno de los programas presenta valores atípicos según el criterio del rango intercuartílico (IQR). Esto coincide con los resultados obtenidos previamente, donde el número de observaciones clasificadas como atípicas fue cero para todos los grupos.
+
+Al no detectarse valores atípicos, no aparecen puntos rojos superpuestos sobre los diagramas de caja. Además, las cajas y los bigotes presentan una distribución equilibrada, sin observaciones aisladas más allá de los límites establecidos por el criterio IQR. En conjunto, la gráfica sugiere que las notas finales de los cuatro programas no contienen valores extremos que puedan influir de manera importante en los análisis descriptivos o inferenciales posteriores.
+
+
+### Pregunta 3.3 ¿Eliminarías esos puntos del análisis? Justifica estadísticamente.
+
+
+No eliminaría observaciones del análisis, ya que el criterio del rango intercuartílico (IQR) no identificó ningún valor atípico en ninguno de los programas. Por tanto, no existe evidencia estadística de observaciones extremadamente alejadas del resto de los datos que justifique su exclusión.
+
+En términos generales, un valor atípico no debe eliminarse únicamente por ser extremo. Su eliminación solo estaría justificada si se demuestra que corresponde a un error de medición, de digitación o de recolección de datos, o si existe una razón metodológica claramente documentada. En ausencia de estas condiciones, conservar las observaciones permite mantener la representatividad de la muestra y evitar introducir sesgos en el análisis.
+
+
+## Ejercicio 4: correlación y su significancia
+
+Analiza la relación entre horas de estudio y nota final usando dos coeficientes.
+
+```{r}
+# Pearson (asume linealidad y normalidad) vs Spearman (no paramétrico)
+estudiantes |>
+  group_by(programa) |>
+  summarise(
+    r_pearson  = cor(horas_sem, nota_final, method = "pearson"),
+    r_spearman = cor(horas_sem, nota_final, method = "spearman"),
+    p_pearson  = cor.test(horas_sem, nota_final, method = "pearson")$p.value,
+    p_spearman = cor.test(horas_sem, nota_final, method = "spearman")$p.value
+  )
+```
+### Pregunta 4.1 ¿En qué programas hay correlación significativa? ¿Pearson y Spearman coinciden?
+
+
+Con un nivel de significancia de \(\alpha = 0.05\), se observa una correlación estadísticamente significativa entre las **horas de estudio semanales** y la **nota final** en los programas de **Estadística** y **Matemáticas**, tanto con el coeficiente de **Pearson** como con el de **Spearman**, ya que en ambos casos los valores *p* son inferiores a 0.05.
+
+En **Economía** y **Sistemas**, ninguno de los dos métodos detecta una correlación significativa, pues los valores *p* son mayores que 0.05. En Economía la correlación es prácticamente nula y ligeramente negativa, mientras que en Sistemas la correlación es muy débil y positiva.
+
+En cuanto a la magnitud de la asociación, Pearson y Spearman muestran resultados similares y llegan a las mismas conclusiones respecto a la significancia estadística. Las diferencias entre los coeficientes son pequeñas y reflejan que, aunque cada método mide un tipo distinto de relación (lineal en Pearson y monotónica en Spearman), ambos describen un comportamiento consistente en este conjunto de datos.
+
+### Pregunta 4.2 Si Spearman > Pearson en algún programa, ¿qué sugiere sobre la forma de la relación?
+
+
+Cuando el coeficiente de **Spearman** es mayor que el de **Pearson**, se sugiere que la relación entre las variables es más **monótona** que estrictamente lineal. Esto significa que, aunque una variable tiende a aumentar cuando la otra aumenta, dicha asociación puede no seguir una línea recta.
+
+En los resultados obtenidos, esto ocurre en el programa de **Estadística**, donde el coeficiente de Spearman (0.3521) es superior al de Pearson (0.2906). Este comportamiento indica que el orden de las observaciones presenta una asociación más fuerte que la relación lineal entre los valores originales, lo que puede deberse a una relación ligeramente no lineal o a la presencia de observaciones que afectan el coeficiente de Pearson.
+
+En los demás programas, Spearman es igual o inferior a Pearson, por lo que no existe evidencia de que una relación monotónica describa mejor los datos que una relación lineal.
+
+### Pregunta 4.3 Grafica el dispersograma con geom_smooth(method = “lm”) separado por programa con facet_wrap().
+
+```{r}
+ggplot(estudiantes, aes(x = horas_sem, y = nota_final)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  facet_wrap(~ programa) +
+  labs(
+    title = "Relación entre horas de estudio y nota final por programa",
+    x = "Horas de estudio por semana",
+    y = "Nota final"
+  ) +
+  theme_classic()
+```
+
+El dispersograma muestra diferencias en la relación entre las **horas de estudio semanales** y la **nota final** según el programa académico. En **Estadística** y **Matemáticas**, la recta de regresión presenta una pendiente positiva claramente apreciable, indicando que un mayor número de horas de estudio se asocia con un incremento en la nota final. Este comportamiento es consistente con los resultados obtenidos previamente mediante los coeficientes de correlación de Pearson y Spearman, los cuales fueron estadísticamente significativos para ambos programas.
+
+En **Economía**, la pendiente de la recta es prácticamente horizontal e incluso ligeramente negativa, lo que sugiere la ausencia de una relación lineal entre las variables. De manera similar, en **Sistemas** la pendiente es apenas positiva y los puntos presentan una amplia dispersión alrededor de la recta, indicando una asociación muy débil. Estos resultados también coinciden con las pruebas de correlación, donde no se encontró evidencia de una relación estadísticamente significativa en estos dos programas.
+
+En conjunto, la representación gráfica respalda las conclusiones obtenidas mediante los coeficientes de correlación, mostrando una relación positiva entre horas de estudio y rendimiento académico únicamente en los programas de **Estadística** y **Matemáticas**.
+
+## Ejercicio 5: comparación de grupos con tamaño del efecto
+
+Prueba si las notas difieren entre programas y cuantifica qué tan grande es esa diferencia.
+
+```{r}
+# Kruskal-Wallis (no paramétrico, no asume normalidad)
+kruskal.test(nota_final ~ programa, data = estudiantes)
+
+# Tamaño del efecto: eta-cuadrado de Kruskal-Wallis
+# eta^2 = (H - k + 1) / (n - k)  donde H es el estadístico y k el número de grupos
+H <- kruskal.test(nota_final ~ programa, data = estudiantes)$statistic
+k <- n_distinct(estudiantes$programa)
+n <- nrow(estudiantes)
+eta2 <- (H - k + 1) / (n - k)
+eta2
+```
+### Pregunta 5.1 ¿Se rechaza la hipótesis nula? Interpreta el p-valor en contexto.
+
+Con un nivel de significancia de \(\alpha = 0.05\), **no se rechaza la hipótesis nula** de la prueba de Kruskal-Wallis, ya que el valor *p* obtenido (0.7784) es considerablemente mayor que 0.05.
+
+En este contexto, no existe evidencia estadísticamente significativa para afirmar que la distribución de las **notas finales** difiera entre los programas de **Economía**, **Estadística**, **Matemáticas** y **Sistemas**. Las diferencias observadas entre los grupos pueden atribuirse a la variabilidad propia de la muestra y no a un efecto sistemático del programa académico.
+
+Además, el tamaño del efecto estimado mediante \(\eta^2\) es prácticamente nulo (\(\eta^2 \approx -0.0048\), que en la práctica se interpreta como 0), lo que indica que el programa académico explica una proporción despreciable de la variabilidad en las notas finales.
+
+### Pregunta 5.2 Interpreta eta-cuadrado: ¿el efecto es pequeño (< 0.06), mediano (0.06-0.14) o grande (> 0.14)?
+
+El tamaño del efecto medido mediante **eta-cuadrado** es **pequeño**, ya que su valor es aproximadamente 0 (el cálculo produjo un valor ligeramente negativo debido a la fórmula utilizada, pero en la práctica estos valores se interpretan como 0, puesto que el tamaño del efecto no puede ser negativo).
+
+De acuerdo con los criterios de interpretación, un efecto es **pequeño** cuando \(\eta^2 < 0.06\), **mediano** cuando \(0.06 \leq \eta^2 < 0.14\) y **grande** cuando \(\eta^2 \geq 0.14\). En este caso, el programa académico explica una proporción prácticamente nula de la variabilidad en las notas finales, lo que es consistente con el resultado de la prueba de Kruskal-Wallis, donde no se encontraron diferencias estadísticamente significativas entre los programas.
+
+### Pregunta 5.3 Si hay diferencias, aplica Dunn con corrección de Bonferroni para identificar qué pares difieren.
+
+```{r}
+library(FSA)
+
+dunnTest(
+  nota_final ~ programa,
+  data = estudiantes,
+  method = "bonferroni"
+)
+```
+
+
+La prueba de Dunn con corrección de Bonferroni se utiliza para identificar qué pares de grupos difieren cuando la prueba global de Kruskal-Wallis resulta estadísticamente significativa. En este caso, la prueba de Kruskal-Wallis no rechazó la hipótesis nula (\(p = 0.7784\)), por lo que no existe evidencia de diferencias globales entre los programas académicos.
+
+En consecuencia, no es necesario realizar comparaciones múltiples entre pares de programas, ya que no existe evidencia estadística que justifique la búsqueda de diferencias específicas entre ellos.
