@@ -1,0 +1,26 @@
+﻿variable,tipo,porcentaje_faltantes,valores_unicos,proporcion_categoria_dominante,decision,motivo
+edad,float64,0.5329850221073084,1040,0.0021456710701630594,conservar,
+sexo,str,0.0,3,0.5504375564157092,conservar,
+tipo_beneficiario,str,0.0,10,0.5181907195202179,conservar,
+numero_utilizaciones,int64,0.0,96,0.40045974022000214,conservar,
+numero_procedimientos,int64,0.0,121,0.332837385064945,conservar,
+numero_dias_atencion,int64,0.0,96,0.40045974022000214,excluir,duplicada de numero_utilizaciones
+numero_especialidades,int64,0.0,18,0.6320012851307315,conservar,
+numero_estados_atencion,int64,0.0,9,0.7110444747028135,conservar,
+numero_unidades_hospitalarias,int64,0.0,9,0.4852917552743907,conservar,
+tuvo_internacion,int64,0.0,2,0.9754888086532136,conservar,
+tuvo_uti,int64,0.0,2,0.9962593516209476,excluir,casi constante (dominancia >= 99%)
+porte_anestesico_mas_frecuente,float64,12.034522589232441,8,0.9944997010707104,excluir,casi constante (dominancia >= 99%)
+costo_total,float64,0.0,198057,0.02375579456267307,conservar,
+costo_promedio,float64,0.0,261524,0.028066337224423605,conservar,
+costo_mediano,float64,0.0,34762,0.0334650337346817,conservar,
+costo_maximo,float64,0.0,28522,0.05654766458087909,conservar,
+n_consultas_C,int64,0.0,25,0.40922234291571685,conservar,
+n_examenes_E,int64,0.0,167,0.4971256674265257,conservar,
+n_terapias_T,int64,0.0,180,0.8336176430090418,conservar,
+n_internaciones_I,int64,0.0,793,0.9658063430381102,conservar,
+n_urgencias_P,int64,0.0,166,0.8106899163135107,conservar,
+n_otros_O,int64,0.0,282,0.7292543181922494,conservar,
+especialidad_mas_frecuente,str,63.20012851307315,323,0.15206206996902738,conservar,
+estado_mas_frecuente,str,25.209598702629926,27,0.6336625055614935,conservar,
+unidad_hospitalaria_mas_frecuente,str,25.209598702629926,28,0.27708511258508445,conservar,

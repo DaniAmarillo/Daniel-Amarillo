@@ -1,0 +1,2 @@
+﻿modelo,accuracy,precision,recall_sensibilidad,especificidad,f1,roc_auc,pr_auc,criterio_seleccion
+modelo_gradient_boosting,0.9669846320958945,0.027094152178821405,0.9448818897637795,0.9670061255742726,0.05267778753292362,0.9858870928844461,0.19036503052356135,Mayor PR-AUC; sensibilidad y F1 como desempates. Accuracy no basta ante desbalance extremo.

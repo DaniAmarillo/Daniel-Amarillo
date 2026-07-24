@@ -1,0 +1,4 @@
+﻿variable,beneficiarios_evaluados,beneficiarios_inconsistentes,criterio
+SEXO_BENEFICIARIO,653631,525,más de un valor válido observado
+DT_NASCIMENTO_BENEFICIARIO,653329,0,más de un valor válido observado
+TIPO_BENEFICIARIO,653631,6950,más de un valor válido observado
