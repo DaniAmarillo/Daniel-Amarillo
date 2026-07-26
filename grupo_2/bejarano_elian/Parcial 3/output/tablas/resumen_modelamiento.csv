@@ -1,0 +1,6 @@
+tipo,n,variables,positivos
+numericas,28,"n_registros_no_cardio, n_utilizaciones_no_cardio, n_procedimientos_distintos_no_cardio, n_especialidades_no_cardio, n_estados_no_cardio, n_unidades_no_cardio, n_cetipos_no_cardio, costo_total_no_cardio, costo_promedio_no_cardio, costo_sd_no_cardio, costo_max_no_cardio, costo_min_no_cardio, n_uti_no_cardio, paso_uti_no_cardio, n_internado_no_cardio, paso_internado_no_cardio, tasa_uti_no_cardio, tasa_internado_no_cardio, n_cetipo_consulta, n_cetipo_exame, n_cetipo_terapia, n_cetipo_internacao, n_cetipo_pronto_socorro, n_cetipo_outros, sexo_n_distintos, tipo_beneficiario_n_distintos, fecha_nacimiento_n_distintas, edad_referencia",
+categoricas,6,"sexo_moda, tipo_beneficiario_moda, estado_moda, especialidad_moda, tipo_unidad_moda, cetipo_moda",
+train_completo,522904,,178.0
+train_usado_modelos,9078,,178.0
+test,130727,,44.0

@@ -1,0 +1,490 @@
+﻿chave_funcional,target_k80,analisis,modelo,probabilidad,umbral,prediccion,tipo_error
+0007fd99-9632-4456-8082-5edf6d11b203,0,Principal,Regresión logística regularizada,0.986484011016296,0.9677536133548,1,Falso positivo
+01066b59-1bed-4658-bdff-c3a69fa516c2,0,Principal,Regresión logística regularizada,0.968346235550498,0.9677536133548,1,Falso positivo
+028ba6b2-de29-4788-abc3-71e8305db407,0,Principal,Regresión logística regularizada,0.97085698432108,0.9677536133548,1,Falso positivo
+04f02181-2b35-4009-b9c9-c5b5136709ce,1,Principal,Regresión logística regularizada,0.941049307978894,0.9677536133548,0,Falso negativo
+08384f41-d890-4e06-bb70-ce4695630646,0,Principal,Regresión logística regularizada,0.971786581448063,0.9677536133548,1,Falso positivo
+08e066e9-d10a-460a-91cb-36b8cda13410,0,Principal,Regresión logística regularizada,0.993434764657222,0.9677536133548,1,Falso positivo
+098fc829-60e1-431f-88c6-a0207f552928,0,Principal,Regresión logística regularizada,0.98302155992228,0.9677536133548,1,Falso positivo
+0a7b690b-f58e-4601-b81a-2bda50e8ab47,1,Principal,Regresión logística regularizada,0.928920073503166,0.9677536133548,0,Falso negativo
+0abfe2bf-1c1c-42dc-9ec6-cda9c8e31044,0,Principal,Regresión logística regularizada,0.975602712068835,0.9677536133548,1,Falso positivo
+0c5eede5-e7c7-456c-84ab-7eeee0b6473b,0,Principal,Regresión logística regularizada,0.98268501032725,0.9677536133548,1,Falso positivo
+0fb74525-9ffd-4961-91af-a0be96b26df6,0,Principal,Regresión logística regularizada,0.984586701836156,0.9677536133548,1,Falso positivo
+1088a729-16d0-4fae-93d6-2e46d77c3a4e,0,Principal,Regresión logística regularizada,0.975543164296061,0.9677536133548,1,Falso positivo
+11baa4d2-1a04-4e80-8987-aa8fc6fa5049,0,Principal,Regresión logística regularizada,0.969160067531629,0.9677536133548,1,Falso positivo
+123fa497-726b-42e6-ab73-fa3eff0898dd,0,Principal,Regresión logística regularizada,0.978085995668407,0.9677536133548,1,Falso positivo
+129af4b2-cc53-4d22-8923-e15d754882bc,0,Principal,Regresión logística regularizada,0.991941356827291,0.9677536133548,1,Falso positivo
+1451c41a-53a8-4c92-abf2-4e64c663742a,0,Principal,Regresión logística regularizada,0.977631731856207,0.9677536133548,1,Falso positivo
+15b888b3-fc4a-417d-90d5-c7bb65180010,0,Principal,Regresión logística regularizada,0.969851024320272,0.9677536133548,1,Falso positivo
+17a92c77-8527-4a94-be81-7ce0d1cc6be2,0,Principal,Regresión logística regularizada,0.973580333741801,0.9677536133548,1,Falso positivo
+19bf281d-5471-4465-8b9b-e1e655c3b157,1,Principal,Regresión logística regularizada,0.903721047189091,0.9677536133548,0,Falso negativo
+1a447285-ed94-49c9-b73b-4add3f642bfe,0,Principal,Regresión logística regularizada,0.986579496130178,0.9677536133548,1,Falso positivo
+1d7b3f8d-9ceb-4d92-9e5e-d034205d62c6,0,Principal,Regresión logística regularizada,0.971816189835653,0.9677536133548,1,Falso positivo
+201697e4-e64c-4ebd-9957-d07d29db2054,0,Principal,Regresión logística regularizada,0.985369717095243,0.9677536133548,1,Falso positivo
+214f2228-59d1-4e66-8e81-a0b505ed2575,1,Principal,Regresión logística regularizada,0.753301924560201,0.9677536133548,0,Falso negativo
+21d5e52f-e217-4d23-931a-fbd967f86e27,0,Principal,Regresión logística regularizada,0.991219091261493,0.9677536133548,1,Falso positivo
+23d8e825-0e2a-40f8-acd2-08d0ee26b52c,0,Principal,Regresión logística regularizada,0.983716933914403,0.9677536133548,1,Falso positivo
+2668eaf5-b90a-4569-9a07-d94604b2672a,0,Principal,Regresión logística regularizada,0.989184792747328,0.9677536133548,1,Falso positivo
+26ccc71c-746a-41ea-9d5c-e8df52b202ce,0,Principal,Regresión logística regularizada,0.969944187655843,0.9677536133548,1,Falso positivo
+2763963e-9636-4d0f-9933-45d7f21278c4,0,Principal,Regresión logística regularizada,0.977624950718666,0.9677536133548,1,Falso positivo
+287efd4f-1876-4d50-a14c-18c888c63c15,0,Principal,Regresión logística regularizada,0.988460966155044,0.9677536133548,1,Falso positivo
+2b9e7211-75e4-4782-8f04-3e53a33502d3,1,Principal,Regresión logística regularizada,0.830934924109144,0.9677536133548,0,Falso negativo
+2bd2fc01-2c81-43e7-a59a-c9840a406076,1,Principal,Regresión logística regularizada,0.638280745816425,0.9677536133548,0,Falso negativo
+2e6202a3-744c-4ce0-9440-1e22703c967f,0,Principal,Regresión logística regularizada,0.983778557229177,0.9677536133548,1,Falso positivo
+2f25046f-8641-4c70-a32f-75949bd9715c,0,Principal,Regresión logística regularizada,0.979570415769597,0.9677536133548,1,Falso positivo
+2f708229-9567-494c-9695-875af40e946f,1,Principal,Regresión logística regularizada,0.752178055429473,0.9677536133548,0,Falso negativo
+30f37494-0e90-4fb5-9ffb-5e6244a7130f,0,Principal,Regresión logística regularizada,0.97773028634744,0.9677536133548,1,Falso positivo
+30f7ae10-bcc9-4075-82fd-0df447674c98,0,Principal,Regresión logística regularizada,0.98963617276005,0.9677536133548,1,Falso positivo
+32388d7d-7667-4da6-8b4a-02cd7d46b258,0,Principal,Regresión logística regularizada,0.979475815662189,0.9677536133548,1,Falso positivo
+32d02a0c-68d6-480c-8ed0-252c4ccaa262,0,Principal,Regresión logística regularizada,0.98788566532111,0.9677536133548,1,Falso positivo
+333e0443-7959-4773-a2c3-ef9e98c8b8f4,0,Principal,Regresión logística regularizada,0.988890352113479,0.9677536133548,1,Falso positivo
+35ab192c-4d08-43cb-ac8d-6301f1ca87d4,1,Principal,Regresión logística regularizada,0.952389467893554,0.9677536133548,0,Falso negativo
+36df7b89-d516-4e6d-a8cc-331b4b487ca9,0,Principal,Regresión logística regularizada,0.97825110356684,0.9677536133548,1,Falso positivo
+371d4205-271f-4601-9225-652b852aa31c,0,Principal,Regresión logística regularizada,0.978971359900622,0.9677536133548,1,Falso positivo
+382ba3ee-de40-45c7-b99d-97cd1545e6e8,0,Principal,Regresión logística regularizada,0.984445501191274,0.9677536133548,1,Falso positivo
+384b4a6d-b4d2-4666-89e2-fadf3e3d89f4,0,Principal,Regresión logística regularizada,0.985288029554471,0.9677536133548,1,Falso positivo
+395d4ee5-18e9-4926-ac74-76c200d68e4a,0,Principal,Regresión logística regularizada,0.969326224087309,0.9677536133548,1,Falso positivo
+396043da-48a2-4b0a-ad8a-0bfe2b11bae6,0,Principal,Regresión logística regularizada,0.97335419413013,0.9677536133548,1,Falso positivo
+39a62332-b635-4a7f-b93a-5c2fb495970c,0,Principal,Regresión logística regularizada,0.979921364169006,0.9677536133548,1,Falso positivo
+39bbbbc6-2a77-4de5-a535-2d842afc94d5,1,Principal,Regresión logística regularizada,0.942974874895612,0.9677536133548,0,Falso negativo
+3be38e1c-e216-4811-9c3c-e519d422a640,0,Principal,Regresión logística regularizada,0.974813270642046,0.9677536133548,1,Falso positivo
+3c6ceea3-4059-47e6-a111-514e4b141147,0,Principal,Regresión logística regularizada,0.971726722688541,0.9677536133548,1,Falso positivo
+3cc1ac67-43e3-468f-87d5-e3227af4f910,1,Principal,Regresión logística regularizada,0.945181531824262,0.9677536133548,0,Falso negativo
+3d1cdce3-0afd-40ee-a068-7a3556c9121e,0,Principal,Regresión logística regularizada,0.977603486124588,0.9677536133548,1,Falso positivo
+3db18363-6659-466f-8e65-aa0e2bff5193,0,Principal,Regresión logística regularizada,0.981045655436573,0.9677536133548,1,Falso positivo
+3ebc2d9e-5594-42bd-8bf9-6b4825713fea,0,Principal,Regresión logística regularizada,0.97588766234542,0.9677536133548,1,Falso positivo
+3f797ec2-756f-4bd1-9e4d-3971366fe302,1,Principal,Regresión logística regularizada,0.74474843451843,0.9677536133548,0,Falso negativo
+418215c7-6f3f-465b-8b71-d33f8a977a50,0,Principal,Regresión logística regularizada,0.972577307056777,0.9677536133548,1,Falso positivo
+43967c27-34b7-4ed4-876f-6b1e38b3db92,0,Principal,Regresión logística regularizada,0.972059611641255,0.9677536133548,1,Falso positivo
+447b8e9c-45c3-4826-a4a2-e38f80fcbebd,0,Principal,Regresión logística regularizada,0.969158079995418,0.9677536133548,1,Falso positivo
+4540c2ae-bd8e-46f8-940a-c8514715fcaf,0,Principal,Regresión logística regularizada,0.978501320088916,0.9677536133548,1,Falso positivo
+4552af15-216e-4a8d-8d8c-57b07048b21a,0,Principal,Regresión logística regularizada,0.993129652224533,0.9677536133548,1,Falso positivo
+4a09f2e4-2588-404f-936d-072548a29523,0,Principal,Regresión logística regularizada,0.968237570739216,0.9677536133548,1,Falso positivo
+4b64ac56-3a67-489c-80d6-ce96cbff0aae,1,Principal,Regresión logística regularizada,0.879798843820792,0.9677536133548,0,Falso negativo
+4df5504a-0154-42ba-b5ed-86cc5ec4e3ad,1,Principal,Regresión logística regularizada,0.810092523633227,0.9677536133548,0,Falso negativo
+52d242f5-fa57-4d04-9551-d80573389563,1,Principal,Regresión logística regularizada,0.768961188547015,0.9677536133548,0,Falso negativo
+542a9cea-6340-4a06-a892-9669773d32f5,0,Principal,Regresión logística regularizada,0.969674723802082,0.9677536133548,1,Falso positivo
+54572bfb-4f5c-47f3-b5c9-a517c55d511c,1,Principal,Regresión logística regularizada,0.669109265401634,0.9677536133548,0,Falso negativo
+55367c4e-237c-4598-a326-b484a4a8fee2,0,Principal,Regresión logística regularizada,0.989854951239526,0.9677536133548,1,Falso positivo
+5665bb02-8f4e-4bc6-a933-09aefa940d89,0,Principal,Regresión logística regularizada,0.971932592520458,0.9677536133548,1,Falso positivo
+56d78d6e-3aed-435e-bcce-7c94bce6ee4d,0,Principal,Regresión logística regularizada,0.977201248683264,0.9677536133548,1,Falso positivo
+57fe0e2d-6f6f-4689-9f5a-ec7d2a1c77ad,0,Principal,Regresión logística regularizada,0.968804712887732,0.9677536133548,1,Falso positivo
+58ce5784-e328-416b-8828-073c0643dd8d,0,Principal,Regresión logística regularizada,0.986951747946261,0.9677536133548,1,Falso positivo
+59b05e7a-d6aa-41a0-83f2-54c09c6ca73e,0,Principal,Regresión logística regularizada,0.97301163829475,0.9677536133548,1,Falso positivo
+5b43840f-ac9d-46e7-ac1e-c628ea097d9a,0,Principal,Regresión logística regularizada,0.969756854304758,0.9677536133548,1,Falso positivo
+5e9f4116-0797-48e6-83e1-f3edb000e56e,0,Principal,Regresión logística regularizada,0.986272595756541,0.9677536133548,1,Falso positivo
+5f6c6134-2fb9-4763-acab-a164d37e3440,1,Principal,Regresión logística regularizada,0.682467936706451,0.9677536133548,0,Falso negativo
+61e6e3a0-ae36-415c-9589-7fe50023cd8c,0,Principal,Regresión logística regularizada,0.984054359969476,0.9677536133548,1,Falso positivo
+61ec3d45-4e1b-4a50-9df0-2a01a3d73cb4,1,Principal,Regresión logística regularizada,0.947605518327336,0.9677536133548,0,Falso negativo
+6215eec7-653d-4486-a9ac-15df467252e8,1,Principal,Regresión logística regularizada,0.495143389096642,0.9677536133548,0,Falso negativo
+6235117a-6133-4b71-b1f0-bae5200c1466,0,Principal,Regresión logística regularizada,0.975653817202054,0.9677536133548,1,Falso positivo
+62b04ece-d0e4-4b83-84db-de053095845d,0,Principal,Regresión logística regularizada,0.974216041203717,0.9677536133548,1,Falso positivo
+64fe05c5-ff39-4ac4-bb03-ce571b66a732,0,Principal,Regresión logística regularizada,0.981176083035424,0.9677536133548,1,Falso positivo
+66215d56-367d-411e-9528-be61e9f7e4dc,0,Principal,Regresión logística regularizada,0.975687818919499,0.9677536133548,1,Falso positivo
+66336b0d-6d11-4478-87ff-ab877630e3f8,0,Principal,Regresión logística regularizada,0.970358944950484,0.9677536133548,1,Falso positivo
+674c1d3f-cd8d-4032-88dc-fa9bcb92c630,1,Principal,Regresión logística regularizada,0.672407850758379,0.9677536133548,0,Falso negativo
+694d8a57-cf71-4af4-8a92-cf4632b42852,0,Principal,Regresión logística regularizada,0.987714392667939,0.9677536133548,1,Falso positivo
+6a3317ee-a629-42cb-8e2e-c8e624e3a2f1,1,Principal,Regresión logística regularizada,0.897858416273853,0.9677536133548,0,Falso negativo
+6c59fb5c-179b-4564-9938-786d5244ead4,0,Principal,Regresión logística regularizada,0.97923618331912,0.9677536133548,1,Falso positivo
+6c902481-eb48-46c9-a8a5-a00d156f0924,1,Principal,Regresión logística regularizada,0.951313569097411,0.9677536133548,0,Falso negativo
+6e882fc0-183e-4f78-a7d2-d929534f3e43,0,Principal,Regresión logística regularizada,0.978101275533148,0.9677536133548,1,Falso positivo
+6eadb401-0163-4b46-9d96-514fb8d36841,0,Principal,Regresión logística regularizada,0.9804993487304,0.9677536133548,1,Falso positivo
+6ec0a88a-f06a-4eaa-84bf-2e68bc38d60f,1,Principal,Regresión logística regularizada,0.952818722032377,0.9677536133548,0,Falso negativo
+71445a66-f5c6-4f4d-a1c0-a34f80c34ea0,0,Principal,Regresión logística regularizada,0.972665417715107,0.9677536133548,1,Falso positivo
+72aaf229-46fa-4885-9778-cdd87171492d,0,Principal,Regresión logística regularizada,0.991284218832145,0.9677536133548,1,Falso positivo
+7365497b-015a-4cf9-b1e3-4523a1a87ff4,1,Principal,Regresión logística regularizada,0.946823746358805,0.9677536133548,0,Falso negativo
+746ff2db-31b2-4d93-ad45-63b341586114,1,Principal,Regresión logística regularizada,0.882218791859429,0.9677536133548,0,Falso negativo
+74b359ef-21d9-4692-8ed9-5de2726c8f88,0,Principal,Regresión logística regularizada,0.983025536562596,0.9677536133548,1,Falso positivo
+7635769d-8821-4b08-b4ee-48466fc62f7c,0,Principal,Regresión logística regularizada,0.971487578783315,0.9677536133548,1,Falso positivo
+778b8abd-0634-413e-bebc-8beae5459886,0,Principal,Regresión logística regularizada,0.983684761820101,0.9677536133548,1,Falso positivo
+79adbbb6-dcec-4673-bbf7-f38807b0d348,0,Principal,Regresión logística regularizada,0.984948206453268,0.9677536133548,1,Falso positivo
+7b8c1c62-0544-4af3-b334-a9d73acb8351,0,Principal,Regresión logística regularizada,0.992657978079633,0.9677536133548,1,Falso positivo
+7dbf020f-da3b-4331-95b5-8dcb9a883842,0,Principal,Regresión logística regularizada,0.989848251460493,0.9677536133548,1,Falso positivo
+7e8ddcc0-975b-4dcc-af99-9bfd0c4ef574,0,Principal,Regresión logística regularizada,0.981915467022625,0.9677536133548,1,Falso positivo
+7ec869c8-9d86-4501-bfca-8f384fdb9739,0,Principal,Regresión logística regularizada,0.982738724138536,0.9677536133548,1,Falso positivo
+80d04bc6-4edf-4286-ab4b-fe00e92edbde,0,Principal,Regresión logística regularizada,0.988795609504483,0.9677536133548,1,Falso positivo
+813b6fcb-ecb2-47dc-830f-47540ef6156f,0,Principal,Regresión logística regularizada,0.977377044964207,0.9677536133548,1,Falso positivo
+81401f17-02d4-4072-ad24-d8bcf45df65b,0,Principal,Regresión logística regularizada,0.979961021017859,0.9677536133548,1,Falso positivo
+88159316-a2ff-4b44-8949-ce4354ee4d13,1,Principal,Regresión logística regularizada,0.948527268742718,0.9677536133548,0,Falso negativo
+89f482b4-c268-430e-bd11-a61c91bab658,1,Principal,Regresión logística regularizada,0.840558619301104,0.9677536133548,0,Falso negativo
+8a764bf9-58f3-488d-b0bc-d4a7d107413a,0,Principal,Regresión logística regularizada,0.993622194949144,0.9677536133548,1,Falso positivo
+8b2e80f6-c69f-4927-a282-df561d6349b8,0,Principal,Regresión logística regularizada,0.968041205546827,0.9677536133548,1,Falso positivo
+8d798caf-fbe0-4520-96ba-2f07395276cf,0,Principal,Regresión logística regularizada,0.981198565766031,0.9677536133548,1,Falso positivo
+9088de1d-d3ec-4192-b9a6-cfe27a84a3ad,0,Principal,Regresión logística regularizada,0.971245152303884,0.9677536133548,1,Falso positivo
+944c786b-9aa5-48d3-87ee-e9b3e2bd23f1,1,Principal,Regresión logística regularizada,0.742410350271024,0.9677536133548,0,Falso negativo
+944fe192-0e5a-45f2-9d59-a37ada09836f,0,Principal,Regresión logística regularizada,0.989325239550943,0.9677536133548,1,Falso positivo
+94e4f671-3d34-4aee-8347-5de65c8baab3,0,Principal,Regresión logística regularizada,0.968997090841192,0.9677536133548,1,Falso positivo
+951b1312-3c75-4072-b4b6-e741c1e53fa5,0,Principal,Regresión logística regularizada,0.97807989633722,0.9677536133548,1,Falso positivo
+97c455be-44af-402f-b47b-1436c6dfcb37,1,Principal,Regresión logística regularizada,0.959970112009402,0.9677536133548,0,Falso negativo
+97f1a98f-6c40-46f5-856a-bcfb1581bc64,0,Principal,Regresión logística regularizada,0.981392173956725,0.9677536133548,1,Falso positivo
+99d4a984-a32f-4086-8c51-cb0a45bfa0fe,1,Principal,Regresión logística regularizada,0.633542726232063,0.9677536133548,0,Falso negativo
+9a13f69d-924f-49c0-a1c4-0e50325ce040,0,Principal,Regresión logística regularizada,0.987345568499027,0.9677536133548,1,Falso positivo
+9cbbca57-c669-4261-b58d-7f96aede6ab2,0,Principal,Regresión logística regularizada,0.986553523427877,0.9677536133548,1,Falso positivo
+9f37dfcb-7ce8-4d00-8e65-f33990738f7a,0,Principal,Regresión logística regularizada,0.971059357471931,0.9677536133548,1,Falso positivo
+9f8eac6f-a469-4375-8397-a0da8f94df02,0,Principal,Regresión logística regularizada,0.976471356379806,0.9677536133548,1,Falso positivo
+a05dd881-b85b-4a07-abf7-28f18dd31908,0,Principal,Regresión logística regularizada,0.988235849415715,0.9677536133548,1,Falso positivo
+a208891b-260b-4f75-9aed-7c9094174c1a,1,Principal,Regresión logística regularizada,0.737084058264204,0.9677536133548,0,Falso negativo
+a442845f-9bac-4945-9113-3acc2bdedeaa,0,Principal,Regresión logística regularizada,0.971921629410695,0.9677536133548,1,Falso positivo
+a46d4997-00c7-4ddb-95b6-72e3d8870a7c,1,Principal,Regresión logística regularizada,0.842288374122509,0.9677536133548,0,Falso negativo
+a59eabe3-04e9-43c4-a1b0-1274ed1fe749,0,Principal,Regresión logística regularizada,0.971558526035333,0.9677536133548,1,Falso positivo
+a59f2dc6-a491-4fac-8ed7-a06e9876d6fd,0,Principal,Regresión logística regularizada,0.97204237253896,0.9677536133548,1,Falso positivo
+a7457eec-62ce-4111-b1dd-476ecd7d374d,0,Principal,Regresión logística regularizada,0.976129214722156,0.9677536133548,1,Falso positivo
+a781a6c8-8544-4512-9347-0e8fdb5873c1,0,Principal,Regresión logística regularizada,0.988035378019642,0.9677536133548,1,Falso positivo
+a8e41928-819c-485f-8461-af12e8dfd954,0,Principal,Regresión logística regularizada,0.971252479728543,0.9677536133548,1,Falso positivo
+aa4c8d1d-3d24-4613-80b0-4c89d0969676,0,Principal,Regresión logística regularizada,0.97982028056905,0.9677536133548,1,Falso positivo
+acb70dd9-df6c-4729-8739-65bac167a173,0,Principal,Regresión logística regularizada,0.987360761958471,0.9677536133548,1,Falso positivo
+af1224b2-93b5-4821-a8b5-bbbad2262321,1,Principal,Regresión logística regularizada,0.727260622565578,0.9677536133548,0,Falso negativo
+b02e71ed-e14b-4b67-b089-ff425f56b12b,1,Principal,Regresión logística regularizada,0.954231052222311,0.9677536133548,0,Falso negativo
+b0b3fc54-6e81-4d3b-8dc8-ab26d53d61ef,0,Principal,Regresión logística regularizada,0.971248804256046,0.9677536133548,1,Falso positivo
+b10ec807-c58d-41c6-ae19-b34ed357dfba,0,Principal,Regresión logística regularizada,0.97878458903819,0.9677536133548,1,Falso positivo
+b1264ce6-0b85-4aae-ad03-81d7a269e9be,0,Principal,Regresión logística regularizada,0.972460237473922,0.9677536133548,1,Falso positivo
+b612e008-42ce-4618-9da2-b6a45b2156c0,1,Principal,Regresión logística regularizada,0.96100076375167,0.9677536133548,0,Falso negativo
+bea41ced-f251-43a6-9c20-8621a9283dda,0,Principal,Regresión logística regularizada,0.994009846715363,0.9677536133548,1,Falso positivo
+bf9ddeee-d071-469a-b625-9a1f5898b7db,0,Principal,Regresión logística regularizada,0.987016305098694,0.9677536133548,1,Falso positivo
+c0fc9be5-0c8f-4061-8a72-6edbdb696f9f,1,Principal,Regresión logística regularizada,0.937425957799809,0.9677536133548,0,Falso negativo
+c1950368-be6a-466d-a2be-e404e6e760da,0,Principal,Regresión logística regularizada,0.978452419700067,0.9677536133548,1,Falso positivo
+c4e7face-52a3-4988-8c6c-ecaf73fe25b9,0,Principal,Regresión logística regularizada,0.992888557011741,0.9677536133548,1,Falso positivo
+c8de98d1-e3df-4a38-9141-22d7f0e88811,0,Principal,Regresión logística regularizada,0.987381110215676,0.9677536133548,1,Falso positivo
+cce090fc-bb7c-48a8-8c2e-be0bb5898936,1,Principal,Regresión logística regularizada,0.832272315819252,0.9677536133548,0,Falso negativo
+ce79989d-8bfa-4395-a6be-7bc3765db190,0,Principal,Regresión logística regularizada,0.988136149806392,0.9677536133548,1,Falso positivo
+cee6b35c-d4be-48ab-8c99-6505bd43550b,0,Principal,Regresión logística regularizada,0.991475781109895,0.9677536133548,1,Falso positivo
+d10cb9bd-ba7b-4e18-b1e2-43914d99fb54,0,Principal,Regresión logística regularizada,0.975929787396798,0.9677536133548,1,Falso positivo
+d1a7832b-1d66-47a7-a419-1f677bfbdf5c,0,Principal,Regresión logística regularizada,0.980306366855373,0.9677536133548,1,Falso positivo
+d22a6a22-828a-4975-b7bd-112956d96bb7,0,Principal,Regresión logística regularizada,0.985496850514284,0.9677536133548,1,Falso positivo
+d4931802-d079-4844-9726-ab7f7700e91f,0,Principal,Regresión logística regularizada,0.97176146074906,0.9677536133548,1,Falso positivo
+d794a451-b306-4a9a-9f3b-04ffc60b0b6f,0,Principal,Regresión logística regularizada,0.990354835131195,0.9677536133548,1,Falso positivo
+d819fb4a-2aa2-4a44-bb09-689eae0e0edb,0,Principal,Regresión logística regularizada,0.972757026845764,0.9677536133548,1,Falso positivo
+d9834a57-a432-4863-be5f-e049890c1a96,0,Principal,Regresión logística regularizada,0.972638189593748,0.9677536133548,1,Falso positivo
+daf22f41-3318-453b-b42b-49b2168d038e,1,Principal,Regresión logística regularizada,0.890971578959419,0.9677536133548,0,Falso negativo
+dd69b669-8c76-489e-a4ae-dbd611e2247f,0,Principal,Regresión logística regularizada,0.974495713550595,0.9677536133548,1,Falso positivo
+de5c1d78-e85e-4878-b8fc-9e84a5aabd0e,0,Principal,Regresión logística regularizada,0.974572523474899,0.9677536133548,1,Falso positivo
+de9ea211-dd4d-4db7-8132-91c2e18bf685,1,Principal,Regresión logística regularizada,0.680641385771921,0.9677536133548,0,Falso negativo
+defae0d5-3d2b-4e76-8510-59305a949bc7,0,Principal,Regresión logística regularizada,0.973459541883867,0.9677536133548,1,Falso positivo
+e0bdbe18-3acc-4338-8e07-3915cdb66035,0,Principal,Regresión logística regularizada,0.991512652318827,0.9677536133548,1,Falso positivo
+e182331e-4355-4ab3-8f38-7b813880f755,0,Principal,Regresión logística regularizada,0.976210019372312,0.9677536133548,1,Falso positivo
+e4fed531-6c3e-4d7f-a3f5-367bf43d7cdc,0,Principal,Regresión logística regularizada,0.969447623240258,0.9677536133548,1,Falso positivo
+e647bc48-38b7-46fd-8c30-63ab6dc12112,1,Principal,Regresión logística regularizada,0.685742173625051,0.9677536133548,0,Falso negativo
+e7e63222-f483-48b3-8b83-f122669d3079,1,Principal,Regresión logística regularizada,0.962413124930392,0.9677536133548,0,Falso negativo
+e817764d-3aa4-48c0-9b0e-4561917ec3a3,0,Principal,Regresión logística regularizada,0.984675519255557,0.9677536133548,1,Falso positivo
+e91096a4-fff4-4874-8054-3d851007b93e,0,Principal,Regresión logística regularizada,0.974554085998747,0.9677536133548,1,Falso positivo
+eb5517ed-923b-45ed-aeb0-52fb764c770f,0,Principal,Regresión logística regularizada,0.972011111885794,0.9677536133548,1,Falso positivo
+ed9d7ae3-d4fe-4385-855b-44d4edf5e52f,0,Principal,Regresión logística regularizada,0.983630995243442,0.9677536133548,1,Falso positivo
+f09406a8-ece7-4a31-92fe-0398b5ec17ca,0,Principal,Regresión logística regularizada,0.974053773421745,0.9677536133548,1,Falso positivo
+f2222f42-cec1-46de-a771-b90630976734,0,Principal,Regresión logística regularizada,0.979257281327354,0.9677536133548,1,Falso positivo
+f2332bc3-ae2a-4593-8e87-73d51a08a6bf,0,Principal,Regresión logística regularizada,0.968435550393505,0.9677536133548,1,Falso positivo
+f78a1872-5eb9-407c-ada7-7ba0a1aa35ac,0,Principal,Regresión logística regularizada,0.980860443764508,0.9677536133548,1,Falso positivo
+fb17c574-b948-49ca-bbf7-887b03e3b14e,0,Principal,Regresión logística regularizada,0.974965412541339,0.9677536133548,1,Falso positivo
+fc027805-99ee-4068-9555-aca00060f532,0,Principal,Regresión logística regularizada,0.99005726703105,0.9677536133548,1,Falso positivo
+fe6a22d4-b0c0-4062-b4af-cf2a2135998c,1,Principal,Regresión logística regularizada,0.713783091323719,0.9677536133548,0,Falso negativo
+01066b59-1bed-4658-bdff-c3a69fa516c2,0,Principal,Random Forest,0.626644444444445,0.607131807081807,1,Falso positivo
+01a891c4-43b8-44b0-b2a8-81f643f132f6,0,Principal,Random Forest,0.750852665468703,0.607131807081807,1,Falso positivo
+031c076d-9447-4c79-bf8c-92b733ecf204,0,Principal,Random Forest,0.621586568986569,0.607131807081807,1,Falso positivo
+04f02181-2b35-4009-b9c9-c5b5136709ce,1,Principal,Random Forest,0.270974815540853,0.607131807081807,0,Falso negativo
+08a61ea8-475a-4640-8b13-253beef18687,0,Principal,Random Forest,0.735167737817738,0.607131807081807,1,Falso positivo
+0a7b690b-f58e-4601-b81a-2bda50e8ab47,1,Principal,Random Forest,0.162257936507937,0.607131807081807,0,Falso negativo
+1451c41a-53a8-4c92-abf2-4e64c663742a,0,Principal,Random Forest,0.679830287846326,0.607131807081807,1,Falso positivo
+16b1a1f4-fd22-4bb2-9aeb-d174cdce872b,0,Principal,Random Forest,0.609016666666667,0.607131807081807,1,Falso positivo
+19bf281d-5471-4465-8b9b-e1e655c3b157,1,Principal,Random Forest,0.1751280622941,0.607131807081807,0,Falso negativo
+214f2228-59d1-4e66-8e81-a0b505ed2575,1,Principal,Random Forest,0.240787493158183,0.607131807081807,0,Falso negativo
+24aff2e6-b657-4931-a335-f3ece7ecfd84,0,Principal,Random Forest,0.692337878787878,0.607131807081807,1,Falso positivo
+274298e1-a3ca-4353-90cc-f7e9bda7e66a,0,Principal,Random Forest,0.663589811655849,0.607131807081807,1,Falso positivo
+2b646c92-5da2-408e-8013-ef51b939a03d,0,Principal,Random Forest,0.703442063492064,0.607131807081807,1,Falso positivo
+2b9e7211-75e4-4782-8f04-3e53a33502d3,1,Principal,Random Forest,0.145398412698413,0.607131807081807,0,Falso negativo
+2bd2fc01-2c81-43e7-a59a-c9840a406076,1,Principal,Random Forest,0.141214285714286,0.607131807081807,0,Falso negativo
+2e6202a3-744c-4ce0-9440-1e22703c967f,0,Principal,Random Forest,0.81683253968254,0.607131807081807,1,Falso positivo
+2f25046f-8641-4c70-a32f-75949bd9715c,0,Principal,Random Forest,0.622390476190476,0.607131807081807,1,Falso positivo
+2f708229-9567-494c-9695-875af40e946f,1,Principal,Random Forest,0.116698412698413,0.607131807081807,0,Falso negativo
+34e06219-936d-44dc-8ec1-00e7adfb59e0,1,Principal,Random Forest,0.426126623376623,0.607131807081807,0,Falso negativo
+35ab192c-4d08-43cb-ac8d-6301f1ca87d4,1,Principal,Random Forest,0.387571861471862,0.607131807081807,0,Falso negativo
+396043da-48a2-4b0a-ad8a-0bfe2b11bae6,0,Principal,Random Forest,0.714003459119497,0.607131807081807,1,Falso positivo
+3b7b72fa-3eda-4006-9e65-f0ebc659df71,0,Principal,Random Forest,0.624646031746032,0.607131807081807,1,Falso positivo
+3c6ceea3-4059-47e6-a111-514e4b141147,0,Principal,Random Forest,0.660859584859585,0.607131807081807,1,Falso positivo
+3cc1ac67-43e3-468f-87d5-e3227af4f910,1,Principal,Random Forest,0.324174603174603,0.607131807081807,0,Falso negativo
+3cf8a048-0696-4535-8e04-cae51b97c9a9,1,Principal,Random Forest,0.388411327561328,0.607131807081807,0,Falso negativo
+3f797ec2-756f-4bd1-9e4d-3971366fe302,1,Principal,Random Forest,0.142180952380952,0.607131807081807,0,Falso negativo
+43967c27-34b7-4ed4-876f-6b1e38b3db92,0,Principal,Random Forest,0.624372567788606,0.607131807081807,1,Falso positivo
+43cda114-8bc5-4b3c-a656-088341d901a0,0,Principal,Random Forest,0.64163362735165,0.607131807081807,1,Falso positivo
+45156147-bc93-4a11-af3a-e24114812a4e,0,Principal,Random Forest,0.619258791208791,0.607131807081807,1,Falso positivo
+47c7aef4-2284-4096-8633-6df306702629,0,Principal,Random Forest,0.709814847730885,0.607131807081807,1,Falso positivo
+4b64ac56-3a67-489c-80d6-ce96cbff0aae,1,Principal,Random Forest,0.133188888888889,0.607131807081807,0,Falso negativo
+4df5504a-0154-42ba-b5ed-86cc5ec4e3ad,1,Principal,Random Forest,0.11881746031746,0.607131807081807,0,Falso negativo
+4f7fd782-1fc1-46e2-b542-f8ffd87361af,0,Principal,Random Forest,0.754669047619048,0.607131807081807,1,Falso positivo
+52d242f5-fa57-4d04-9551-d80573389563,1,Principal,Random Forest,0.106095238095238,0.607131807081807,0,Falso negativo
+54572bfb-4f5c-47f3-b5c9-a517c55d511c,1,Principal,Random Forest,0.19470873015873,0.607131807081807,0,Falso negativo
+56d78d6e-3aed-435e-bcce-7c94bce6ee4d,0,Principal,Random Forest,0.608428697474523,0.607131807081807,1,Falso positivo
+5b43840f-ac9d-46e7-ac1e-c628ea097d9a,0,Principal,Random Forest,0.652742063492064,0.607131807081807,1,Falso positivo
+5f6c6134-2fb9-4763-acab-a164d37e3440,1,Principal,Random Forest,0.0765888888888889,0.607131807081807,0,Falso negativo
+5ff2d17a-3720-4d48-88b6-5e987c9ebd9a,1,Principal,Random Forest,0.368403467607741,0.607131807081807,0,Falso negativo
+606e14ae-7412-4dfc-9ad4-5b08d9e19a17,0,Principal,Random Forest,0.607352726518764,0.607131807081807,1,Falso positivo
+61ec3d45-4e1b-4a50-9df0-2a01a3d73cb4,1,Principal,Random Forest,0.244422005772006,0.607131807081807,0,Falso negativo
+61f66c62-2985-499b-90af-39e8737f5c09,0,Principal,Random Forest,0.689440476190476,0.607131807081807,1,Falso positivo
+6215eec7-653d-4486-a9ac-15df467252e8,1,Principal,Random Forest,0.092881746031746,0.607131807081807,0,Falso negativo
+64fe05c5-ff39-4ac4-bb03-ce571b66a732,0,Principal,Random Forest,0.633207997557997,0.607131807081807,1,Falso positivo
+674c1d3f-cd8d-4032-88dc-fa9bcb92c630,1,Principal,Random Forest,0.110576984126984,0.607131807081807,0,Falso negativo
+688f87b9-2af2-4410-8e32-9fc821691167,0,Principal,Random Forest,0.65404379340818,0.607131807081807,1,Falso positivo
+6a3317ee-a629-42cb-8e2e-c8e624e3a2f1,1,Principal,Random Forest,0.532911904761905,0.607131807081807,0,Falso negativo
+6a54a162-4471-4f83-8573-6e4e01b6c419,0,Principal,Random Forest,0.642625457875458,0.607131807081807,1,Falso positivo
+6bc88275-addb-45b3-98c7-ff02452cab0b,0,Principal,Random Forest,0.616013776579814,0.607131807081807,1,Falso positivo
+6ec0a88a-f06a-4eaa-84bf-2e68bc38d60f,1,Principal,Random Forest,0.583923593073593,0.607131807081807,0,Falso negativo
+714a0e72-bb6c-4a2b-af43-e2268a329b1d,0,Principal,Random Forest,0.711173144989183,0.607131807081807,1,Falso positivo
+727ace4d-04e4-458a-b0f2-0d03a9b02ab2,0,Principal,Random Forest,0.697232885248923,0.607131807081807,1,Falso positivo
+7365497b-015a-4cf9-b1e3-4523a1a87ff4,1,Principal,Random Forest,0.502284126984127,0.607131807081807,0,Falso negativo
+746ff2db-31b2-4d93-ad45-63b341586114,1,Principal,Random Forest,0.392073590003377,0.607131807081807,0,Falso negativo
+76abfd8d-8ca8-4810-8af2-f94945905a81,0,Principal,Random Forest,0.684503174603175,0.607131807081807,1,Falso positivo
+81825b96-91e1-4f02-9312-3114846da0dc,0,Principal,Random Forest,0.787727622377622,0.607131807081807,1,Falso positivo
+8283f83e-6c32-46ef-b5ec-5f6b23f2a0ff,0,Principal,Random Forest,0.642257271973309,0.607131807081807,1,Falso positivo
+82b506bb-5fc4-4840-85c6-8545dca7dc2b,0,Principal,Random Forest,0.705351511067549,0.607131807081807,1,Falso positivo
+859e0de7-9232-4e30-be07-8556732f9d67,0,Principal,Random Forest,0.777653019203019,0.607131807081807,1,Falso positivo
+899d9743-2f19-42d0-af56-e484449dd0c6,0,Principal,Random Forest,0.636671428571429,0.607131807081807,1,Falso positivo
+89f482b4-c268-430e-bd11-a61c91bab658,1,Principal,Random Forest,0.369362500893326,0.607131807081807,0,Falso negativo
+8a764bf9-58f3-488d-b0bc-d4a7d107413a,0,Principal,Random Forest,0.673445732045732,0.607131807081807,1,Falso positivo
+8d2ba541-7775-4e84-87c3-51c3b73a6db4,0,Principal,Random Forest,0.646022222222222,0.607131807081807,1,Falso positivo
+8f3b3db3-48e2-459d-8ac8-0244c2fa6fcd,0,Principal,Random Forest,0.621649206349206,0.607131807081807,1,Falso positivo
+9375e1db-961f-4aa0-939d-2ee7e5ff221a,0,Principal,Random Forest,0.657526984126984,0.607131807081807,1,Falso positivo
+944c786b-9aa5-48d3-87ee-e9b3e2bd23f1,1,Principal,Random Forest,0.133507142857143,0.607131807081807,0,Falso negativo
+95467f39-b782-48e5-b6d4-6294552db06d,0,Principal,Random Forest,0.630379365079365,0.607131807081807,1,Falso positivo
+99d4a984-a32f-4086-8c51-cb0a45bfa0fe,1,Principal,Random Forest,0.207028438324128,0.607131807081807,0,Falso negativo
+9a13f69d-924f-49c0-a1c4-0e50325ce040,0,Principal,Random Forest,0.621089682539682,0.607131807081807,1,Falso positivo
+9cbbca57-c669-4261-b58d-7f96aede6ab2,0,Principal,Random Forest,0.733049267399268,0.607131807081807,1,Falso positivo
+a208891b-260b-4f75-9aed-7c9094174c1a,1,Principal,Random Forest,0.261800574130361,0.607131807081807,0,Falso negativo
+a46d4997-00c7-4ddb-95b6-72e3d8870a7c,1,Principal,Random Forest,0.190970634920635,0.607131807081807,0,Falso negativo
+a4aa7b9b-eb6a-4eff-8ea4-2e117c674a90,0,Principal,Random Forest,0.805094790010828,0.607131807081807,1,Falso positivo
+a7560bec-051c-4bf0-8dd8-077e447e09e8,0,Principal,Random Forest,0.633611544011544,0.607131807081807,1,Falso positivo
+ad937d7d-87a8-468d-9a42-a352cb1446b7,0,Principal,Random Forest,0.696566666666667,0.607131807081807,1,Falso positivo
+af1224b2-93b5-4821-a8b5-bbbad2262321,1,Principal,Random Forest,0.099968515028658,0.607131807081807,0,Falso negativo
+b00677b3-db96-40bc-b66f-6d461f1f0159,0,Principal,Random Forest,0.626384920634921,0.607131807081807,1,Falso positivo
+b02e71ed-e14b-4b67-b089-ff425f56b12b,1,Principal,Random Forest,0.510124242424242,0.607131807081807,0,Falso negativo
+b0e003fe-4a17-42f2-ae68-423fe0084b92,0,Principal,Random Forest,0.612722222222222,0.607131807081807,1,Falso positivo
+b1c64fa1-672f-4bff-b417-2f39a613e5c3,0,Principal,Random Forest,0.694899490865529,0.607131807081807,1,Falso positivo
+b5305236-5629-4ab4-b2af-89e836826d0d,1,Principal,Random Forest,0.291984705518766,0.607131807081807,0,Falso negativo
+b612e008-42ce-4618-9da2-b6a45b2156c0,1,Principal,Random Forest,0.36784329004329,0.607131807081807,0,Falso negativo
+b8c53126-aa5d-4ef4-a6e6-932c1c729cdf,0,Principal,Random Forest,0.825210955710955,0.607131807081807,1,Falso positivo
+bfe1d037-a657-47e9-9e9e-68a9038b4184,0,Principal,Random Forest,0.730353968253969,0.607131807081807,1,Falso positivo
+c5295308-28be-47f4-9168-5cf56d4cbf87,0,Principal,Random Forest,0.629822283272284,0.607131807081807,1,Falso positivo
+c759356b-95cf-4150-a63f-a127f736835f,0,Principal,Random Forest,0.654350793650794,0.607131807081807,1,Falso positivo
+cce090fc-bb7c-48a8-8c2e-be0bb5898936,1,Principal,Random Forest,0.272493650793651,0.607131807081807,0,Falso negativo
+cd386b81-d152-4b59-aca1-26fc0cc238b0,0,Principal,Random Forest,0.683367460317461,0.607131807081807,1,Falso positivo
+d22a6a22-828a-4975-b7bd-112956d96bb7,0,Principal,Random Forest,0.731754097370135,0.607131807081807,1,Falso positivo
+d244bf5c-9a40-4979-b9e4-1eddf9f09f8b,0,Principal,Random Forest,0.608472222222223,0.607131807081807,1,Falso positivo
+d5a8b332-65d5-4802-930f-610c377047fe,0,Principal,Random Forest,0.652757488423526,0.607131807081807,1,Falso positivo
+d7f4e768-7d07-47c0-b7e2-1f8dc905cff8,0,Principal,Random Forest,0.691807142857143,0.607131807081807,1,Falso positivo
+d819fb4a-2aa2-4a44-bb09-689eae0e0edb,0,Principal,Random Forest,0.775030003330003,0.607131807081807,1,Falso positivo
+daa2358f-0047-41e5-98c9-9d86d2f54764,0,Principal,Random Forest,0.735592063492064,0.607131807081807,1,Falso positivo
+daf22f41-3318-453b-b42b-49b2168d038e,1,Principal,Random Forest,0.203671212121212,0.607131807081807,0,Falso negativo
+daff7d8e-a49c-4877-a683-e19433633720,0,Principal,Random Forest,0.611576190476191,0.607131807081807,1,Falso positivo
+ddddbf5a-a5c0-47bd-a22f-061a7621d4a5,0,Principal,Random Forest,0.694870479520479,0.607131807081807,1,Falso positivo
+de9ea211-dd4d-4db7-8132-91c2e18bf685,1,Principal,Random Forest,0.0687515873015873,0.607131807081807,0,Falso negativo
+e00fde87-ffd1-44ea-8f93-b00a436acc74,0,Principal,Random Forest,0.653939234455272,0.607131807081807,1,Falso positivo
+e405789b-70a5-40c3-8930-e0403b550b79,0,Principal,Random Forest,0.673811904761905,0.607131807081807,1,Falso positivo
+e4cfad1b-9ada-4605-8ed1-39bb390f9a0d,0,Principal,Random Forest,0.611958798224836,0.607131807081807,1,Falso positivo
+e647bc48-38b7-46fd-8c30-63ab6dc12112,1,Principal,Random Forest,0.123362698412698,0.607131807081807,0,Falso negativo
+e7ad30ef-5b70-4731-83f6-0c7408414262,0,Principal,Random Forest,0.716919841269841,0.607131807081807,1,Falso positivo
+ea736d95-9a88-428c-bc33-0696e2e83519,0,Principal,Random Forest,0.616891114441114,0.607131807081807,1,Falso positivo
+f2cbd07e-c64f-486f-8a75-da60c020b46c,0,Principal,Random Forest,0.613085638051676,0.607131807081807,1,Falso positivo
+f417f1e6-aa98-47a1-9062-cfc28a2afc8e,0,Principal,Random Forest,0.662410317460318,0.607131807081807,1,Falso positivo
+f4e35d7f-7415-4761-8e97-e95d66238a7f,1,Principal,Random Forest,0.484995238095238,0.607131807081807,0,Falso negativo
+f6586af3-96dc-4ab4-bea5-c3507c34e2c3,0,Principal,Random Forest,0.69341376956377,0.607131807081807,1,Falso positivo
+fe6a22d4-b0c0-4062-b4af-cf2a2135998c,1,Principal,Random Forest,0.143936080925295,0.607131807081807,0,Falso negativo
+04f02181-2b35-4009-b9c9-c5b5136709ce,1,Sensibilidad CID observado,Regresión logística regularizada,0.522821987132859,0.676457438497521,0,Falso negativo
+08a61ea8-475a-4640-8b13-253beef18687,0,Sensibilidad CID observado,Regresión logística regularizada,0.696566205309161,0.676457438497521,1,Falso positivo
+0a7b690b-f58e-4601-b81a-2bda50e8ab47,1,Sensibilidad CID observado,Regresión logística regularizada,0.370297329564927,0.676457438497521,0,Falso negativo
+11baa4d2-1a04-4e80-8987-aa8fc6fa5049,0,Sensibilidad CID observado,Regresión logística regularizada,0.694656868287162,0.676457438497521,1,Falso positivo
+13b92de4-19d8-4c50-a22b-f58668e5f6d9,0,Sensibilidad CID observado,Regresión logística regularizada,0.716367270621023,0.676457438497521,1,Falso positivo
+19bf281d-5471-4465-8b9b-e1e655c3b157,1,Sensibilidad CID observado,Regresión logística regularizada,0.501726853889702,0.676457438497521,0,Falso negativo
+19f0bb47-9aa2-4ee2-ae29-7f6323bcc2da,0,Sensibilidad CID observado,Regresión logística regularizada,0.68210439829022,0.676457438497521,1,Falso positivo
+1a447285-ed94-49c9-b73b-4add3f642bfe,0,Sensibilidad CID observado,Regresión logística regularizada,0.716101562758972,0.676457438497521,1,Falso positivo
+1ac0e181-a115-4999-b414-7f017b16fab2,0,Sensibilidad CID observado,Regresión logística regularizada,0.699334684360121,0.676457438497521,1,Falso positivo
+1aee758c-e0c6-4323-ae34-a6ae7397a771,0,Sensibilidad CID observado,Regresión logística regularizada,0.680994307452497,0.676457438497521,1,Falso positivo
+1fd6be78-526b-4fa2-9d8a-51de7b68f181,0,Sensibilidad CID observado,Regresión logística regularizada,0.705463916686629,0.676457438497521,1,Falso positivo
+20e935ee-644b-4054-8983-0c73093e4dcf,0,Sensibilidad CID observado,Regresión logística regularizada,0.700142499105717,0.676457438497521,1,Falso positivo
+214f2228-59d1-4e66-8e81-a0b505ed2575,1,Sensibilidad CID observado,Regresión logística regularizada,0.460623748359675,0.676457438497521,0,Falso negativo
+234821d8-f039-4890-b686-042b90056df3,0,Sensibilidad CID observado,Regresión logística regularizada,0.696348199318153,0.676457438497521,1,Falso positivo
+2b9e7211-75e4-4782-8f04-3e53a33502d3,1,Sensibilidad CID observado,Regresión logística regularizada,0.320944986139052,0.676457438497521,0,Falso negativo
+2bd2fc01-2c81-43e7-a59a-c9840a406076,1,Sensibilidad CID observado,Regresión logística regularizada,0.524710514841982,0.676457438497521,0,Falso negativo
+2e6202a3-744c-4ce0-9440-1e22703c967f,0,Sensibilidad CID observado,Regresión logística regularizada,0.721469938763711,0.676457438497521,1,Falso positivo
+2f25046f-8641-4c70-a32f-75949bd9715c,0,Sensibilidad CID observado,Regresión logística regularizada,0.743597873402564,0.676457438497521,1,Falso positivo
+2f708229-9567-494c-9695-875af40e946f,1,Sensibilidad CID observado,Regresión logística regularizada,0.619597568920692,0.676457438497521,0,Falso negativo
+30f37494-0e90-4fb5-9ffb-5e6244a7130f,0,Sensibilidad CID observado,Regresión logística regularizada,0.680190419795116,0.676457438497521,1,Falso positivo
+34e06219-936d-44dc-8ec1-00e7adfb59e0,1,Sensibilidad CID observado,Regresión logística regularizada,0.584254893331604,0.676457438497521,0,Falso negativo
+35ab192c-4d08-43cb-ac8d-6301f1ca87d4,1,Sensibilidad CID observado,Regresión logística regularizada,0.599674037774853,0.676457438497521,0,Falso negativo
+37048314-09ff-4896-bff2-4ff1d7b3ea2b,0,Sensibilidad CID observado,Regresión logística regularizada,0.709498156854666,0.676457438497521,1,Falso positivo
+384b4a6d-b4d2-4666-89e2-fadf3e3d89f4,0,Sensibilidad CID observado,Regresión logística regularizada,0.733168307354741,0.676457438497521,1,Falso positivo
+39a69b3e-6472-40b7-975e-1c0a1dde0108,0,Sensibilidad CID observado,Regresión logística regularizada,0.679222092408514,0.676457438497521,1,Falso positivo
+39bbbbc6-2a77-4de5-a535-2d842afc94d5,1,Sensibilidad CID observado,Regresión logística regularizada,0.547904390238989,0.676457438497521,0,Falso negativo
+3b7b72fa-3eda-4006-9e65-f0ebc659df71,0,Sensibilidad CID observado,Regresión logística regularizada,0.6826007337606,0.676457438497521,1,Falso positivo
+3cc1ac67-43e3-468f-87d5-e3227af4f910,1,Sensibilidad CID observado,Regresión logística regularizada,0.506873654530632,0.676457438497521,0,Falso negativo
+3f797ec2-756f-4bd1-9e4d-3971366fe302,1,Sensibilidad CID observado,Regresión logística regularizada,0.634583737956967,0.676457438497521,0,Falso negativo
+4540c2ae-bd8e-46f8-940a-c8514715fcaf,0,Sensibilidad CID observado,Regresión logística regularizada,0.685634227809429,0.676457438497521,1,Falso positivo
+4b64ac56-3a67-489c-80d6-ce96cbff0aae,1,Sensibilidad CID observado,Regresión logística regularizada,0.556098159916115,0.676457438497521,0,Falso negativo
+4df5504a-0154-42ba-b5ed-86cc5ec4e3ad,1,Sensibilidad CID observado,Regresión logística regularizada,0.40942524582267,0.676457438497521,0,Falso negativo
+503b92eb-2b04-4ecb-9e70-c5a91f418c26,0,Sensibilidad CID observado,Regresión logística regularizada,0.678405236149432,0.676457438497521,1,Falso positivo
+52d242f5-fa57-4d04-9551-d80573389563,1,Sensibilidad CID observado,Regresión logística regularizada,0.608420263680395,0.676457438497521,0,Falso negativo
+54572bfb-4f5c-47f3-b5c9-a517c55d511c,1,Sensibilidad CID observado,Regresión logística regularizada,0.584999907497458,0.676457438497521,0,Falso negativo
+563b1659-b40c-4554-86a1-a45fc81cf028,0,Sensibilidad CID observado,Regresión logística regularizada,0.698193632617392,0.676457438497521,1,Falso positivo
+5b6c5cf0-2ce4-4d9d-95b0-ded6ffcaeb35,0,Sensibilidad CID observado,Regresión logística regularizada,0.680740976555474,0.676457438497521,1,Falso positivo
+5f6c6134-2fb9-4763-acab-a164d37e3440,1,Sensibilidad CID observado,Regresión logística regularizada,0.638563554758895,0.676457438497521,0,Falso negativo
+5ff2d17a-3720-4d48-88b6-5e987c9ebd9a,1,Sensibilidad CID observado,Regresión logística regularizada,0.540092711147056,0.676457438497521,0,Falso negativo
+61e6e3a0-ae36-415c-9589-7fe50023cd8c,0,Sensibilidad CID observado,Regresión logística regularizada,0.735408237967212,0.676457438497521,1,Falso positivo
+61ec3d45-4e1b-4a50-9df0-2a01a3d73cb4,1,Sensibilidad CID observado,Regresión logística regularizada,0.550361974773698,0.676457438497521,0,Falso negativo
+6215eec7-653d-4486-a9ac-15df467252e8,1,Sensibilidad CID observado,Regresión logística regularizada,0.600433623085584,0.676457438497521,0,Falso negativo
+66336b0d-6d11-4478-87ff-ab877630e3f8,0,Sensibilidad CID observado,Regresión logística regularizada,0.676943899098091,0.676457438497521,1,Falso positivo
+674c1d3f-cd8d-4032-88dc-fa9bcb92c630,1,Sensibilidad CID observado,Regresión logística regularizada,0.492037486905813,0.676457438497521,0,Falso negativo
+6a3317ee-a629-42cb-8e2e-c8e624e3a2f1,1,Sensibilidad CID observado,Regresión logística regularizada,0.641778377028064,0.676457438497521,0,Falso negativo
+6ab7a888-a4ea-42b8-853b-6c8cd6067b76,0,Sensibilidad CID observado,Regresión logística regularizada,0.690487081083129,0.676457438497521,1,Falso positivo
+6c902481-eb48-46c9-a8a5-a00d156f0924,1,Sensibilidad CID observado,Regresión logística regularizada,0.626237045484312,0.676457438497521,0,Falso negativo
+6d80f086-2401-43ed-96ec-90082950e2a4,0,Sensibilidad CID observado,Regresión logística regularizada,0.69236429892499,0.676457438497521,1,Falso positivo
+6ec0a88a-f06a-4eaa-84bf-2e68bc38d60f,1,Sensibilidad CID observado,Regresión logística regularizada,0.617264084869102,0.676457438497521,0,Falso negativo
+746ff2db-31b2-4d93-ad45-63b341586114,1,Sensibilidad CID observado,Regresión logística regularizada,0.491997818697813,0.676457438497521,0,Falso negativo
+74b359ef-21d9-4692-8ed9-5de2726c8f88,0,Sensibilidad CID observado,Regresión logística regularizada,0.700553799508518,0.676457438497521,1,Falso positivo
+79adbbb6-dcec-4673-bbf7-f38807b0d348,0,Sensibilidad CID observado,Regresión logística regularizada,0.685134669455764,0.676457438497521,1,Falso positivo
+79d0bb93-ecb8-497d-b8e6-468e8f4da3d9,0,Sensibilidad CID observado,Regresión logística regularizada,0.700138001508454,0.676457438497521,1,Falso positivo
+806704b0-373f-496e-a7f3-c9865b210889,0,Sensibilidad CID observado,Regresión logística regularizada,0.681849169114389,0.676457438497521,1,Falso positivo
+81401f17-02d4-4072-ad24-d8bcf45df65b,0,Sensibilidad CID observado,Regresión logística regularizada,0.681554550030689,0.676457438497521,1,Falso positivo
+81825b96-91e1-4f02-9312-3114846da0dc,0,Sensibilidad CID observado,Regresión logística regularizada,0.697577701845582,0.676457438497521,1,Falso positivo
+849fcc41-92be-4861-918d-dcac32132ad5,0,Sensibilidad CID observado,Regresión logística regularizada,0.684846905078083,0.676457438497521,1,Falso positivo
+88159316-a2ff-4b44-8949-ce4354ee4d13,1,Sensibilidad CID observado,Regresión logística regularizada,0.626414319126879,0.676457438497521,0,Falso negativo
+89f482b4-c268-430e-bd11-a61c91bab658,1,Sensibilidad CID observado,Regresión logística regularizada,0.535695577768208,0.676457438497521,0,Falso negativo
+8a764bf9-58f3-488d-b0bc-d4a7d107413a,0,Sensibilidad CID observado,Regresión logística regularizada,0.736130814441752,0.676457438497521,1,Falso positivo
+9375e1db-961f-4aa0-939d-2ee7e5ff221a,0,Sensibilidad CID observado,Regresión logística regularizada,0.699714294899924,0.676457438497521,1,Falso positivo
+944c786b-9aa5-48d3-87ee-e9b3e2bd23f1,1,Sensibilidad CID observado,Regresión logística regularizada,0.67350354954312,0.676457438497521,0,Falso negativo
+944fe192-0e5a-45f2-9d59-a37ada09836f,0,Sensibilidad CID observado,Regresión logística regularizada,0.692428450655228,0.676457438497521,1,Falso positivo
+95467f39-b782-48e5-b6d4-6294552db06d,0,Sensibilidad CID observado,Regresión logística regularizada,0.706581887810241,0.676457438497521,1,Falso positivo
+9637aaba-268d-4d94-8690-350459fb995d,0,Sensibilidad CID observado,Regresión logística regularizada,0.682521810398991,0.676457438497521,1,Falso positivo
+98b35f73-1550-42e9-af61-9b6c975fe7b3,0,Sensibilidad CID observado,Regresión logística regularizada,0.730341281500508,0.676457438497521,1,Falso positivo
+99d4a984-a32f-4086-8c51-cb0a45bfa0fe,1,Sensibilidad CID observado,Regresión logística regularizada,0.37818536239934,0.676457438497521,0,Falso negativo
+9bcc2ec7-d3f2-4434-a050-859cd35ae50d,0,Sensibilidad CID observado,Regresión logística regularizada,0.693552782359459,0.676457438497521,1,Falso positivo
+9cbbca57-c669-4261-b58d-7f96aede6ab2,0,Sensibilidad CID observado,Regresión logística regularizada,0.717425483758352,0.676457438497521,1,Falso positivo
+9d048dea-15f9-4740-ac05-3f4b53fe3f21,0,Sensibilidad CID observado,Regresión logística regularizada,0.703441809336721,0.676457438497521,1,Falso positivo
+a1cb63a5-8caf-4cd6-b92a-14a1e468949b,0,Sensibilidad CID observado,Regresión logística regularizada,0.707641752822903,0.676457438497521,1,Falso positivo
+a208891b-260b-4f75-9aed-7c9094174c1a,1,Sensibilidad CID observado,Regresión logística regularizada,0.575898765493025,0.676457438497521,0,Falso negativo
+a46d4997-00c7-4ddb-95b6-72e3d8870a7c,1,Sensibilidad CID observado,Regresión logística regularizada,0.67279720475741,0.676457438497521,0,Falso negativo
+a7457eec-62ce-4111-b1dd-476ecd7d374d,0,Sensibilidad CID observado,Regresión logística regularizada,0.69384720809126,0.676457438497521,1,Falso positivo
+af1224b2-93b5-4821-a8b5-bbbad2262321,1,Sensibilidad CID observado,Regresión logística regularizada,0.502126055957565,0.676457438497521,0,Falso negativo
+afcb45b6-f54c-4868-a260-8f69cd0ce28d,0,Sensibilidad CID observado,Regresión logística regularizada,0.703541518064935,0.676457438497521,1,Falso positivo
+b02e71ed-e14b-4b67-b089-ff425f56b12b,1,Sensibilidad CID observado,Regresión logística regularizada,0.51139220463131,0.676457438497521,0,Falso negativo
+b5305236-5629-4ab4-b2af-89e836826d0d,1,Sensibilidad CID observado,Regresión logística regularizada,0.610504997694441,0.676457438497521,0,Falso negativo
+b612e008-42ce-4618-9da2-b6a45b2156c0,1,Sensibilidad CID observado,Regresión logística regularizada,0.539151986386913,0.676457438497521,0,Falso negativo
+bb3bf35d-62c0-411b-8abd-d0800435142f,0,Sensibilidad CID observado,Regresión logística regularizada,0.698982734900566,0.676457438497521,1,Falso positivo
+bea41ced-f251-43a6-9c20-8621a9283dda,0,Sensibilidad CID observado,Regresión logística regularizada,0.678610699392079,0.676457438497521,1,Falso positivo
+c0fc9be5-0c8f-4061-8a72-6edbdb696f9f,1,Sensibilidad CID observado,Regresión logística regularizada,0.625568990249965,0.676457438497521,0,Falso negativo
+c3d0d327-76a6-4e5d-a0b8-8f7459f0aaef,0,Sensibilidad CID observado,Regresión logística regularizada,0.737036153937086,0.676457438497521,1,Falso positivo
+c759356b-95cf-4150-a63f-a127f736835f,0,Sensibilidad CID observado,Regresión logística regularizada,0.688858079779817,0.676457438497521,1,Falso positivo
+c7b5d1e1-0d03-42e2-b018-fe96a515f490,0,Sensibilidad CID observado,Regresión logística regularizada,0.709096785901769,0.676457438497521,1,Falso positivo
+c8de98d1-e3df-4a38-9141-22d7f0e88811,0,Sensibilidad CID observado,Regresión logística regularizada,0.758534379348306,0.676457438497521,1,Falso positivo
+cb2052d7-89d4-46f9-b6fd-02cb2e88454c,0,Sensibilidad CID observado,Regresión logística regularizada,0.720086079370454,0.676457438497521,1,Falso positivo
+cb6c0e5b-cf8f-43e2-94c7-cf1046c6ef72,0,Sensibilidad CID observado,Regresión logística regularizada,0.680036553207237,0.676457438497521,1,Falso positivo
+cce090fc-bb7c-48a8-8c2e-be0bb5898936,1,Sensibilidad CID observado,Regresión logística regularizada,0.569593207029816,0.676457438497521,0,Falso negativo
+d1a7832b-1d66-47a7-a419-1f677bfbdf5c,0,Sensibilidad CID observado,Regresión logística regularizada,0.69732509135082,0.676457438497521,1,Falso positivo
+d53dfdd2-2f87-42ee-bcd3-1c42a6f80e88,0,Sensibilidad CID observado,Regresión logística regularizada,0.697778433310002,0.676457438497521,1,Falso positivo
+d819fb4a-2aa2-4a44-bb09-689eae0e0edb,0,Sensibilidad CID observado,Regresión logística regularizada,0.676976144772485,0.676457438497521,1,Falso positivo
+d8ef9f56-0cc4-442e-a3fb-beeed6cbe535,0,Sensibilidad CID observado,Regresión logística regularizada,0.695393446378909,0.676457438497521,1,Falso positivo
+d9834a57-a432-4863-be5f-e049890c1a96,0,Sensibilidad CID observado,Regresión logística regularizada,0.712786097204022,0.676457438497521,1,Falso positivo
+daf22f41-3318-453b-b42b-49b2168d038e,1,Sensibilidad CID observado,Regresión logística regularizada,0.396953029695312,0.676457438497521,0,Falso negativo
+ddddbf5a-a5c0-47bd-a22f-061a7621d4a5,0,Sensibilidad CID observado,Regresión logística regularizada,0.708328476602157,0.676457438497521,1,Falso positivo
+de9ea211-dd4d-4db7-8132-91c2e18bf685,1,Sensibilidad CID observado,Regresión logística regularizada,0.587695099719445,0.676457438497521,0,Falso negativo
+e133b330-ec5f-48cd-b1b1-d683232ab5ee,0,Sensibilidad CID observado,Regresión logística regularizada,0.693439500019215,0.676457438497521,1,Falso positivo
+e182331e-4355-4ab3-8f38-7b813880f755,0,Sensibilidad CID observado,Regresión logística regularizada,0.72608218018103,0.676457438497521,1,Falso positivo
+e647bc48-38b7-46fd-8c30-63ab6dc12112,1,Sensibilidad CID observado,Regresión logística regularizada,0.476313405980938,0.676457438497521,0,Falso negativo
+ea736d95-9a88-428c-bc33-0696e2e83519,0,Sensibilidad CID observado,Regresión logística regularizada,0.694870837875584,0.676457438497521,1,Falso positivo
+f08044bf-d60f-451a-a769-e8c7d3839c14,0,Sensibilidad CID observado,Regresión logística regularizada,0.693199302994192,0.676457438497521,1,Falso positivo
+f2332bc3-ae2a-4593-8e87-73d51a08a6bf,0,Sensibilidad CID observado,Regresión logística regularizada,0.678079365943703,0.676457438497521,1,Falso positivo
+f44677ad-ff18-4dda-b3b6-0c5fcfc8830a,0,Sensibilidad CID observado,Regresión logística regularizada,0.688738916121429,0.676457438497521,1,Falso positivo
+f46c1cb6-081f-4230-ab9c-0a09d2645043,0,Sensibilidad CID observado,Regresión logística regularizada,0.685039656089381,0.676457438497521,1,Falso positivo
+f4e35d7f-7415-4761-8e97-e95d66238a7f,1,Sensibilidad CID observado,Regresión logística regularizada,0.648370254253123,0.676457438497521,0,Falso negativo
+f6586af3-96dc-4ab4-bea5-c3507c34e2c3,0,Sensibilidad CID observado,Regresión logística regularizada,0.684311573114286,0.676457438497521,1,Falso positivo
+fb17c574-b948-49ca-bbf7-887b03e3b14e,0,Sensibilidad CID observado,Regresión logística regularizada,0.679943385262641,0.676457438497521,1,Falso positivo
+fe6a22d4-b0c0-4062-b4af-cf2a2135998c,1,Sensibilidad CID observado,Regresión logística regularizada,0.492333483896838,0.676457438497521,0,Falso negativo
+04f02181-2b35-4009-b9c9-c5b5136709ce,1,Sensibilidad CID observado,Random Forest,0.00934764075621298,0.0877317460317461,0,Falso negativo
+0794256d-cdc9-4e7f-9fe2-eb4075b39cda,0,Sensibilidad CID observado,Random Forest,0.107635655242601,0.0877317460317461,1,Falso positivo
+0861e188-320b-43f3-bfdf-f89bb2b9bf5c,0,Sensibilidad CID observado,Random Forest,0.108739307586552,0.0877317460317461,1,Falso positivo
+08a61ea8-475a-4640-8b13-253beef18687,0,Sensibilidad CID observado,Random Forest,0.0983356793201603,0.0877317460317461,1,Falso positivo
+0a7b690b-f58e-4601-b81a-2bda50e8ab47,1,Sensibilidad CID observado,Random Forest,0.000722222222222222,0.0877317460317461,0,Falso negativo
+0fb37f94-588c-4d7f-bf57-d20569dccda7,0,Sensibilidad CID observado,Random Forest,0.139427777777778,0.0877317460317461,1,Falso positivo
+137d1947-18be-47b1-ba43-6d9bc8da30af,0,Sensibilidad CID observado,Random Forest,0.0991152934853859,0.0877317460317461,1,Falso positivo
+16eb4138-3ba5-4eeb-82a7-995484dbcdbe,0,Sensibilidad CID observado,Random Forest,0.118848412698413,0.0877317460317461,1,Falso positivo
+19bf281d-5471-4465-8b9b-e1e655c3b157,1,Sensibilidad CID observado,Random Forest,0.013518253968254,0.0877317460317461,0,Falso negativo
+214f2228-59d1-4e66-8e81-a0b505ed2575,1,Sensibilidad CID observado,Random Forest,0.0134633956433637,0.0877317460317461,0,Falso negativo
+266bfac7-15c8-468c-94c6-e492ea929f92,0,Sensibilidad CID observado,Random Forest,0.106528032271828,0.0877317460317461,1,Falso positivo
+2b9e7211-75e4-4782-8f04-3e53a33502d3,1,Sensibilidad CID observado,Random Forest,0.00603333333333333,0.0877317460317461,0,Falso negativo
+2bd2fc01-2c81-43e7-a59a-c9840a406076,1,Sensibilidad CID observado,Random Forest,0.0282674603174603,0.0877317460317461,0,Falso negativo
+2f25046f-8641-4c70-a32f-75949bd9715c,0,Sensibilidad CID observado,Random Forest,0.0966388888888889,0.0877317460317461,1,Falso positivo
+2f708229-9567-494c-9695-875af40e946f,1,Sensibilidad CID observado,Random Forest,0.0559547619047619,0.0877317460317461,0,Falso negativo
+30e7101c-5861-4580-89b4-29139030f5ae,0,Sensibilidad CID observado,Random Forest,0.13212497665733,0.0877317460317461,1,Falso positivo
+34e06219-936d-44dc-8ec1-00e7adfb59e0,1,Sensibilidad CID observado,Random Forest,0.00878571428571429,0.0877317460317461,0,Falso negativo
+35ab192c-4d08-43cb-ac8d-6301f1ca87d4,1,Sensibilidad CID observado,Random Forest,0.0169626984126984,0.0877317460317461,0,Falso negativo
+384b4a6d-b4d2-4666-89e2-fadf3e3d89f4,0,Sensibilidad CID observado,Random Forest,0.0943079365079365,0.0877317460317461,1,Falso positivo
+39bbbbc6-2a77-4de5-a535-2d842afc94d5,1,Sensibilidad CID observado,Random Forest,0.0646583486973731,0.0877317460317461,0,Falso negativo
+3cc1ac67-43e3-468f-87d5-e3227af4f910,1,Sensibilidad CID observado,Random Forest,0.00522539682539683,0.0877317460317461,0,Falso negativo
+3cf8a048-0696-4535-8e04-cae51b97c9a9,1,Sensibilidad CID observado,Random Forest,0.0128634920634921,0.0877317460317461,0,Falso negativo
+3efdc33d-3fb9-4bee-83b0-122ec7af1e7c,0,Sensibilidad CID observado,Random Forest,0.119897986837011,0.0877317460317461,1,Falso positivo
+3f797ec2-756f-4bd1-9e4d-3971366fe302,1,Sensibilidad CID observado,Random Forest,0.047410019862591,0.0877317460317461,0,Falso negativo
+424033f2-1973-4e5c-8517-eca0041ebe57,0,Sensibilidad CID observado,Random Forest,0.102384126984127,0.0877317460317461,1,Falso positivo
+448d294f-967a-484c-b26a-5d248f325a80,0,Sensibilidad CID observado,Random Forest,0.0927428571428571,0.0877317460317461,1,Falso positivo
+4b64ac56-3a67-489c-80d6-ce96cbff0aae,1,Sensibilidad CID observado,Random Forest,0.0323777777777778,0.0877317460317461,0,Falso negativo
+4df5504a-0154-42ba-b5ed-86cc5ec4e3ad,1,Sensibilidad CID observado,Random Forest,0.00284444444444444,0.0877317460317461,0,Falso negativo
+52d242f5-fa57-4d04-9551-d80573389563,1,Sensibilidad CID observado,Random Forest,0.046531867547657,0.0877317460317461,0,Falso negativo
+5342a4b5-e37b-49be-93ba-c3a6430923c6,0,Sensibilidad CID observado,Random Forest,0.148308563074353,0.0877317460317461,1,Falso positivo
+54572bfb-4f5c-47f3-b5c9-a517c55d511c,1,Sensibilidad CID observado,Random Forest,0.0156631559497413,0.0877317460317461,0,Falso negativo
+55f667c7-a679-4275-851e-658bc37d419d,0,Sensibilidad CID observado,Random Forest,0.10393253968254,0.0877317460317461,1,Falso positivo
+57a751f5-4f56-4cf0-881d-6aa6c6228af9,0,Sensibilidad CID observado,Random Forest,0.102295686680469,0.0877317460317461,1,Falso positivo
+581fb8d7-64fa-48bc-8294-2b7e6e8dcabb,0,Sensibilidad CID observado,Random Forest,0.119702092425161,0.0877317460317461,1,Falso positivo
+58d6ade6-9bc2-4129-a89a-540e3e4715f2,1,Sensibilidad CID observado,Random Forest,0.0416469008522514,0.0877317460317461,0,Falso negativo
+59723de4-df1e-419f-9514-fb39fc644fc8,0,Sensibilidad CID observado,Random Forest,0.133914425770308,0.0877317460317461,1,Falso positivo
+5f6c6134-2fb9-4763-acab-a164d37e3440,1,Sensibilidad CID observado,Random Forest,0.0433388888888889,0.0877317460317461,0,Falso negativo
+5ff2d17a-3720-4d48-88b6-5e987c9ebd9a,1,Sensibilidad CID observado,Random Forest,0.0758150302682221,0.0877317460317461,0,Falso negativo
+6112d623-17ce-47f8-ae2d-11bc0c29b913,0,Sensibilidad CID observado,Random Forest,0.142393776815769,0.0877317460317461,1,Falso positivo
+61ec3d45-4e1b-4a50-9df0-2a01a3d73cb4,1,Sensibilidad CID observado,Random Forest,0.00370793650793651,0.0877317460317461,0,Falso negativo
+6215eec7-653d-4486-a9ac-15df467252e8,1,Sensibilidad CID observado,Random Forest,0.0706950815891138,0.0877317460317461,0,Falso negativo
+658b7dee-cc62-4629-9559-ceb57d0d2643,0,Sensibilidad CID observado,Random Forest,0.159822174420826,0.0877317460317461,1,Falso positivo
+674c1d3f-cd8d-4032-88dc-fa9bcb92c630,1,Sensibilidad CID observado,Random Forest,0.0138215264187867,0.0877317460317461,0,Falso negativo
+67766b9a-cd3c-4d9f-aa47-8fbec5a0c275,0,Sensibilidad CID observado,Random Forest,0.135356376990742,0.0877317460317461,1,Falso positivo
+6a3317ee-a629-42cb-8e2e-c8e624e3a2f1,1,Sensibilidad CID observado,Random Forest,0.0385444938102833,0.0877317460317461,0,Falso negativo
+6c902481-eb48-46c9-a8a5-a00d156f0924,1,Sensibilidad CID observado,Random Forest,0.0621743902439025,0.0877317460317461,0,Falso negativo
+6d75f898-d1f3-47cb-abf1-1731e6b062d1,0,Sensibilidad CID observado,Random Forest,0.105684757497437,0.0877317460317461,1,Falso positivo
+6ec0a88a-f06a-4eaa-84bf-2e68bc38d60f,1,Sensibilidad CID observado,Random Forest,0.0591325396825397,0.0877317460317461,0,Falso negativo
+7365497b-015a-4cf9-b1e3-4523a1a87ff4,1,Sensibilidad CID observado,Random Forest,0.0638313710786152,0.0877317460317461,0,Falso negativo
+746ff2db-31b2-4d93-ad45-63b341586114,1,Sensibilidad CID observado,Random Forest,0.0138291208791209,0.0877317460317461,0,Falso negativo
+74e2a39e-9ea5-4f5d-8812-9a3bfab8e7a0,0,Sensibilidad CID observado,Random Forest,0.091054149659864,0.0877317460317461,1,Falso positivo
+76abfd8d-8ca8-4810-8af2-f94945905a81,0,Sensibilidad CID observado,Random Forest,0.0961716356107661,0.0877317460317461,1,Falso positivo
+8063ba52-0161-4099-8c4a-d463ec5f9bb8,0,Sensibilidad CID observado,Random Forest,0.0884394383394384,0.0877317460317461,1,Falso positivo
+81825b96-91e1-4f02-9312-3114846da0dc,0,Sensibilidad CID observado,Random Forest,0.0898934905148136,0.0877317460317461,1,Falso positivo
+845e1481-4580-4094-8d22-d67b5134d14c,0,Sensibilidad CID observado,Random Forest,0.112418183825631,0.0877317460317461,1,Falso positivo
+85e4232b-d3ce-4259-9e37-207c860cd3fe,0,Sensibilidad CID observado,Random Forest,0.100155555555556,0.0877317460317461,1,Falso positivo
+88159316-a2ff-4b44-8949-ce4354ee4d13,1,Sensibilidad CID observado,Random Forest,0.0494752496056358,0.0877317460317461,0,Falso negativo
+89f482b4-c268-430e-bd11-a61c91bab658,1,Sensibilidad CID observado,Random Forest,0.0349108434705804,0.0877317460317461,0,Falso negativo
+8d6d15ce-8af6-4755-a0a5-09ad0169e201,0,Sensibilidad CID observado,Random Forest,0.138062865497076,0.0877317460317461,1,Falso positivo
+8f3b3db3-48e2-459d-8ac8-0244c2fa6fcd,0,Sensibilidad CID observado,Random Forest,0.183443650793651,0.0877317460317461,1,Falso positivo
+944c786b-9aa5-48d3-87ee-e9b3e2bd23f1,1,Sensibilidad CID observado,Random Forest,0.0652777777777778,0.0877317460317461,0,Falso negativo
+95467f39-b782-48e5-b6d4-6294552db06d,0,Sensibilidad CID observado,Random Forest,0.15644892872896,0.0877317460317461,1,Falso positivo
+967c981d-1efc-416b-8de2-d5f8423ad20f,0,Sensibilidad CID observado,Random Forest,0.105689523809524,0.0877317460317461,1,Falso positivo
+97c455be-44af-402f-b47b-1436c6dfcb37,1,Sensibilidad CID observado,Random Forest,0.0750533357449715,0.0877317460317461,0,Falso negativo
+99d4a984-a32f-4086-8c51-cb0a45bfa0fe,1,Sensibilidad CID observado,Random Forest,0.0223619336372765,0.0877317460317461,0,Falso negativo
+9a13f69d-924f-49c0-a1c4-0e50325ce040,0,Sensibilidad CID observado,Random Forest,0.14810873015873,0.0877317460317461,1,Falso positivo
+9a1f3f9d-520e-4d3b-be7f-f6a923e7d6af,0,Sensibilidad CID observado,Random Forest,0.113656010435481,0.0877317460317461,1,Falso positivo
+a208891b-260b-4f75-9aed-7c9094174c1a,1,Sensibilidad CID observado,Random Forest,0.0266591470151312,0.0877317460317461,0,Falso negativo
+a4aa7b9b-eb6a-4eff-8ea4-2e117c674a90,0,Sensibilidad CID observado,Random Forest,0.139972252958611,0.0877317460317461,1,Falso positivo
+a6fdd289-8aa7-4f5b-9575-612741d6941e,0,Sensibilidad CID observado,Random Forest,0.0929490392648288,0.0877317460317461,1,Falso positivo
+ad08dac4-f27b-4b02-9cfe-0e03ea6f1599,0,Sensibilidad CID observado,Random Forest,0.131228804122707,0.0877317460317461,1,Falso positivo
+af1224b2-93b5-4821-a8b5-bbbad2262321,1,Sensibilidad CID observado,Random Forest,0.0216415796018696,0.0877317460317461,0,Falso negativo
+b02e71ed-e14b-4b67-b089-ff425f56b12b,1,Sensibilidad CID observado,Random Forest,0.0143980158730159,0.0877317460317461,0,Falso negativo
+b2128ed7-d6c7-4ce0-90b6-b9d256130c38,0,Sensibilidad CID observado,Random Forest,0.114196825396825,0.0877317460317461,1,Falso positivo
+b5305236-5629-4ab4-b2af-89e836826d0d,1,Sensibilidad CID observado,Random Forest,0.00782315518405944,0.0877317460317461,0,Falso negativo
+b612e008-42ce-4618-9da2-b6a45b2156c0,1,Sensibilidad CID observado,Random Forest,0,0.0877317460317461,0,Falso negativo
+b8c53126-aa5d-4ef4-a6e6-932c1c729cdf,0,Sensibilidad CID observado,Random Forest,0.0948217188496259,0.0877317460317461,1,Falso positivo
+b9eef8fd-3499-4ab3-89c7-08504a1d3ecd,0,Sensibilidad CID observado,Random Forest,0.0923341886652414,0.0877317460317461,1,Falso positivo
+c5a19365-8948-4c1a-b327-93cc6d05db76,0,Sensibilidad CID observado,Random Forest,0.103189754689755,0.0877317460317461,1,Falso positivo
+c7b5d1e1-0d03-42e2-b018-fe96a515f490,0,Sensibilidad CID observado,Random Forest,0.10377619047619,0.0877317460317461,1,Falso positivo
+cce090fc-bb7c-48a8-8c2e-be0bb5898936,1,Sensibilidad CID observado,Random Forest,0.0678526180879876,0.0877317460317461,0,Falso negativo
+daf22f41-3318-453b-b42b-49b2168d038e,1,Sensibilidad CID observado,Random Forest,0.0160373015873016,0.0877317460317461,0,Falso negativo
+ddddbf5a-a5c0-47bd-a22f-061a7621d4a5,0,Sensibilidad CID observado,Random Forest,0.111147631820459,0.0877317460317461,1,Falso positivo
+de9ea211-dd4d-4db7-8132-91c2e18bf685,1,Sensibilidad CID observado,Random Forest,0.016331746031746,0.0877317460317461,0,Falso negativo
+e14e14bb-9009-49a1-b7fa-b35ec71dd382,0,Sensibilidad CID observado,Random Forest,0.0925253968253968,0.0877317460317461,1,Falso positivo
+e408ef10-bf8c-41e7-a227-772c87030dce,0,Sensibilidad CID observado,Random Forest,0.0892695384667826,0.0877317460317461,1,Falso positivo
+e647bc48-38b7-46fd-8c30-63ab6dc12112,1,Sensibilidad CID observado,Random Forest,0.0138308261183261,0.0877317460317461,0,Falso negativo
+e7e63222-f483-48b3-8b83-f122669d3079,1,Sensibilidad CID observado,Random Forest,0.0393154980627422,0.0877317460317461,0,Falso negativo
+f3733feb-dc91-465f-af8d-7a0a8327b8c9,0,Sensibilidad CID observado,Random Forest,0.109250037626991,0.0877317460317461,1,Falso positivo
+f4e35d7f-7415-4761-8e97-e95d66238a7f,1,Sensibilidad CID observado,Random Forest,0.0486435227374252,0.0877317460317461,0,Falso negativo
+f9ffda73-fcf2-45b2-803d-16c4267e0299,0,Sensibilidad CID observado,Random Forest,0.0927718942425728,0.0877317460317461,1,Falso positivo
+faf5cf05-c8a4-4bd3-aa15-7a20006df5c4,0,Sensibilidad CID observado,Random Forest,0.116619109512536,0.0877317460317461,1,Falso positivo
+fe6a22d4-b0c0-4062-b4af-cf2a2135998c,1,Sensibilidad CID observado,Random Forest,0.00821823788259126,0.0877317460317461,0,Falso negativo
+feae6390-72d4-4b5c-9b13-3aada20bc91c,0,Sensibilidad CID observado,Random Forest,0.100362951570846,0.0877317460317461,1,Falso positivo

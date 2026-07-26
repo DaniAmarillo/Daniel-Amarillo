@@ -1,0 +1,176 @@
+---
+title: "Clase 9"
+output: html_document
+author: "Owen Deybis Ortiz Velasquez"
+date: "2026-05-10"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r dataset_estudiantes, include=FALSE}
+library(tidyverse)
+set.seed(2025)
+
+n <- 400
+estudiantes <- tibble(
+  id         = 1:n,
+  programa   = sample(c("Estadística","Sistemas","Economía","Matemáticas"),
+                      n, replace = TRUE, prob = c(.3,.3,.25,.15)),
+  semestre   = sample(1:10, n, replace = TRUE),
+  sexo       = sample(c("Mujer","Hombre"), n, replace = TRUE),
+  nota_final = round(rnorm(n, mean = 3.5, sd = 0.7), 1) |> pmin(5) |> pmax(0),
+  horas_sem  = round(rnorm(n, mean = 18, sd = 5)),
+  beca       = sample(c("Sí","No"), n, replace = TRUE, prob = c(.3,.7))
+)
+```
+
+
+```{r Ejercicio_1}
+# Prueba de Shapiro-Wilk por programa
+estudiantes |>
+  group_by(programa) |>
+  summarise(
+    W       = shapiro.test(nota_final)$statistic,
+    p_valor = shapiro.test(nota_final)$p.value
+  )
+```
+1.¿En qué programas se rechaza normalidad con alpha = 0.05?
+
+2.Construye el QQ-plot para el programa con el p-valor más bajo. ¿Qué patrón ves en las colas?
+```{r QQ-Plot}
+library(ggplot2)
+
+ggplot(estudiantes, aes(sample = nota_final)) +
+  stat_qq() +
+  stat_qq_line(color = "red", linewidth = 0.8) +
+  facet_wrap(~ programa) +
+  labs(
+    title = "QQ Plot por programa",
+    x     = "Cuantiles teóricos",
+    y     = "Cuantiles muestrales"
+  ) +
+  theme_minimal()
+```
+Pequeñas desviaciones en las colas. No hay evidencia para rechazar H_0, es decir, no se rechaza normalidad
+
+3.Si la distribución no es normal, ¿qué implicaciones tiene para pruebas de hipótesis posteriores?
+Si no hay normalidad, muchas pruebas paramétricas clásicas que suponen normalidad no se pueden llevar a cabo
+
+```{r Ejercicio 2}
+estudiantes |>
+  group_by(programa) |>
+  summarise(
+    media       = mean(nota_final),
+    mediana     = median(nota_final),
+    media_recortada = mean(nota_final, trim = 0.1),  # trim 10%
+    mad         = mad(nota_final),                   # desv. absoluta mediana
+    cv          = sd(nota_final) / mean(nota_final), # coef. variación
+    asimetria   = (mean(nota_final) - median(nota_final)) / sd(nota_final)
+  )
+```
+1.¿Qué programa muestra mayor discrepancia entre media y media recortada? ¿Qué indica?
+Matemáticas con $0.19286$. Pueden haber valores extremos influyendo en la media
+
+2.Interpreta el coeficiente de asimetría de Pearson: ¿en qué dirección sesga cada distribución?
+-Economía: cola izquierda
+-Estadística: cola derecha casi simétrica
+-Matemáticas: cola derecha
+-Sistemas: cola derecha
+
+3.¿Cuándo preferirías reportar la MAD en lugar de la desviación estándar?
+cuando se sospecha outliers o la distribución no es normal
+
+```{r Ejercicio 3}
+detectar_outliers <- function(x) {
+  q1  <- quantile(x, 0.25); q3 <- quantile(x, 0.75)
+  iqr <- q3 - q1
+  z   <- (x - mean(x)) / sd(x)
+  tibble(
+    valor      = x,
+    outlier_iqr = x < (q1 - 1.5 * iqr) | x > (q3 + 1.5 * iqr),
+    outlier_z   = abs(z) > 3
+  )
+}
+
+estudiantes |>
+  group_by(programa) |>
+  reframe(detectar_outliers(nota_final)) |>
+  summarise(n_iqr = sum(outlier_iqr), n_z = sum(outlier_z))
+```
+1.¿Coinciden los dos criterios? ¿Cuándo podría el criterio Z fallar con muestras pequeñas?
+
+2.Visualiza los outliers detectados por IQR sobre un boxplot con geom_point() en color rojo.
+```{R Boxplot}
+# Obtener los outliers por IQR
+outliers_df <- estudiantes |>
+  group_by(programa) |>
+  reframe(detectar_outliers(nota_final)) |>
+  filter(outlier_iqr)
+
+# Boxplot con outliers resaltados
+ggplot(estudiantes, aes(x = programa, y = nota_final)) +
+  geom_boxplot(outlier.shape = NA) +          # oculta los outliers default del boxplot
+  geom_point(
+    data  = outliers_df,
+    aes(x = programa, y = valor),
+    color = "red", size = 2.5, alpha = 0.7
+  ) +
+  labs(
+    title = "Outliers por IQR por programa",
+    x     = "Programa",
+    y     = "Nota final"
+  ) +
+  theme_minimal()
+``` 
+
+
+3.¿Eliminarías esos puntos del análisis? Justifica estadísticamente.
+
+```{r Ejercicio 4}
+#Analiza la relación entre horas de estudio y nota final usando dos coeficientes.
+# Pearson (asume linealidad y normalidad) vs Spearman (no paramétrico)
+estudiantes |>
+  group_by(programa) |>
+  summarise(
+    r_pearson  = cor(horas_sem, nota_final, method = "pearson"),
+    r_spearman = cor(horas_sem, nota_final, method = "spearman"),
+    p_pearson  = cor.test(horas_sem, nota_final, method = "pearson")$p.value,
+    p_spearman = cor.test(horas_sem, nota_final, method = "spearman")$p.value
+  )
+```
+1.¿En qué programas hay correlación significativa? ¿Pearson y Spearman coinciden?
+En estadística y matemáticas. En Pearson y Spearman hay significancia
+
+2.Si Spearman > Pearson en algún programa, ¿qué sugiere sobre la forma de la relación?
+La relación existe y es consistente en dirección, pero no sigue una línea recta. Sugiere monotonía pero no linealidad
+
+3.Grafica el dispersograma con geom_smooth(method = “lm”) separado por programa con facet_wrap().
+```{r dispersograma}
+ggplot(estudiantes, aes(x = horas_sem, y = nota_final)) +
+  geom_point(alpha = 0.4, size = 1.5) +
+  geom_smooth(method = "lm", color = "red", se = TRUE) +
+  facet_wrap(~ programa) +
+  labs(
+    title = "Horas semanales vs Nota final por programa",
+    x     = "Horas semanales",
+    y     = "Nota final"
+  ) +
+  theme_minimal()
+```
+
+```{r Ejercicio 5}
+# Kruskal-Wallis (no paramétrico, no asume normalidad)
+kruskal.test(nota_final ~ programa, data = estudiantes)
+
+# Tamaño del efecto: eta-cuadrado de Kruskal-Wallis
+# eta^2 = (H - k + 1) / (n - k)  donde H es el estadístico y k el número de grupos
+H <- kruskal.test(nota_final ~ programa, data = estudiantes)$statistic
+k <- n_distinct(estudiantes$programa)
+n <- nrow(estudiantes)
+eta2 <- (H - k + 1) / (n - k)
+eta2
+```
+1.¿Se rechaza la hipótesis nula? Interpreta el p-valor en contexto.
+No se rechaza H_0, no hay evidencia de que las medianas de nota_final difieran entre programas.

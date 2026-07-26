@@ -1,0 +1,53 @@
+---
+title: "Clase_12"
+author: "Sebastian Tabares Segovia"
+date: "2026-06-30"
+output: html_document
+---
+
+
+# Taller Clase 12
+
+## Ejercicio 1
+
+Se tienen 400 evaluaciones de estudiantes a docentes, clasificadas por modalidad (presencial, virtual) y calificación (Excelente, Bueno, Regular). El mismo docente fue evaluado en ambas modalidades.
+
+### 1. Identificar el esquema de muestreo
+
+En este ejercicio las observaciones no son independientes, ya que cada docente fue evaluado tanto en modalidad presencial como en modalidad virtual. Por tanto, las dos mediciones corresponden a la misma unidad experimental.
+
+**Respuesta:** El esquema de muestreo corresponde a un **diseño pareado o de muestras dependientes**, debido a que las evaluaciones provienen del mismo docente en dos modalidades diferentes.
+
+---
+
+### 2. Probar si hay diferencia en la distribución de calificaciones entre modalidades
+
+Las variables analizadas son categóricas y poseen tres categorías de respuesta: Excelente, Bueno y Regular. Debido a que las observaciones son pareadas, no es apropiado utilizar una prueba Chi-cuadrado de independencia.
+
+**Respuesta:** La prueba adecuada es la **prueba de McNemar-Bowker**, ya que permite comparar dos clasificaciones categóricas pareadas con más de dos categorías y evaluar si la distribución de las calificaciones cambia entre la modalidad presencial y la modalidad virtual.
+
+---
+
+### 3. Si el docente es la unidad de análisis, ¿qué prueba es la apropiada?
+
+Al considerar al docente como unidad de análisis, cada uno aporta dos observaciones: una correspondiente a la modalidad presencial y otra a la modalidad virtual.
+
+**Respuesta:** La prueba más apropiada continúa siendo la **prueba de McNemar-Bowker**, pues está diseñada para comparar variables categóricas con múltiples categorías cuando las observaciones son dependientes.
+
+---
+
+### 4. Calcular Kappa si las calificaciones se reducen a Aprueba / No aprueba
+
+Si las categorías se reducen a únicamente **Aprueba** y **No aprueba**, las evaluaciones se representan mediante una tabla de contingencia 2 × 2.
+
+El coeficiente Kappa se calcula mediante
+
+\[
+\kappa=\frac{P_o-P_e}{1-P_e},
+\]
+
+donde:
+
+- \(P_o\) corresponde a la proporción de acuerdo observado.
+- \(P_e\) corresponde al acuerdo esperado por azar.
+

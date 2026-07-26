@@ -1,0 +1,1208 @@
+---
+title: "Taller 3 Minería de Datos"
+author: "Cristian Harvey Ardila Bolívar"
+date: "`r format(Sys.Date(), '%d de %B de %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    number_sections: false
+    theme: cosmo
+    highlight: textmate
+    df_print: default
+    self_contained: false
+    lib_dir: "salidas/libs_rmd"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 9,
+  fig.height = 5.4,
+  out.width = "100%",
+  fig.path = "salidas/figuras_rmd/"
+)
+
+options(width = 120, scipen = 999)
+
+dir.create("salidas/figuras_rmd", recursive = TRUE, showWarnings = FALSE)
+```
+
+```{css, echo=FALSE}
+body {
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+table {
+  font-size: 0.92em;
+}
+
+caption {
+  font-weight: bold;
+  color: #333333;
+}
+
+.callout {
+  border-left: 5px solid #2c7fb8;
+  background: #f7fbff;
+  padding: 12px 16px;
+  margin: 16px 0;
+  border-radius: 6px;
+}
+
+.note {
+  border-left: 5px solid #7a7a7a;
+  background: #f8f8f8;
+  padding: 12px 16px;
+  margin: 16px 0;
+  border-radius: 6px;
+}
+```
+
+```{r paquetes}
+paquetes <- c(
+  "readr", "dplyr", "tidyr", "stringr", "tibble", "purrr",
+  "ggplot2", "scales", "knitr"
+)
+
+faltantes <- paquetes[!purrr::map_lgl(paquetes, requireNamespace, quietly = TRUE)]
+
+if (length(faltantes) > 0) {
+  stop(
+    "Faltan paquetes requeridos para compilar el documento: ",
+    paste(faltantes, collapse = ", "),
+    "."
+  )
+}
+
+invisible(lapply(paquetes, library, character.only = TRUE))
+```
+
+```{r funciones}
+carpeta_salida <- "salidas"
+
+ruta_salida <- function(archivo) {
+  file.path(carpeta_salida, archivo)
+}
+
+leer_csv_requerido <- function(archivo) {
+  ruta <- ruta_salida(archivo)
+  if (!file.exists(ruta)) {
+    stop("No se encontró el archivo requerido: ", ruta)
+  }
+  readr::read_csv(ruta, show_col_types = FALSE)
+}
+
+leer_csv_opcional <- function(archivo) {
+  ruta <- ruta_salida(archivo)
+  if (!file.exists(ruta)) {
+    return(tibble::tibble())
+  }
+  readr::read_csv(ruta, show_col_types = FALSE)
+}
+
+valor_de <- function(tabla, clave, col_clave = "elemento", col_valor = "valor", defecto = NA_character_) {
+  if (!all(c(col_clave, col_valor) %in% names(tabla))) {
+    return(defecto)
+  }
+
+  salida <- tabla |>
+    dplyr::filter(.data[[col_clave]] == clave) |>
+    dplyr::pull(.data[[col_valor]])
+
+  if (length(salida) == 0 || is.na(salida[1])) {
+    return(defecto)
+  }
+
+  as.character(salida[1])
+}
+
+numero_de <- function(tabla, clave, col_clave = "elemento", col_valor = "valor", defecto = NA_real_) {
+  suppressWarnings(as.numeric(valor_de(tabla, clave, col_clave, col_valor, defecto)))
+}
+
+limpiar_texto_presentacion <- function(x) {
+  x <- as.character(x)
+  x <- stringr::str_replace_all(x, "[\uFFFE\uFFFD]", "")
+  x <- stringr::str_replace_all(x, "[[:cntrl:]]", " ")
+  stringr::str_squish(x)
+}
+
+es_entero_visual <- function(x, tolerancia = 0.0000001) {
+  x <- suppressWarnings(as.numeric(x))
+  x_ok <- x[is.finite(x)]
+  length(x_ok) > 0 && all(abs(x_ok - round(x_ok)) < tolerancia)
+}
+
+fmt_auto <- function(x, digits = 3) {
+  x_num <- suppressWarnings(as.numeric(x))
+  salida <- rep("No disponible", length(x_num))
+  ok <- is.finite(x_num)
+
+  if (!any(ok)) {
+    return(salida)
+  }
+
+  entero <- ok & abs(x_num - round(x_num)) < 0.0000001
+  decimal <- ok & !entero
+
+  salida[entero] <- format(round(x_num[entero]), big.mark = ",", scientific = FALSE, trim = TRUE)
+  salida[decimal] <- format(round(x_num[decimal], digits), big.mark = ",", scientific = FALSE, trim = TRUE)
+
+  salida
+}
+
+fmt_num <- function(x, digits = 2) {
+  fmt_auto(x, digits = digits)
+}
+
+fmt_entero <- function(x) {
+  x <- suppressWarnings(as.numeric(x))
+  ifelse(
+    is.na(x) | !is.finite(x),
+    "No disponible",
+    format(round(x, 0), big.mark = ",", scientific = FALSE, trim = TRUE)
+  )
+}
+
+fmt_pct <- function(x, digits = 2, escala_01 = TRUE) {
+  x <- suppressWarnings(as.numeric(x))
+  if (escala_01) {
+    x <- 100 * x
+  }
+
+  ifelse(
+    is.na(x) | !is.finite(x),
+    "No disponible",
+    paste0(fmt_auto(x, digits = digits), "%")
+  )
+}
+
+fmt_tabla <- function(tabla, digits = 3) {
+  tabla |>
+    dplyr::mutate(
+      dplyr::across(where(is.numeric), ~ fmt_auto(.x, digits = digits)),
+      dplyr::across(where(is.character), limpiar_texto_presentacion)
+    )
+}
+
+mostrar_tabla <- function(tabla, n = 15, caption = NULL, digits = 3) {
+  tabla_mostrar <- tabla
+
+  if (nrow(tabla_mostrar) > n) {
+    tabla_mostrar <- dplyr::slice_head(tabla_mostrar, n = n)
+  }
+
+  knitr::kable(fmt_tabla(tabla_mostrar, digits = digits), caption = caption, escape = TRUE)
+}
+
+normalizar_modelo <- function(x) {
+  dplyr::case_when(
+    stringr::str_detect(x, stringr::regex("log", ignore_case = TRUE)) ~ "Regresión logística",
+    stringr::str_detect(x, stringr::regex("árbol|arbol", ignore_case = TRUE)) ~ "Árbol de decisión",
+    stringr::str_detect(x, stringr::regex("forest|ranger", ignore_case = TRUE)) ~ "Random forest",
+    TRUE ~ x
+  )
+}
+
+roc_auc_manual <- function(y, p) {
+  y <- as.integer(y)
+  p <- suppressWarnings(as.numeric(p))
+  ok <- is.finite(p) & !is.na(y)
+  y <- y[ok]
+  p <- p[ok]
+
+  n_pos <- sum(y == 1)
+  n_neg <- sum(y == 0)
+
+  if (n_pos == 0 || n_neg == 0) {
+    return(NA_real_)
+  }
+
+  rangos <- rank(p, ties.method = "average")
+  auc <- (sum(rangos[y == 1]) - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg)
+  as.numeric(auc)
+}
+
+pr_auc_manual <- function(y, p) {
+  y <- as.integer(y)
+  p <- suppressWarnings(as.numeric(p))
+  ok <- is.finite(p) & !is.na(y)
+  y <- y[ok]
+  p <- p[ok]
+
+  n_pos <- sum(y == 1)
+  if (n_pos == 0 || length(y) == 0) {
+    return(NA_real_)
+  }
+
+  orden <- order(p, decreasing = TRUE)
+  y_ord <- y[orden]
+
+  tp <- cumsum(y_ord == 1)
+  fp <- cumsum(y_ord == 0)
+
+  recall <- tp / n_pos
+  precision <- tp / pmax(tp + fp, 1)
+
+  recall <- c(0, recall)
+  precision <- c(1, precision)
+
+  sum(diff(recall) * precision[-1], na.rm = TRUE)
+}
+
+metricas_desde_prob <- function(datos, prob_col, umbral, modelo) {
+  prob <- suppressWarnings(as.numeric(datos[[prob_col]]))
+  verdad <- ifelse(datos$tiene_calculo_renal_factor == "Con N20", 1L, 0L)
+  ok <- is.finite(prob) & !is.na(verdad)
+
+  prob <- prob[ok]
+  verdad <- verdad[ok]
+
+  pred <- ifelse(prob >= umbral, 1L, 0L)
+
+  vp <- sum(verdad == 1 & pred == 1)
+  fn <- sum(verdad == 1 & pred == 0)
+  fp <- sum(verdad == 0 & pred == 1)
+  vn <- sum(verdad == 0 & pred == 0)
+
+  accuracy <- (vp + vn) / pmax(vp + vn + fp + fn, 1)
+  sensibilidad <- vp / pmax(vp + fn, 1)
+  especificidad <- vn / pmax(vn + fp, 1)
+  precision <- vp / pmax(vp + fp, 1)
+  f1 <- ifelse((precision + sensibilidad) > 0, 2 * precision * sensibilidad / (precision + sensibilidad), 0)
+
+  tibble::tibble(
+    modelo = modelo,
+    umbral = as.numeric(umbral),
+    roc_auc = roc_auc_manual(verdad, prob),
+    pr_auc = pr_auc_manual(verdad, prob),
+    accuracy = accuracy,
+    sens = sensibilidad,
+    spec = especificidad,
+    precision = precision,
+    f_meas = f1,
+    verdaderos_positivos = vp,
+    falsos_negativos = fn,
+    falsos_positivos = fp,
+    verdaderos_negativos = vn
+  )
+}
+```
+
+```{r lectura}
+control_preparacion <- leer_csv_requerido("compacto_01_control_preparacion_cid_objetivo.csv")
+control_granularidad <- leer_csv_requerido("compacto_01b_control_granularidad.csv")
+control_calidad <- leer_csv_requerido("compacto_02b_control_calidad.csv")
+
+resumen_descriptivo <- leer_csv_requerido("compacto_03_resumen_descriptivo_general.csv")
+tabla_sexo <- leer_csv_requerido("compacto_03_tabla_descriptiva_sexo.csv")
+tabla_edad <- leer_csv_requerido("compacto_03_tabla_descriptiva_edad.csv")
+tabla_tipo <- leer_csv_requerido("compacto_03_tabla_descriptiva_tipo_beneficiario.csv")
+tabla_estado <- leer_csv_requerido("compacto_03_tabla_descriptiva_estado_prestador.csv")
+tabla_especialidad <- leer_csv_requerido("compacto_03_tabla_descriptiva_especialidad.csv")
+tabla_internacion <- leer_csv_requerido("compacto_03_tabla_descriptiva_internacion.csv")
+tabla_uti <- leer_csv_requerido("compacto_03_tabla_descriptiva_uti.csv")
+
+control_particion <- leer_csv_requerido("compacto_04_control_particion_receta.csv")
+umbrales_modelos <- leer_csv_requerido("compacto_05_umbrales_modelos.csv")
+metricas_modelos_archivo <- leer_csv_requerido("compacto_05_metricas_modelos.csv")
+predicciones_test <- leer_csv_requerido("compacto_05_predicciones_test_candidato.csv")
+metricas_candidato_archivo <- leer_csv_requerido("compacto_05_metricas_candidato_final.csv")
+matriz_confusion <- leer_csv_requerido("compacto_05_matriz_confusion_candidato.csv")
+metricas_umbral <- leer_csv_requerido("compacto_05_metricas_por_umbral_candidato.csv")
+resumen_errores <- leer_csv_requerido("compacto_05_resumen_errores_candidato.csv")
+
+importancia_variables <- leer_csv_requerido("compacto_06_importancia_variables_top.csv")
+discusion_sesgos <- leer_csv_requerido("compacto_06_discusion_sesgos_limitaciones.csv")
+
+resumen_costos <- leer_csv_requerido("compacto_07_resumen_costos_observados.csv")
+modelos_costo <- leer_csv_requerido("compacto_07_tabla_modelos_costo.csv")
+perfiles_costo <- leer_csv_requerido("compacto_07_perfiles_costo_esperado.csv")
+limitaciones_costo <- leer_csv_requerido("compacto_07_limitaciones_costo.csv")
+utilizaciones_costos <- leer_csv_requerido("compacto_07_utilizaciones_N20_costos.csv")
+```
+
+```{r preparacion-valores}
+beneficiarios <- numero_de(control_preparacion, "beneficiarios")
+registros_base <- numero_de(control_preparacion, "filas_base")
+registros_cid_valido <- numero_de(control_preparacion, "registros_cid_valido")
+registros_n20 <- numero_de(control_preparacion, "registros_n20")
+beneficiarios_n20 <- numero_de(control_preparacion, "beneficiarios_n20")
+patron_cid <- valor_de(control_preparacion, "patron_cid")
+patron_cid_presentacion <- stringr::str_remove(patron_cid, "^\\^")
+
+utilizaciones_aprox <- resumen_descriptivo |>
+  dplyr::filter(indicador == "utilizaciones_aprox") |>
+  dplyr::pull(valor) |>
+  as.numeric()
+
+procedimientos_distintos <- resumen_descriptivo |>
+  dplyr::filter(indicador == "procedimientos_distintos") |>
+  dplyr::pull(valor) |>
+  as.numeric()
+
+prevalencia_pct <- 100 * beneficiarios_n20 / beneficiarios
+
+metricas_modelos <- metricas_modelos_archivo |>
+  dplyr::mutate(
+    modelo = normalizar_modelo(modelo),
+    dplyr::across(
+      c(umbral, roc_auc, pr_auc, accuracy, sens, spec, precision, f_meas),
+      ~ suppressWarnings(as.numeric(.x))
+    )
+  ) |>
+  dplyr::arrange(dplyr::desc(pr_auc), dplyr::desc(f_meas), dplyr::desc(sens))
+
+modelo_candidato <- metricas_modelos$modelo[1]
+umbral_candidato <- metricas_modelos$umbral[1]
+pr_auc_final <- metricas_modelos$pr_auc[1]
+roc_auc_final <- metricas_modelos$roc_auc[1]
+sensibilidad_final <- metricas_modelos$sens[1]
+precision_final <- metricas_modelos$precision[1]
+f1_final <- metricas_modelos$f_meas[1]
+accuracy_final <- metricas_modelos$accuracy[1]
+especificidad_final <- metricas_modelos$spec[1]
+
+metricas_rf <- metricas_modelos |> dplyr::filter(modelo == "Random forest") |> dplyr::slice_head(n = 1)
+metricas_arbol <- metricas_modelos |> dplyr::filter(modelo == "Árbol de decisión") |> dplyr::slice_head(n = 1)
+metricas_logistica <- metricas_modelos |> dplyr::filter(modelo == "Regresión logística") |> dplyr::slice_head(n = 1)
+
+extraer_conteo_matriz <- function(nombre_resultado) {
+  salida <- matriz_confusion |>
+    dplyr::filter(tipo_resultado == nombre_resultado) |>
+    dplyr::pull(n)
+  if (length(salida) == 0 || is.na(salida[1])) return(0)
+  as.numeric(salida[1])
+}
+
+vp_candidato <- extraer_conteo_matriz("Verdadero positivo")
+fn_candidato <- extraer_conteo_matriz("Falso negativo")
+fp_candidato <- extraer_conteo_matriz("Falso positivo")
+vn_candidato <- extraer_conteo_matriz("Verdadero negativo")
+
+costo_observado <- resumen_costos |>
+  dplyr::filter(tipo_costo == "costo_total_positivo_utilizacion") |>
+  dplyr::slice_head(n = 1)
+
+modelo_costo_recomendado <- modelos_costo |>
+  dplyr::filter(ajustado == TRUE, rmse_valido == TRUE) |>
+  dplyr::arrange(rmse) |>
+  dplyr::slice_head(n = 1) |>
+  dplyr::pull(modelo)
+
+if (length(modelo_costo_recomendado) == 0) {
+  modelo_costo_recomendado <- "Modelo de costo disponible"
+}
+
+extraer_numero_particion <- function(tabla, grupo) {
+  if (!all(c("elemento", "valor") %in% names(tabla))) {
+    return(NA_real_)
+  }
+
+  claves <- stringr::str_to_lower(as.character(tabla$elemento))
+  valores <- as.character(tabla$valor)
+  patron_grupo <- if (grupo == "entrenamiento") "entren|train" else "prueba|test"
+
+  candidatos <- tibble::tibble(clave = claves, valor = valores) |>
+    dplyr::filter(stringr::str_detect(clave, patron_grupo))
+
+  if (nrow(candidatos) == 0) {
+    return(NA_real_)
+  }
+
+  candidatos_preferidos <- candidatos |>
+    dplyr::filter(
+      stringr::str_detect(clave, "n_|n |beneficiarios|filas|observaciones|casos|registros|muestra") &
+        !stringr::str_detect(clave, "porc|pct|propor|ratio|tasa")
+    )
+
+  if (nrow(candidatos_preferidos) == 0) {
+    return(NA_real_)
+  }
+
+  salida <- readr::parse_number(
+    candidatos_preferidos$valor[1],
+    locale = readr::locale(grouping_mark = ",", decimal_mark = ".")
+  )
+
+  ifelse(is.na(salida), NA_real_, as.numeric(salida))
+}
+
+n_entrenamiento <- extraer_numero_particion(control_particion, "entrenamiento")
+n_prueba <- extraer_numero_particion(control_particion, "prueba")
+
+if (!is.finite(n_prueba) && nrow(predicciones_test) > 0) {
+  n_prueba <- nrow(predicciones_test)
+}
+
+if (!is.finite(n_entrenamiento) && is.finite(n_prueba) && is.finite(beneficiarios)) {
+  n_entrenamiento <- beneficiarios - n_prueba
+}
+
+total_particion <- n_entrenamiento + n_prueba
+
+if (is.finite(total_particion) && total_particion > 0) {
+  pct_entrenamiento <- n_entrenamiento / total_particion
+  pct_prueba <- n_prueba / total_particion
+
+  descripcion_particion <- paste0(
+    "En términos de partición, el subconjunto de entrenamiento contiene ",
+    fmt_entero(n_entrenamiento), " beneficiarios (",
+    fmt_pct(pct_entrenamiento, digits = 2), "), mientras que el subconjunto de prueba conserva ",
+    fmt_entero(n_prueba), " beneficiarios (",
+    fmt_pct(pct_prueba, digits = 2), ")."
+  )
+} else {
+  pct_entrenamiento <- NA_real_
+  pct_prueba <- NA_real_
+  descripcion_particion <- "La separación entre entrenamiento y prueba se presenta en la tabla anterior."
+}
+
+tabla_resumen_ejecutivo <- tibble::tibble(
+  Indicador = c(
+    "Beneficiarios analizados",
+    "Beneficiarios con CID N20",
+    "Prevalencia N20",
+    "Utilizaciones aproximadas",
+    "Procedimientos distintos",
+    "Modelo candidato",
+    "PR-AUC del candidato",
+    "Sensibilidad del candidato",
+    "Precisión del candidato",
+    "F1-score del candidato",
+    "Utilizaciones N20 para costos",
+    "Costo promedio observado N20"
+  ),
+  Valor = c(
+    fmt_entero(beneficiarios),
+    fmt_entero(beneficiarios_n20),
+    fmt_pct(prevalencia_pct, digits = 4, escala_01 = FALSE),
+    fmt_entero(utilizaciones_aprox),
+    fmt_entero(procedimientos_distintos),
+    modelo_candidato,
+    fmt_num(pr_auc_final, 4),
+    fmt_pct(sensibilidad_final, 2),
+    fmt_pct(precision_final, 2),
+    fmt_pct(f1_final, 2),
+    fmt_entero(costo_observado$n[1]),
+    fmt_num(costo_observado$promedio[1], 2)
+  )
+)
+
+tabla_glosario_metodologico <- tibble::tribble(
+  ~Concepto, ~Definición,
+  "Variable objetivo", "Etiqueta final que clasifica a cada beneficiario como Con N20 o Sin N20.",
+  "Clase positiva", "Beneficiarios con al menos un diagnóstico compatible con CID N20.",
+  "Clase negativa", "Beneficiarios sin registros diagnósticos asociados a CID N20.",
+  "Entrenamiento", "Subconjunto usado para ajustar los modelos y aprender patrones de los datos.",
+  "Prueba", "Subconjunto reservado para evaluar el desempeño con beneficiarios no usados en el ajuste.",
+  "Umbral de clasificación", "Punto de corte que transforma una probabilidad estimada en clase Con N20 o Sin N20.",
+  "Exactitud (accuracy)", "Proporción total de clasificaciones correctas; en eventos raros puede verse alta aunque se detecten pocos positivos.",
+  "Sensibilidad", "Proporción de positivos reales que el modelo logra detectar.",
+  "Especificidad", "Proporción de negativos reales clasificados correctamente.",
+  "Precisión", "Proporción de alertas positivas que realmente corresponden a beneficiarios Con N20.",
+  "F1-score", "Medida que resume sensibilidad y precisión mediante su promedio armónico.",
+  "ROC AUC", "Capacidad del modelo para ordenar positivos por encima de negativos en distintos umbrales.",
+  "PR-AUC", "Área bajo la curva precisión-recall; resulta especialmente útil cuando la clase positiva es escasa.",
+  "Fuga de información", "Uso de variables que contienen directa o indirectamente la respuesta que se quiere predecir.",
+  "Evento raro", "Situación en la que la clase positiva tiene una frecuencia muy baja frente a la clase negativa."
+)
+```
+
+## 1. Introducción y objetivo
+
+Este trabajo presenta un análisis de minería de datos aplicado a una base real de utilización de servicios de salud. El objetivo es identificar beneficiarios asociados a una condición clínica definida por diagnóstico, construir variables a nivel de beneficiario, entrenar modelos de clasificación, evaluar su desempeño, interpretar los resultados y estimar el costo esperado de utilizaciones asociadas a la enfermedad seleccionada.
+
+La enfermedad seleccionada fue **cálculo renal / urinario**, identificada mediante la familia diagnóstica **CID N20**. La variable objetivo se definió a nivel de `CHAVE_FUNCIONAL`: un beneficiario se clasifica como **Con N20** cuando presenta al menos una transacción con `CID_NORM` compatible con el patrón `r patron_cid_presentacion`; en caso contrario se clasifica como **Sin N20**.
+
+<div class="callout">
+Este taller debe leerse como un ejercicio exploratorio: se evalúa el desempeño de distintos modelos de aprendizaje vistos en clase y se analiza su capacidad para reconocer patrones en los datos disponibles, sin que esto constituya una predicción clínica ni un diagnóstico real.
+</div>
+
+```{r resumen-datos}
+mostrar_tabla(
+  tabla_resumen_ejecutivo,
+  n = Inf,
+  caption = "Resumen de los datos"
+)
+```
+
+## 2. Datos, variables y granularidad
+
+La base analizada contiene registros transaccionales asociados a servicios de salud. Cada fila representa un servicio o procedimiento asociado a un beneficiario. Las variables centrales son `CHAVE_FUNCIONAL`, `DT_UTILIZACAO`, `CID`, `CD_PROCEDIMENTO`, `VALOR_UTILIZACAO`, indicadores asistenciales como `UTI` e `INTERNADO`, además de otras variables demográficas y de prestador.
+
+Es importante diferenciar `CID` y `CD_PROCEDIMENTO`. La variable `CID` corresponde al diagnóstico asociado a la utilización, mientras que `CD_PROCEDIMENTO` describe el procedimiento realizado. Por eso, la enfermedad se definió usando `CID`, y los procedimientos se dejaron como información descriptiva o explicativa.
+
+```{r granularidad}
+control_granularidad_presentacion <- control_granularidad |>
+  dplyr::select(nivel, definicion_operativa, conteo, uso_metodologico) |>
+  dplyr::rename(
+    Nivel = nivel,
+    `Definición operativa` = definicion_operativa,
+    Conteo = conteo,
+    `Uso metodológico` = uso_metodologico
+  )
+
+mostrar_tabla(
+  control_granularidad_presentacion,
+  n = Inf,
+  caption = "Niveles de granularidad usados en el análisis"
+)
+```
+
+La unidad de clasificación es el beneficiario. La unidad de costo es la utilización N20 aproximada, construida con `CHAVE_FUNCIONAL + DT_UTILIZACAO` dentro de registros con diagnóstico N20. Esta separación evita que múltiples procedimientos de una misma atención dupliquen artificialmente los conteos del modelo.
+
+## 3. Inventario metodológico y métricas de evaluación
+
+Antes de avanzar, conviene dejar claros algunos conceptos que se repiten a lo largo del informe. Esto ayuda a leer las tablas de evaluación sin perder de vista qué mide cada indicador y por qué ciertas métricas son más útiles cuando la clase positiva es poco frecuente.
+
+```{r glosario-metodologico}
+mostrar_tabla(
+  tabla_glosario_metodologico,
+  n = Inf,
+  caption = "Inventario de conceptos y métricas usados en el informe"
+)
+```
+
+## 4. Construcción de la variable objetivo
+
+La regla diagnóstica es directa: se normalizó el campo `CID` y se identificaron los registros cuyo código inicia por `N20`. Después, la información transaccional se agregó a nivel de beneficiario.
+
+```{r regla-objetivo}
+regla_objetivo <- tibble::tibble(
+  Elemento = c(
+    "Diagnóstico usado",
+    "Patrón de identificación",
+    "Unidad de clasificación",
+    "Clase positiva",
+    "Clase negativa"
+  ),
+  Definición = c(
+    "CID normalizado",
+    patron_cid_presentacion,
+    "CHAVE_FUNCIONAL",
+    "Beneficiario con al menos una transacción CID N20",
+    "Beneficiario sin transacciones CID N20"
+  )
+)
+
+mostrar_tabla(
+  regla_objetivo,
+  n = Inf,
+  caption = "Regla de construcción de la variable objetivo"
+)
+```
+
+Con esta regla se identificaron `r fmt_entero(beneficiarios_n20)` beneficiarios con N20 entre `r fmt_entero(beneficiarios)` beneficiarios analizados. La prevalencia fue `r fmt_pct(prevalencia_pct, digits = 4, escala_01 = FALSE)`, lo que confirma que se trata de un evento raro dentro de la base.
+
+```{r grafico-variable-objetivo}
+distribucion_objetivo <- tibble::tibble(
+  clase = c("Sin N20", "Con N20"),
+  n = c(beneficiarios - beneficiarios_n20, beneficiarios_n20)
+) |>
+  dplyr::mutate(
+    pct = 100 * n / sum(n),
+    clase = factor(clase, levels = c("Sin N20", "Con N20"))
+  )
+
+ggplot2::ggplot(distribucion_objetivo, ggplot2::aes(x = clase, y = n)) +
+  ggplot2::geom_col() +
+  ggplot2::geom_text(
+    ggplot2::aes(label = paste0(scales::comma(n), "\n", round(pct, 4), "%")),
+    vjust = -0.25,
+    size = 4
+  ) +
+  ggplot2::scale_y_continuous(labels = scales::comma) +
+  ggplot2::labs(
+    title = "Distribución de la variable objetivo",
+    x = "Clase",
+    y = "Beneficiarios"
+  ) +
+  ggplot2::theme_minimal()
+```
+
+La gráfica evidencia que la clase positiva representa una fracción muy pequeña de los beneficiarios; por tanto, está mucho menos representada que la clase negativa. Por esta razón, la evaluación del modelo no debe basarse únicamente en la exactitud (accuracy).
+
+## 5. Preparación y calidad de datos
+
+La preparación de datos incluyó la normalización de texto, la conversión de fechas, la conversión de costos, el tratamiento de categorías no informadas, la revisión de fechas inválidas, la identificación de costos cero o negativos y la verificación de que la tabla de modelamiento no incorporara variables diagnósticas directas. Esta última revisión fue necesaria porque algunas de estas variables dependen directamente de la variable respuesta, mientras que otras pueden ser redundantes con ella. Si se incluyeran como predictores, el modelo podría aprender mecánicamente la regla de clasificación, causando fuga de información y una inflación artificial de su desempeño que no correspondería a una capacidad predictiva real.
+
+```{r calidad-datos}
+control_calidad_presentacion <- control_calidad |>
+  dplyr::select(dimension, control, valor, decision) |>
+  dplyr::rename(
+    Dimensión = dimension,
+    Control = control,
+    Valor = valor,
+    Decisión = decision
+  )
+
+mostrar_tabla(
+  control_calidad_presentacion,
+  n = Inf,
+  caption = "Controles de calidad y decisiones de preparación"
+)
+```
+
+Los valores de `CID_NORM` no informados no se imputaron. Se trataron como ausencia de diagnóstico utilizable para esta enfermedad. Las fechas de nacimiento incompatibles se marcaron como inválidas para el cálculo de edad. Los costos cero o negativos se conservaron como señales reales de la base, ya que pueden corresponder a registros sin costo positivo, ajustes u otro evento contable válido.
+
+## 6. Análisis descriptivo
+
+El análisis descriptivo caracteriza la base general, los beneficiarios y la enfermedad seleccionada. Incluye beneficiarios, utilizaciones aproximadas, procedimientos distintos, distribución de la etiqueta y distribución por variables demográficas, asistenciales y de prestador.
+
+```{r resumen-descriptivo}
+resumen_descriptivo_presentacion <- resumen_descriptivo |>
+  dplyr::mutate(
+    indicador = dplyr::recode(
+      indicador,
+      beneficiarios = "Beneficiarios",
+      positivos_n20 = "Beneficiarios con N20",
+      prevalencia_pct = "Prevalencia N20 (%)",
+      registros_base = "Registros transaccionales",
+      utilizaciones_aprox = "Utilizaciones aproximadas",
+      procedimientos_distintos = "Procedimientos distintos",
+      costo_total_general = "Costo total general",
+      costo_mediano_general = "Costo mediano general"
+    )
+  ) |>
+  dplyr::rename(Indicador = indicador, Valor = valor)
+
+mostrar_tabla(
+  resumen_descriptivo_presentacion,
+  n = Inf,
+  caption = "Resumen descriptivo general"
+)
+```
+
+### 6.1 Distribución por sexo, edad, tipo de beneficiario, estado y especialidad
+
+```{r tablas-descriptivas}
+mostrar_tabla(
+  tabla_sexo |> dplyr::rename(Sexo = sexo_dominante, Clase = tiene_calculo_renal_factor, n = n, `%` = pct),
+  n = Inf,
+  caption = "Distribución por sexo y etiqueta N20"
+)
+
+mostrar_tabla(
+  tabla_edad |> dplyr::rename(`Grupo de edad` = grupo_edad, Clase = tiene_calculo_renal_factor, n = n, `%` = pct),
+  n = Inf,
+  caption = "Distribución por edad y etiqueta N20"
+)
+
+mostrar_tabla(
+  tabla_tipo |> dplyr::rename(`Tipo de beneficiario` = tipo_beneficiario_dominante, Clase = tiene_calculo_renal_factor, n = n, `%` = pct),
+  n = Inf,
+  caption = "Distribución por tipo de beneficiario y etiqueta N20"
+)
+
+mostrar_tabla(
+  tabla_estado |> dplyr::rename(Estado = estado_prestador_dominante, Clase = tiene_calculo_renal_factor, n = n, `%` = pct),
+  n = 20,
+  caption = "Distribución por estado del prestador y etiqueta N20"
+)
+
+mostrar_tabla(
+  tabla_especialidad |> dplyr::rename(Especialidad = especialidad_dominante, Clase = tiene_calculo_renal_factor, n = n, `%` = pct),
+  n = 20,
+  caption = "Distribución por especialidad dominante y etiqueta N20"
+)
+```
+
+```{r grafico-prevalencias}
+preparar_prevalencia <- function(tabla, variable, nombre_variable, max_n = 8) {
+  tabla |>
+    dplyr::filter(tiene_calculo_renal_factor == "Con N20") |>
+    dplyr::mutate(
+      variable = nombre_variable,
+      grupo = as.character(.data[[variable]]),
+      prevalencia_pct = as.numeric(pct)
+    ) |>
+    dplyr::arrange(variable, dplyr::desc(prevalencia_pct)) |>
+    dplyr::group_by(variable) |>
+    dplyr::slice_head(n = max_n) |>
+    dplyr::ungroup() |>
+    dplyr::select(variable, grupo, prevalencia_pct)
+}
+
+prevalencias_grafico <- dplyr::bind_rows(
+  preparar_prevalencia(tabla_sexo, "sexo_dominante", "Sexo", max_n = 5),
+  preparar_prevalencia(tabla_edad, "grupo_edad", "Edad", max_n = 8),
+  preparar_prevalencia(tabla_tipo, "tipo_beneficiario_dominante", "Tipo de beneficiario", max_n = 6),
+  preparar_prevalencia(tabla_estado, "estado_prestador_dominante", "Estado", max_n = 8),
+  preparar_prevalencia(tabla_especialidad, "especialidad_dominante", "Especialidad", max_n = 8)
+) |>
+  dplyr::mutate(
+    etiqueta = paste(variable, grupo, sep = " - "),
+    etiqueta = factor(etiqueta, levels = etiqueta[order(prevalencia_pct)])
+  )
+
+ggplot2::ggplot(prevalencias_grafico, ggplot2::aes(x = etiqueta, y = prevalencia_pct)) +
+  ggplot2::geom_col() +
+  ggplot2::coord_flip() +
+  ggplot2::labs(
+    title = "Prevalencia descriptiva de N20 por grupos seleccionados",
+    x = "Grupo",
+    y = "Prevalencia N20 (%)"
+  ) +
+  ggplot2::theme_minimal()
+```
+
+Las diferencias por sexo, edad, tipo de beneficiario, estado o especialidad son descriptivas. No buscan probar causalidad; sirven para identificar patrones de registro, uso de servicios y concentración de atenciones relacionadas con N20.
+
+## 7. Construcción de variables predictoras
+
+La tabla de modelamiento se construyó con una fila por beneficiario. Las variables predictoras se agregaron desde la información transaccional para representar perfil demográfico, uso del servicio, complejidad asistencial, costos y contexto de atención.
+
+```{r variables-predictoras}
+bloques_predictores <- tibble::tribble(
+  ~Bloque, ~Variables, ~Justificación,
+  "Demografía", "Edad, sexo dominante y tipo de beneficiario", "Caracterizan el perfil general del beneficiario.",
+  "Uso del servicio", "Número de registros, utilizaciones aproximadas, procedimientos y especialidades distintas", "Miden intensidad y diversidad de uso del sistema.",
+  "Complejidad asistencial", "Internación, UTI y porte anestésico", "Capturan señales de atención de mayor complejidad.",
+  "Costos generales", "Costo total, promedio, mediana, máximo, desviación, winsorización y transformaciones log1p", "Resumen la intensidad económica observada sin usar directamente la etiqueta diagnóstica.",
+  "Prestador y atención", "Especialidad dominante, estado del prestador, tipo de unidad y tipo de utilización", "Describen el contexto donde ocurre la atención."
+)
+
+mostrar_tabla(
+  bloques_predictores,
+  n = Inf,
+  caption = "Bloques de variables predictoras a nivel beneficiario"
+)
+```
+
+Por la misma razón, se excluyeron variables diagnósticas directas o derivadas de N20 para evitar fuga de información. En particular, el diagnóstico utilizado para definir la etiqueta no se incorporó como predictor del modelo.
+
+## 8. Modelamiento predictivo
+
+Se usó una partición estratificada en entrenamiento y prueba para preservar la proporción de casos N20. El preprocesamiento incluyó tratamiento de categorías nuevas, categorías no informadas, agrupación de categorías raras, imputación y eliminación de predictores sin variabilidad. `CHAVE_FUNCIONAL` se conservó como identificador de la unidad de análisis, pero no se usó como predictor del riesgo, porque incluir un identificador individual podría producir sobreajuste y dificultades al evaluar beneficiarios nuevos.
+
+```{r particion}
+control_particion_presentacion <- control_particion |>
+  dplyr::rename(Elemento = elemento, Valor = valor)
+
+mostrar_tabla(
+  control_particion_presentacion,
+  n = Inf,
+  caption = "Partición y preprocesamiento"
+)
+```
+
+`r descripcion_particion`
+
+Se entrenaron tres modelos de clasificación:
+
+- **Regresión logística**, como modelo base para respuesta binaria.
+- **Árbol de decisión**, como clasificador interpretable no lineal.
+- **Random forest**, como ensamble adecuado para datos tabulares con múltiples predictores.
+
+La métrica principal fue **PR-AUC**, dado que N20 es un evento raro. También se reportan exactitud (accuracy), sensibilidad, especificidad, precisión y F1-score. La exactitud se conserva como referencia, pero no se usa como criterio central porque puede ser alta aun cuando el modelo detecte pocos positivos.
+
+## 9. Evaluación y comparación de modelos
+
+```{r tabla-comparacion-modelos}
+tabla_metricas_presentacion <- metricas_modelos |>
+  dplyr::transmute(
+    Modelo = modelo,
+    Umbral = umbral,
+    `ROC AUC` = roc_auc,
+    `PR AUC` = pr_auc,
+    `Exactitud (accuracy)` = accuracy,
+    Sensibilidad = sens,
+    Especificidad = spec,
+    Precisión = precision,
+    `F1-score` = f_meas
+  )
+
+mostrar_tabla(
+  tabla_metricas_presentacion,
+  n = Inf,
+  caption = "Comparación de modelos en conjunto de prueba",
+  digits = 4
+)
+```
+
+```{r grafico-comparacion-modelos}
+orden_modelos <- metricas_modelos |>
+  dplyr::arrange(pr_auc, f_meas) |>
+  dplyr::pull(modelo)
+
+metricas_modelos |>
+  dplyr::select(modelo, pr_auc, sens, precision, f_meas) |>
+  tidyr::pivot_longer(
+    cols = c(pr_auc, sens, precision, f_meas),
+    names_to = "metrica",
+    values_to = "valor"
+  ) |>
+  dplyr::mutate(
+    metrica = dplyr::recode(
+      metrica,
+      pr_auc = "PR-AUC",
+      sens = "Sensibilidad",
+      precision = "Precisión",
+      f_meas = "F1-score"
+    ),
+    modelo = factor(modelo, levels = unique(orden_modelos))
+  ) |>
+  ggplot2::ggplot(ggplot2::aes(x = modelo, y = valor, fill = metrica)) +
+  ggplot2::geom_col(position = "dodge") +
+  ggplot2::coord_flip() +
+  ggplot2::scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  ggplot2::labs(
+    title = "Comparación de modelos en métricas relevantes para evento raro",
+    x = "Modelo",
+    y = "Valor",
+    fill = "Métrica"
+  ) +
+  ggplot2::theme_minimal()
+```
+
+La comparación se hizo sobre el mismo conjunto de prueba y los tres modelos entregan métricas finitas. El modelo candidato fue **`r modelo_candidato`**, dado que alcanzó el mayor PR-AUC (`r fmt_num(pr_auc_final, 4)`) y el mayor F1-score (`r fmt_pct(f1_final, 2)`). Además, obtuvo una precisión de `r fmt_pct(precision_final, 2)`, lo que indica que una proporción alta de sus alertas positivas corresponde a beneficiarios realmente observados con N20.
+
+La lectura comparativa es importante: el **árbol de decisión** aumenta la sensibilidad frente al random forest (`r fmt_pct(metricas_arbol$sens[1], 2)` frente a `r fmt_pct(metricas_rf$sens[1], 2)`), pero lo hace con menor precisión (`r fmt_pct(metricas_arbol$precision[1], 2)` frente a `r fmt_pct(metricas_rf$precision[1], 2)`). La **regresión logística** conserva un ROC AUC alto (`r fmt_num(metricas_logistica$roc_auc[1], 4)`), pero su PR-AUC (`r fmt_num(metricas_logistica$pr_auc[1], 4)`) y F1-score (`r fmt_pct(metricas_logistica$f_meas[1], 2)`) son menores. Este contraste confirma por qué, ante un evento raro, ROC AUC puede verse optimista y por qué PR-AUC, precisión, sensibilidad y F1-score resultan más útiles para decidir.
+
+### 9.1 Matriz de confusión y análisis de errores
+
+```{r matriz-confusion-tabla}
+matriz_confusion_presentacion <- matriz_confusion |>
+  dplyr::rename(
+    `Clase real` = verdad,
+    `Clase predicha` = pred_clase,
+    Beneficiarios = n,
+    Resultado = tipo_resultado
+  )
+
+mostrar_tabla(
+  matriz_confusion_presentacion,
+  n = Inf,
+  caption = "Matriz de confusión del modelo candidato"
+)
+```
+
+```{r grafico-matriz-confusion}
+matriz_confusion |>
+  ggplot2::ggplot(ggplot2::aes(x = pred_clase, y = verdad, fill = n)) +
+  ggplot2::geom_tile() +
+  ggplot2::geom_text(ggplot2::aes(label = scales::comma(n)), size = 5) +
+  ggplot2::labs(
+    title = "Matriz de confusión del modelo candidato",
+    x = "Clase predicha",
+    y = "Clase real",
+    fill = "Beneficiarios"
+  ) +
+  ggplot2::theme_minimal()
+```
+
+Bajo el umbral operativo seleccionado, el modelo candidato genera pocas alertas positivas y mantiene una precisión alta: detecta `r fmt_entero(vp_candidato)` verdaderos positivos y produce `r fmt_entero(fp_candidato)` falsos positivos. El error más delicado es el falso negativo: `r fmt_entero(fn_candidato)` beneficiarios con N20 quedaron clasificados como Sin N20. Por este motivo, el modelo se entiende mejor como herramienta de priorización con alta confiabilidad de alerta que como mecanismo exhaustivo de detección.
+
+### 9.2 Discusión del umbral
+
+```{r tabla-umbral}
+tabla_umbral_presentacion <- metricas_umbral |>
+  dplyr::select(
+    tipo_umbral, umbral, sens, precision, f_meas,
+    verdaderos_positivos, falsos_negativos, falsos_positivos, verdaderos_negativos, alertas_positivas
+  ) |>
+  dplyr::rename(
+    `Tipo de umbral` = tipo_umbral,
+    Umbral = umbral,
+    Sensibilidad = sens,
+    Precisión = precision,
+    `F1-score` = f_meas,
+    VP = verdaderos_positivos,
+    FN = falsos_negativos,
+    FP = falsos_positivos,
+    VN = verdaderos_negativos,
+    Alertas = alertas_positivas
+  )
+
+mostrar_tabla(
+  tabla_umbral_presentacion,
+  n = Inf,
+  caption = "Métricas del candidato bajo distintos umbrales",
+  digits = 4
+)
+```
+
+```{r grafico-umbral}
+metricas_umbral |>
+  dplyr::select(tipo_umbral, umbral, sens, precision, f_meas) |>
+  tidyr::pivot_longer(
+    cols = c(sens, precision, f_meas),
+    names_to = "metrica",
+    values_to = "valor"
+  ) |>
+  dplyr::mutate(
+    metrica = dplyr::recode(
+      metrica,
+      sens = "Sensibilidad",
+      precision = "Precisión",
+      f_meas = "F1-score"
+    )
+  ) |>
+  ggplot2::ggplot(ggplot2::aes(x = umbral, y = valor, linetype = metrica)) +
+  ggplot2::geom_line() +
+  ggplot2::geom_point(size = 2) +
+  ggplot2::scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  ggplot2::scale_x_continuous(labels = scales::number_format(accuracy = 0.01)) +
+  ggplot2::labs(
+    title = "Sensibilidad, precisión y F1-score por umbral",
+    x = "Umbral",
+    y = "Valor",
+    linetype = "Métrica"
+  ) +
+  ggplot2::theme_minimal()
+```
+
+El umbral resume un intercambio operativo. Con umbrales bajos, el modelo recupera más casos reales, pero genera más alertas para revisar. Con umbrales altos, las alertas son más confiables, pero se pierden más positivos reales. El umbral elegido privilegia la precisión y el control del volumen de alertas: produce `r fmt_entero(vp_candidato + fp_candidato)` alertas positivas, de las cuales `r fmt_entero(vp_candidato)` son verdaderos positivos. Si el objetivo operativo fuera capturar más casos N20, el umbral debería bajarse, aceptando una mayor carga de revisión.
+
+## 10. Interpretación de resultados
+
+```{r importancia-tabla}
+importancia_presentacion <- importancia_variables |>
+  dplyr::slice_head(n = 15) |>
+  dplyr::transmute(
+    Variable = variable,
+    Importancia = importancia,
+    `Importancia relativa` = importancia_relativa,
+    Grupo = grupo_interpretativo
+  )
+
+mostrar_tabla(
+  importancia_presentacion,
+  n = Inf,
+  caption = "Variables más importantes del modelo candidato",
+  digits = 4
+)
+```
+
+```{r grafico-importancia}
+datos_importancia <- importancia_variables |>
+  dplyr::slice_head(n = 20) |>
+  dplyr::mutate(
+    importancia = suppressWarnings(as.numeric(importancia))
+  ) |>
+  dplyr::filter(is.finite(importancia)) |>
+  dplyr::arrange(importancia) |>
+  dplyr::mutate(variable = factor(variable, levels = variable))
+
+ggplot2::ggplot(datos_importancia, ggplot2::aes(x = variable, y = importancia)) +
+  ggplot2::geom_col() +
+  ggplot2::coord_flip() +
+  ggplot2::labs(
+    title = "Variables más importantes del modelo candidato",
+    x = "Variable",
+    y = "Importancia"
+  ) +
+  ggplot2::theme_minimal()
+```
+
+Las variables más importantes se concentran en tres familias: complejidad asistencial, intensidad económica y trayectoria de uso del sistema. En particular, aparecen porte anestésico, costos máximos o transformados, internación y dispersión de costos. Esta estructura es coherente con una enfermedad que puede estar asociada a episodios de atención concentrados, procedimientos diagnósticos o terapéuticos y mayor complejidad relativa. Sin embargo, la importancia de las variables no prueba causalidad clínica: varias señales pueden ocurrir durante o después de la atención en la que se registra el diagnóstico N20.
+
+```{r sesgos}
+discusion_sesgos_presentacion <- discusion_sesgos |>
+  dplyr::rename(
+    Tema = tema,
+    Discusión = discusion,
+    Impacto = impacto_en_informe
+  )
+
+mostrar_tabla(
+  discusion_sesgos_presentacion,
+  n = Inf,
+  caption = "Sesgos y limitaciones interpretativas"
+)
+```
+
+La regresión logística funciona como referencia lineal, pero en este problema queda por debajo en PR-AUC y F1-score. El árbol ofrece una lectura más interpretable y mejora la sensibilidad, aunque sacrifica precisión. El random forest resume mejor el balance entre ranking de riesgo, precisión y F1-score; por eso la interpretación principal se apoya en su importancia de variables y en el análisis de errores.
+
+## 11. Estimación del costo asociado a N20
+
+La unidad de costo fue la utilización N20 aproximada: `CHAVE_FUNCIONAL + DT_UTILIZACAO` dentro de registros con diagnóstico N20. Esta unidad permite estimar el costo esperado de una atención asociada a la enfermedad, sin confundirla con la unidad del modelo predictivo, que es el beneficiario.
+
+```{r resumen-costos}
+resumen_costos_presentacion <- resumen_costos |>
+  dplyr::mutate(
+    tipo_costo = dplyr::recode(
+      tipo_costo,
+      costo_total_observado_utilizacion = "Costo observado por utilización N20",
+      costo_total_positivo_utilizacion = "Costo usado para estimación de costos"
+    )
+  ) |>
+  dplyr::rename(
+    `Tipo de costo` = tipo_costo,
+    n = n,
+    Total = total,
+    Promedio = promedio,
+    Mediana = mediana,
+    `Desviación` = desviacion,
+    Mínimo = minimo,
+    P25 = p25,
+    P75 = p75,
+    P90 = p90,
+    P95 = p95,
+    P99 = p99,
+    Máximo = maximo
+  )
+
+mostrar_tabla(
+  resumen_costos_presentacion,
+  n = Inf,
+  caption = "Resumen de costos observados asociados a utilizaciones N20",
+  digits = 2
+)
+```
+
+La fila de costo usada para estimación conserva la unidad y los registros definidos para el componente de costos; por eso puede incluir valores cero cuando estos aparecen como registros válidos o controles contables de la base.
+
+```{r grafico-costos}
+utilizaciones_costos |>
+  dplyr::filter(is.finite(costo_total_positivo_utilizacion), costo_total_positivo_utilizacion >= 0) |>
+  ggplot2::ggplot(ggplot2::aes(x = log1p(costo_total_positivo_utilizacion))) +
+  ggplot2::geom_histogram(bins = 40) +
+  ggplot2::labs(
+    title = "Distribución de costos observados N20",
+    x = "log1p(costo observado de la utilización)",
+    y = "Número de utilizaciones"
+  ) +
+  ggplot2::theme_minimal()
+```
+
+Los costos presentan asimetría: el promedio queda por encima de la mediana y los percentiles altos muestran una cola derecha relevante. Por esa razón, el costo de N20 no debe resumirse solo con una media global; la mediana, el P90/P95 y los perfiles permiten una lectura más realista para planeación y priorización.
+
+```{r modelos-costo}
+modelos_costo_presentacion <- modelos_costo |>
+  dplyr::rename(
+    Modelo = modelo,
+    Ajustado = ajustado,
+    MAE = mae,
+    RMSE = rmse,
+    Sesgo = sesgo_promedio,
+    Correlación = correlacion
+  ) |>
+  dplyr::select(Modelo, Ajustado, MAE, RMSE, Sesgo, Correlación)
+
+mostrar_tabla(
+  modelos_costo_presentacion,
+  n = Inf,
+  caption = "Comparación de estrategias para costo esperado",
+  digits = 3
+)
+```
+
+### 11.1 Costo esperado por perfiles
+
+```{r perfiles-costo-tabla}
+perfiles_resumen <- perfiles_costo |>
+  dplyr::transmute(
+    Perfil = perfil,
+    Edad = edad_modelo,
+    Sexo = sexo_modelo,
+    `Tipo de beneficiario` = tipo_beneficiario_modelo,
+    UTI = uti_modelo,
+    Internación = internacion_modelo,
+    Estado = estado_modelo,
+    `Utilizaciones de referencia` = n_utilizaciones_referencia,
+    `Mediana observada` = costo_observado_mediano_referencia,
+    `Promedio observado` = costo_observado_promedio_referencia,
+    `Costo esperado` = costo_esperado_recomendado,
+    Modelo = modelo_recomendado
+  )
+
+mostrar_tabla(
+  perfiles_resumen,
+  n = Inf,
+  caption = "Costo observado y esperado por perfiles N20",
+  digits = 2
+)
+```
+
+```{r grafico-perfiles-costo}
+datos_perfiles <- perfiles_costo |>
+  dplyr::select(
+    perfil,
+    costo_observado_mediano_referencia,
+    costo_observado_promedio_referencia,
+    costo_esperado_recomendado
+  ) |>
+  tidyr::pivot_longer(
+    cols = -perfil,
+    names_to = "tipo_valor",
+    values_to = "costo"
+  ) |>
+  dplyr::filter(is.finite(costo)) |>
+  dplyr::mutate(
+    tipo_valor = dplyr::recode(
+      tipo_valor,
+      costo_observado_mediano_referencia = "Mediana observada",
+      costo_observado_promedio_referencia = "Promedio observado",
+      costo_esperado_recomendado = "Costo esperado"
+    )
+  )
+
+orden_perfiles <- datos_perfiles |>
+  dplyr::group_by(perfil) |>
+  dplyr::summarise(costo_orden = max(costo, na.rm = TRUE), .groups = "drop") |>
+  dplyr::arrange(costo_orden) |>
+  dplyr::pull(perfil)
+
+datos_perfiles |>
+  dplyr::mutate(perfil = factor(perfil, levels = orden_perfiles)) |>
+  ggplot2::ggplot(ggplot2::aes(x = perfil, y = costo, fill = tipo_valor)) +
+  ggplot2::geom_col(position = "dodge") +
+  ggplot2::coord_flip() +
+  ggplot2::scale_y_continuous(labels = scales::comma) +
+  ggplot2::labs(
+    title = "Costo observado y esperado por perfiles N20",
+    x = "Perfil",
+    y = "Costo",
+    fill = "Valor"
+  ) +
+  ggplot2::theme_minimal()
+```
+
+```{r limitaciones-costo}
+limitaciones_costo_presentacion <- limitaciones_costo |>
+  dplyr::rename(
+    Tema = tema,
+    Limitación = limitacion
+  )
+
+mostrar_tabla(
+  limitaciones_costo_presentacion,
+  n = Inf,
+  caption = "Limitaciones del análisis de costos"
+)
+```
+
+La estimación de costo esperado se apoya en las características disponibles: edad, sexo, tipo de beneficiario, UTI, internación, especialidad, unidad hospitalaria, estado, procedimiento y complejidad de la utilización.
+
+## 12. Conclusiones, limitaciones y trabajos futuros
+
+El análisis permitió identificar beneficiarios asociados a cálculo renal / urinario mediante la familia diagnóstica CID N20. La etiqueta se construyó a nivel de beneficiario y no a nivel de procedimiento, para evitar duplicar casos por múltiples registros de una misma atención.
+
+La enfermedad seleccionada tuvo una prevalencia de `r fmt_pct(prevalencia_pct, digits = 4, escala_01 = FALSE)`. Esta baja frecuencia condiciona la evaluación: la exactitud (accuracy) no debe interpretarse como métrica principal. En su lugar, PR-AUC, sensibilidad, precisión y F1-score ofrecen una lectura más útil para la clase minoritaria.
+
+El modelo candidato fue **`r modelo_candidato`**. Frente al árbol y a la regresión logística, ofrece el mejor balance global para un evento raro: mayor PR-AUC, mayor F1-score y mayor precisión. Su desempeño sugiere utilidad como herramienta de priorización: las alertas positivas son relativamente confiables, pero la sensibilidad indica que todavía quedan casos reales sin detectar. Por tanto, el modelo no reemplaza la validación clínica ni administrativa.
+
+Las variables más relacionadas con la predicción fueron variables de costo, intensidad de uso, internación, UTI, porte anestésico y trayectoria asistencial. Estas asociaciones deben interpretarse como señales predictivas, no como causas clínicas directas.
+
+En costos, se analizaron `r fmt_entero(costo_observado$n[1])` utilizaciones N20 con costo observado disponible. El costo promedio fue `r fmt_num(costo_observado$promedio[1], 2)` y la mediana fue `r fmt_num(costo_observado$mediana[1], 2)`. La diferencia entre promedio, mediana y percentiles confirma que los costos son asimétricos y que los valores extremos deben revisarse detalladamente.
+
+Las principales limitaciones identificadas son:
+
+- La base registra utilización de servicios, pero no prevalencia clínica completa.
+- La enfermedad solo se observa cuando existe un diagnóstico CID N20 registrado.
+- Pueden existir errores de codificación, categorías no informadas y diferencias en calidad de registro.
+- Algunas variables predictoras pueden ocurrir durante o después de la atención asociada al diagnóstico.
+- El fuerte desbalance entre las categorías limita la sensibilidad del modelo.
+- La estimación de costos depende de `VALOR_UTILIZACAO` y de la aproximación de utilización mediante beneficiario y fecha, lo que impone una simplificación metodológica.
+
+Para trabajos futuros se recomienda validar el modelo en otra ventana temporal, revisar clínicamente la definición CID, evaluar calibración de probabilidades, ajustar el umbral según capacidad operativa, explorar modelos penalizados y complementar la importancia global con explicaciones locales para casos seleccionados.

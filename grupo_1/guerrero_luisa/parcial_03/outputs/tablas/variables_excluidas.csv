@@ -1,0 +1,4 @@
+﻿variable,tipo,porcentaje_faltantes,valores_unicos,proporcion_categoria_dominante,decision,motivo
+numero_dias_atencion,int64,0.0,96,0.40045974022000214,excluir,duplicada de numero_utilizaciones
+tuvo_uti,int64,0.0,2,0.9962593516209476,excluir,casi constante (dominancia >= 99%)
+porte_anestesico_mas_frecuente,float64,12.034522589232441,8,0.9944997010707104,excluir,casi constante (dominancia >= 99%)

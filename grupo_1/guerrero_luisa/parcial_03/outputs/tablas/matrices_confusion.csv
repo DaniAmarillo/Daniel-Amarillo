@@ -1,0 +1,17 @@
+﻿modelo,real,predicho,n
+modelo_regresion_logistica,0,0,124589
+modelo_regresion_logistica,0,1,6011
+modelo_regresion_logistica,1,0,11
+modelo_regresion_logistica,1,1,116
+modelo_arbol_decision,0,0,125393
+modelo_arbol_decision,0,1,5207
+modelo_arbol_decision,1,0,13
+modelo_arbol_decision,1,1,114
+modelo_random_forest,0,0,128579
+modelo_random_forest,0,1,2021
+modelo_random_forest,1,0,22
+modelo_random_forest,1,1,105
+modelo_gradient_boosting,0,0,126291
+modelo_gradient_boosting,0,1,4309
+modelo_gradient_boosting,1,0,7
+modelo_gradient_boosting,1,1,120

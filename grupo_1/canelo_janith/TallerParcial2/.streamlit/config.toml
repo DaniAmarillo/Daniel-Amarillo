@@ -1,0 +1,14 @@
+# Tema base: minimalista, blanco y negro, tipografía serif (estilo LaTeX).
+[theme]
+base = "light"
+primaryColor = "#1a1a1a"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#fafafa"
+textColor = "#1a1a1a"
+font = "serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

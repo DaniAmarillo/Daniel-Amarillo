@@ -1,0 +1,120 @@
+﻿================================================================================
+PASO 1: CARGAR DATOS DEL DATASET CRUDO
+================================================================================
+[OK] Archivo cargado exitosamente
+
+[INFO] Informacion del dataset original:
+   * Filas: 9,345,278
+   * Columnas: 16
+   * Columnas: ['CID', 'UTI', 'INTERNADO', 'PORTE_ANESTESICO', 'DT_UTILIZACAO', 'DESC_ESPECIALIDADE', 'TIPO_UNIDADE_PREST_HOSPITALAR', 'UF_CNES_PREST_HOSPITALAR', 'DT_NASCIMENTO_BENEFICIARIO', 'TIPO_BENEFICIARIO', 'SEXO_BENEFICIARIO', 'CETIPO', 'CD_PROCEDIMENTO', 'DESCRICAO_PROCEDIMENTO', 'VALOR_UTILIZACAO', 'CHAVE_FUNCIONAL']
+
+================================================================================
+PASO 2: ELIMINAR REGISTROS SIN CID
+================================================================================
+[+] Filtrados CID nulos: 7824292 registros eliminados
+[+] Eliminados CID en blanco: 456440 registros eliminados
+
+[INFO] Registros despuÚs de filtrar CID: 1,064,546
+
+================================================================================
+PASO 3: ELIMINAR COLUMNAS INNECESARIAS
+================================================================================
+
+[INFO] Columnas antes: 16
+[+] Eliminada columna: 'PORTE_ANESTESICO'
+[+] Eliminada columna: 'DESC_ESPECIALIDADE'
+[INFO] Columnas despuÚs: 14
+[INFO] Columnas restantes: ['CID', 'UTI', 'INTERNADO', 'DT_UTILIZACAO', 'TIPO_UNIDADE_PREST_HOSPITALAR', 'UF_CNES_PREST_HOSPITALAR', 'DT_NASCIMENTO_BENEFICIARIO', 'TIPO_BENEFICIARIO', 'SEXO_BENEFICIARIO', 'CETIPO', 'CD_PROCEDIMENTO', 'DESCRICAO_PROCEDIMENTO', 'VALOR_UTILIZACAO', 'CHAVE_FUNCIONAL']
+
+================================================================================
+PASO 4: CONVERTIR DT_UTILIZACAO A DATETIME
+================================================================================
+[INFO] Tipo de dato antes: str
+[+] Conversi¾n exitosa
+[INFO] Tipo de dato despuÚs: datetime64[ns]
+[INFO] Rango de fechas: 2026-01-01 a 2026-09-26
+
+================================================================================
+PASO 5: RENOMBRAR ═NDICE A 'N'
+================================================================================
+[+] Indice renombrado a 'N'
+
+================================================================================
+PASO 6: FILTRAR REGISTROS CON CID K21
+================================================================================
+
+[INFO] Registros antes del filtro: 1,064,546
+[INFO] Valores unicos de CID (primeros 15):
+   ['   C50    ', '  F840    ', '  K210    ', '  N390    ', '  K403    ', '   Q90    ', '  Q900    ', '  D137    ', '   P07    ', '   F84    ', '  O829    ', '   R68    ', '   N40    ', '   G35    ', '   T21    ']
+
+[+] Filtro K21 aplicado
+[INFO] Registros despuÚs del filtro: 2,491
+[INFO] Registros eliminados: 1,062,055
+[INFO] Valores unicos de CID despuÚs del filtro:
+   ['  K210    ', 'K210      ', 'K210', 'K21', 'K219', 'K219      ', 'K21.9', 'K21. ', 'K21.0']
+
+================================================================================
+PASO 7: NORMALIZAR VALORES CID
+================================================================================
+[INFO] Valores de CID antes de normalizar:
+   ['  K210    ', 'K210      ', 'K210', 'K21', 'K219', 'K219      ', 'K21.9', 'K21. ', 'K21.0']
+[+] Aplicado: K21 y K21.0 -> K210
+
+[INFO] Valores despuÚs del primer reemplazo:
+   ['K210', 'K219', 'K21.9', 'K21.']
+
+================================================================================
+PASO 8: ELIMINAR CID INV┴LIDOS Y AJUSTES FINALES
+================================================================================
+[+] Eliminados registros con digito '9': 676 registros
+[+] Reemplazado K21.0 -> K210
+[+] Reemplazado K21. -> K210
+
+[INFO] Valores unicos de CID finales:
+   ['K210']
+
+================================================================================
+[INFO] RESUMEN FINAL DEL DATASET LIMPIO
+================================================================================
+
+[OK] ESTADO FINAL:
+   * Filas: 1,815
+   * Columnas: 14
+
+[INFO] Columnas finales:
+   1. CID (str)
+   2. UTI (int64)
+   3. INTERNADO (int64)
+   4. DT_UTILIZACAO (datetime64[ns])
+   5. TIPO_UNIDADE_PREST_HOSPITALAR (str)
+   6. UF_CNES_PREST_HOSPITALAR (str)
+   7. DT_NASCIMENTO_BENEFICIARIO (str)
+   8. TIPO_BENEFICIARIO (str)
+   9. SEXO_BENEFICIARIO (str)
+   10. CETIPO (str)
+   11. CD_PROCEDIMENTO (int64)
+   12. DESCRICAO_PROCEDIMENTO (str)
+   13. VALOR_UTILIZACAO (float64)
+   14. CHAVE_FUNCIONAL (str)
+
+[INFO] Estadisticas:
+   * Registros totales: 1,815
+   * Rango de fechas: 2026-01-01 a 2026-03-26
+   * CID unicos: 1
+   * Valores faltantes totales: 0
+
+[INFO] Distribucion CID:
+CID
+K210    1815
+
+================================================================================
+[INFO] EXPORTAR DATASET LIMPIO
+================================================================================
+[OK] Dataset exportado exitosamente
+[INFO] Ubicacion: C:\Users\hyalv\OneDrive\Documentos\dm_2016325\grupo_2\venegas_mateo\Taller_Parcial_3_()\db_2026_limpio_K21.csv
+[INFO] Tama±o: 1,815 filas x 14 columnas
+[INFO] Tama±o del archivo: 0.31 MB
+
+================================================================================
+[OK] LIMPIEZA DEL DATASET COMPLETADA EXITOSAMENTE
+================================================================================

@@ -1,0 +1,284 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+
+:root {
+  --verde:    #94B43B;
+  --verde-dk: #6a8029;
+  --bg:       #F7F8F3;
+  --card:     #FFFFFF;
+  --txt:      #1C2410;
+  --txt2:     #5A6845;
+  --borde:    #D9E4C0;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  font-family: 'DM Sans', sans-serif;
+  color: var(--txt);
+}
+
+/* ── HEADER ── */
+.header-bar {
+  background: var(--verde);
+  height: 54px;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0,0,0,.12);
+}
+.header-bar img   { height: 40px; }
+.header-title {
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: .3px;
+  flex: 1;
+}
+.header-badge {
+  background: rgba(255,255,255,.2);
+  color: #fff;
+  font-size: .72rem;
+  font-family: 'DM Mono', monospace;
+  padding: 3px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+/* ── LAYOUT ── */
+.main-wrap {
+  display: flex;
+  min-height: calc(100vh - 54px);
+}
+
+/* ── SIDEBAR ── */
+.sidebar-panel {
+  width: 270px;
+  min-width: 220px;
+  background: var(--card);
+  border-right: 1.5px solid var(--borde);
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.sidebar-section {
+  border-bottom: 1px solid var(--borde);
+  padding-bottom: 14px;
+}
+.sidebar-section:last-child { border-bottom: none; }
+.sidebar-label {
+  font-size: .68rem;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--txt2);
+  margin-bottom: 8px;
+}
+
+/* ── CONTENT ── */
+.content-panel {
+  flex: 1;
+  padding: 22px 28px;
+  overflow-x: hidden;
+}
+
+/* ── KPI CARDS ── */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.kpi-card {
+  background: var(--card);
+  border: 1.5px solid var(--borde);
+  border-radius: 10px;
+  padding: 14px 16px;
+  position: relative;
+  overflow: hidden;
+}
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--verde);
+}
+.kpi-value {
+  font-size: 1.7rem;
+  font-weight: 600;
+  color: var(--txt);
+  line-height: 1.1;
+  font-family: 'DM Mono', monospace;
+}
+.kpi-label {
+  font-size: .72rem;
+  color: var(--txt2);
+  margin-top: 4px;
+  font-weight: 500;
+}
+.kpi-icon {
+  position: absolute;
+  top: 12px; right: 12px;
+  font-size: 1.1rem;
+  opacity: .25;
+}
+
+/* ── SECTION TITLES ── */
+.section-title {
+  font-size: .8rem;
+  font-weight: 600;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  color: var(--verde-dk);
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--borde);
+}
+
+/* ── CHARTS GRID ── */
+.charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+.chart-card {
+  background: var(--card);
+  border: 1.5px solid var(--borde);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+/* ── HIGHLIGHT CARDS (top arts) ── */
+.highlight-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.highlight-card {
+  background: var(--card);
+  border: 1.5px solid var(--borde);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.highlight-tag {
+  font-size: .65rem;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  background: var(--verde);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-bottom: 6px;
+}
+.highlight-title {
+  font-size: .82rem;
+  font-weight: 500;
+  line-height: 1.4;
+  margin-bottom: 4px;
+  color: var(--txt);
+}
+.highlight-meta {
+  font-size: .72rem;
+  color: var(--txt2);
+  font-family: 'DM Mono', monospace;
+}
+
+/* ── TABLA ── */
+.table-card {
+  background: var(--card);
+  border: 1.5px solid var(--borde);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+/* ── SCRAPING PANEL ── */
+.scraping-card {
+  background: var(--card);
+  border: 1.5px solid var(--borde);
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+.scraping-desc {
+  font-size: .83rem;
+  color: var(--txt2);
+  margin-bottom: 14px;
+  line-height: 1.6;
+}
+.btn-scrape {
+  background: var(--verde) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 7px !important;
+  padding: 9px 22px !important;
+  font-weight: 600 !important;
+  font-size: .85rem !important;
+  cursor: pointer;
+  transition: background .2s;
+}
+.btn-scrape:hover { background: var(--verde-dk) !important; }
+.btn-reset {
+  background: transparent !important;
+  color: var(--txt2) !important;
+  border: 1.5px solid var(--borde) !important;
+  border-radius: 7px !important;
+  padding: 9px 18px !important;
+  font-size: .85rem !important;
+  margin-left: 8px;
+  cursor: pointer;
+}
+.scrape-result {
+  margin-top: 14px;
+  padding: 10px 14px;
+  border-radius: 7px;
+  font-size: .83rem;
+  font-weight: 500;
+}
+.scrape-ok   { background: #EDF5D6; color: #4a6e1a; border: 1px solid #c5dc8a; }
+.scrape-warn { background: #FEF3E2; color: #9a5a10; border: 1px solid #f5c878; }
+.scrape-err  { background: #FDE8E8; color: #9b2222; border: 1px solid #f3a0a0; }
+
+/* ── FORM CONTROLS ── */
+.form-control, .selectize-input {
+  border-radius: 6px !important;
+  border-color: var(--borde) !important;
+  font-size: .83rem !important;
+}
+.form-control:focus, .selectize-input.focus {
+  border-color: var(--verde) !important;
+  box-shadow: 0 0 0 3px rgba(148,180,59,.15) !important;
+}
+
+/* ── DATATABLE ── */
+table.dataTable thead th {
+  background: var(--bg);
+  font-size: .75rem;
+  font-weight: 600;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  color: var(--txt2);
+}
+table.dataTable tbody td { font-size: .8rem; }
+
+/* ── SPINNER ── */
+.shiny-busy-indicator-bar {
+  background: var(--verde) !important;
+}

@@ -1,0 +1,13 @@
+Hola, profe. Lamento entregar un día tarde, pero se me presentó un inconveniente. El sistema de extracción de artículos funcionaba correctamente de forma local, pero al ejecutarlo en la plataforma de Streamlit dejaba de encontrar resultados. Después de varias pruebas, descubrí que el sitio web que estaba consultando bloquea las solicitudes automatizadas mediante mecanismos de seguridad (Cloudflare) y, como desde Streamlit no es posible abrir una nueva pestaña para evadir la página, me bloqueaba todos los intentos que hacía con Selenium. Por lo tanto, me tocó volver a hacer el web scraping desde cero.
+
+Finalmente logré solucionarlo utilizando una fuente alternativa y más estable (Crossref), que proporciona la misma información académica necesaria para el proyecto. El tiempo adicional se debió principalmente al diagnóstico y resolución de este inconveniente externo al funcionamiento de la aplicación.
+
+A pesar de esto, el web scraping en Streamlit aún contiene un inconveniente: no es capaz de obtener las vistas (views). Este fue un problema que intenté solucionar, pero no pude. Así que el código que le entrego es el que funciona de forma local y sí realiza el web scraping completo.
+
+Por último, usé otra clasificación de las temáticas, esta vez más orientada hacia la página. El propósito de esto es que las gráficas tuvieran más sentido y forma, ya que con la clasificación pasada se veía muy pobre (solo 4 de Machine Learning y 4 de estadística, y el resto en "otros").
+
+Perdón por los inconvenientes, pero preferí entregar algo completo. Un saludo.
+
+Link del Stremalit: https://mineria-de-datos-baosxpevw5rc3inmltgf6t.streamlit.app/
+
+Posdata: Espero que no me baje la nota por entregar tarde, ya que, como usted lo mencionó en clase, se baja nota por día hábil, y el día de hoy es festivo.
