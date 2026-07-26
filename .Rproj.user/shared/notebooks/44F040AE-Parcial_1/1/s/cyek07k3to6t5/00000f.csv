@@ -1,0 +1,5 @@
+"0","dbGetQuery(con, """
+"0","  SELECT COUNT(*) AS n_estadistica"
+"0","  FROM papers"
+"0","  WHERE topic_label = 'Estadística'"
+"0",""")"
