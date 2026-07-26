@@ -1,0 +1,631 @@
+---
+title: "Taller 09: Distribuciones de frecuencia y análisis exploratorio"
+subtitle: "Minería de Datos (2016325)
+author: "Juan José Gómez García"
+date: "`r format(Sys.Date(), '%d de %B de %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: show
+    theme: flatly
+    df_print: kable
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, warning = FALSE, message = FALSE,
+  fig.align = "center", fig.width = 9, fig.height = 5, dpi = 110
+)
+library(tidyverse)
+library(knitr)
+theme_set(theme_minimal(base_size = 13))
+```
+
+# Descripción del dataset
+
+El conjunto de datos se genera con la semilla fijada en el enunciado, de modo que todos
+los resultados reportados son reproducibles.
+
+```{r datos}
+set.seed(2025)
+n <- 400
+
+estudiantes <- tibble(
+  id         = 1:n,
+  programa   = sample(c("Estadística", "Sistemas", "Economía", "Matemáticas"), n,
+                      replace = TRUE, prob = c(.3, .3, .25, .15)),
+  semestre   = sample(1:10, n, replace = TRUE),
+  sexo       = sample(c("Mujer", "Hombre"), n, replace = TRUE),
+  nota_final = round(rnorm(n, mean = 3.5, sd = 0.7), 1) |> pmin(5) |> pmax(0),
+  horas_sem  = round(rnorm(n, mean = 18, sd = 5)),
+  beca       = sample(c("Sí", "No"), n, replace = TRUE, prob = c(.3, .7))
+)
+```
+
+## Estructura y calidad de los datos
+
+```{r descripcion}
+descripcion <- tibble(
+  variable  = names(estudiantes),
+  tipo      = map_chr(estudiantes, ~ class(.x)[1]),
+  faltantes = map_int(estudiantes, ~ sum(is.na(.x))),
+  distintos = map_int(estudiantes, n_distinct),
+  resumen   = map_chr(estudiantes, function(x) {
+    if (is.numeric(x)) {
+      sprintf("min %.1f | mediana %.1f | max %.1f", min(x), median(x), max(x))
+    } else {
+      paste(names(sort(table(x), decreasing = TRUE))[1:min(3, n_distinct(x))],
+            collapse = ", ")
+    }
+  })
+)
+
+kable(descripcion, caption = "Estructura del conjunto de datos")
+```
+
+```{r tamanos-grupo}
+estudiantes |>
+  count(programa, name = "n") |>
+  mutate(proporcion = round(n / sum(n), 3)) |>
+  arrange(desc(n)) |>
+  kable(caption = "Tamaño de cada programa")
+```
+
+El conjunto tiene `r nrow(estudiantes)` observaciones y `r ncol(estudiantes)` variables,
+**sin valores faltantes**. Conviene señalar dos rasgos del mecanismo generador que
+condicionan todo lo que sigue:
+
+1. `nota_final` se redondea a un decimal y luego se trunca al intervalo $[0, 5]$
+   mediante `pmin()`/`pmax()`. El truncamiento superior no es inocuo: si
+   $X \sim N(3.5, 0.7^2)$, entonces $P(X > 5) = P(Z > 2.14) \approx 0.016$, de modo
+   que se espera una masa puntual en 5.0. Efectivamente hay
+   `r sum(estudiantes$nota_final == 5)` observaciones en el tope y
+   `r sum(estudiantes$nota_final == 0)` en el piso.
+2. `programa`, `horas_sem` y `nota_final` se generan de forma **independiente**. No
+   existe, por construcción, ni efecto de programa sobre la nota ni asociación entre
+   horas de estudio y desempeño. Cualquier resultado significativo sería un error
+   tipo I.
+
+```{r masa-puntual, fig.height=4}
+ggplot(estudiantes, aes(x = nota_final)) +
+  geom_histogram(binwidth = 0.1, fill = "#2563eb", color = "white") +
+  labs(title = "Distribución de la nota final",
+       subtitle = "La barra en 5.0 acumula la cola derecha truncada",
+       x = "Nota final", y = "Frecuencia")
+```
+
+---
+
+# Ejercicio 1: ¿es normal la distribución de notas?
+
+## Prueba de Shapiro-Wilk por programa
+
+```{r shapiro}
+normalidad <- estudiantes |>
+  group_by(programa) |>
+  summarise(
+    n       = n(),
+    W       = shapiro.test(nota_final)$statistic,
+    p_valor = shapiro.test(nota_final)$p.value
+  ) |>
+  mutate(
+    p_bonferroni = p.adjust(p_valor, method = "bonferroni"),
+    decision     = if_else(p_valor < 0.05, "Se rechaza H0", "No se rechaza H0")
+  ) |>
+  arrange(p_valor)
+
+kable(normalidad, digits = 4,
+      caption = "Shapiro-Wilk sobre nota_final, por programa")
+```
+
+```{r shapiro-resumen, include=FALSE}
+rechazan   <- normalidad |> filter(p_valor < 0.05) |> pull(programa)
+peor       <- normalidad$programa[1]
+peor_p     <- normalidad$p_valor[1]
+```
+
+**¿En qué programas se rechaza normalidad con $\alpha = 0.05$?**
+`r if (length(rechazan) == 0) "En ninguno: todos los p-valores superan el umbral, de modo que los datos son compatibles con normalidad marginal dentro de cada programa." else paste0("En ", knitr::combine_words(rechazan, and = " y "), ".")`
+Cabe advertir que se realizan cuatro pruebas simultáneas; bajo $H_0$ global, la
+probabilidad de al menos un rechazo espurio es $1 - 0.95^4 \approx 0.185$. Por eso
+se incluye la corrección de Bonferroni en la tabla.
+
+El programa con menor p-valor es **`r peor`** ($p = `r signif(peor_p, 3)`$).
+
+## QQ-plots
+
+```{r qq-todos}
+ggplot(estudiantes, aes(sample = nota_final)) +
+  stat_qq(alpha = 0.6, color = "#2563eb") +
+  stat_qq_line(color = "firebrick", linewidth = 0.7) +
+  facet_wrap(~ programa, scales = "free") +
+  labs(title = "QQ-plots normales de la nota final por programa",
+       x = "Cuantiles teóricos", y = "Cuantiles muestrales")
+```
+
+```{r qq-peor, fig.height=4.5}
+estudiantes |>
+  filter(programa == peor) |>
+  ggplot(aes(sample = nota_final)) +
+  stat_qq(alpha = 0.7, size = 2, color = "#2563eb") +
+  stat_qq_line(color = "firebrick", linewidth = 0.8) +
+  labs(title = paste("QQ-plot:", peor),
+       subtitle = paste0("Programa con el p-valor más bajo (p = ", signif(peor_p, 3), ")"),
+       x = "Cuantiles teóricos", y = "Cuantiles muestrales")
+```
+
+**¿Qué patrón se observa en las colas?** El rasgo dominante no es una desviación
+suave sino el **escalonamiento**: como la nota está redondeada a décimas, los puntos
+se alinean en niveles horizontales discretos. En la cola derecha aparece además un
+aplanamiento producido por el truncamiento en 5.0: varias observaciones comparten
+exactamente el valor máximo, cuando la normal teórica les asignaría cuantiles
+crecientes. Es decir, la cola superior es **más corta que la normal** (asimetría
+negativa inducida), mientras que la cola inferior sigue la recta de referencia con
+razonable fidelidad.
+
+## Implicaciones para pruebas de hipótesis posteriores
+
+- **Para pruebas sobre medias**, la no normalidad es en buena medida irrelevante:
+  con $n \approx `r round(mean(normalidad$n))`$ por grupo, el TCL garantiza que la
+  distribución muestral de $\bar{X}$ es aproximadamente normal. La prueba $t$ y el
+  ANOVA son robustos a desviaciones moderadas de normalidad, mucho más que a
+  heterocedasticidad o a falta de independencia.
+- **Para pruebas sobre varianzas** (Bartlett, prueba $F$ de igualdad de varianzas),
+  la sensibilidad a la no normalidad sí es severa y conviene sustituirlas por
+  alternativas robustas como Levene con centro en la mediana.
+- **La discretización crea empates**, lo cual afecta a los métodos de rangos: tanto
+  Kruskal-Wallis como Spearman requieren corrección por ties (R la aplica
+  automáticamente, pero el p-valor pasa a ser una aproximación asintótica y no exacta).
+- **Conclusión operativa**: dado el truncamiento, los empates y la escala acotada,
+  se privilegian en lo que sigue los métodos no paramétricos y los estimadores
+  robustos, sin descartar los clásicos como referencia comparativa.
+
+---
+
+# Ejercicio 2: estadísticos robustos y sesgo
+
+```{r robustos}
+robustos <- estudiantes |>
+  group_by(programa) |>
+  summarise(
+    n               = n(),
+    media           = mean(nota_final),
+    mediana         = median(nota_final),
+    media_recortada = mean(nota_final, trim = 0.1),
+    sd              = sd(nota_final),
+    mad             = mad(nota_final),
+    cv              = sd(nota_final) / mean(nota_final),
+    asimetria       = (mean(nota_final) - median(nota_final)) / sd(nota_final)
+  ) |>
+  mutate(
+    discrepancia = abs(media - media_recortada),
+    razon_mad_sd = mad / sd
+  )
+
+kable(robustos, digits = 4,
+      caption = "Estimadores clásicos y robustos de centralidad y dispersión")
+```
+
+```{r robustos-aux, include=FALSE}
+mayor_disc <- robustos |> slice_max(discrepancia, n = 1)
+```
+
+**¿Qué programa muestra mayor discrepancia entre media y media recortada?**
+**`r mayor_disc$programa`**, con una diferencia de
+`r round(mayor_disc$discrepancia, 4)` puntos. La media recortada al 10% descarta el
+10% de las observaciones en cada extremo antes de promediar, de modo que la brecha
+entre ambos estimadores mide directamente **cuánto peso tienen las colas** en el
+promedio. Una discrepancia grande indica colas pesadas o asimétricas; una
+discrepancia cercana a cero indica que la parte central y la totalidad de la muestra
+cuentan la misma historia. En este caso todas las diferencias son pequeñas en
+relación con la escala de la variable (máximo
+`r round(max(robustos$discrepancia), 3)` sobre un rango de 0 a 5), lo cual es
+consistente con datos generados a partir de una normal con contaminación mínima.
+
+**Interpretación del coeficiente de asimetría de Pearson.** Conviene precisar la
+definición: el enunciado usa $\dfrac{\bar{x} - \mathrm{Me}}{s}$, mientras que el
+segundo coeficiente de Pearson en su forma habitual es
+$\mathrm{Sk}_2 = \dfrac{3(\bar{x} - \mathrm{Me})}{s}$. Los umbrales que se citan en
+los textos (leve si $|\mathrm{Sk}_2| < 0.5$, moderada hasta 1) corresponden a la
+versión con el factor 3, de manera que aplicarlos a la fórmula del enunciado
+sobreestimaría la simetría por un factor de tres.
+
+```{r asimetria}
+robustos |>
+  transmute(
+    programa,
+    sk_enunciado = asimetria,
+    sk_pearson_2 = 3 * asimetria,
+    direccion = case_when(
+      abs(3 * asimetria) < 0.5 ~ "Aproximadamente simétrica",
+      3 * asimetria > 0        ~ "Sesgo a la derecha (media > mediana)",
+      TRUE                     ~ "Sesgo a la izquierda (media < mediana)"
+    )
+  ) |>
+  kable(digits = 4, caption = "Asimetría bajo ambas convenciones")
+```
+
+El signo se lee de forma directa: positivo significa media por encima de la mediana,
+es decir cola derecha más larga; negativo, lo contrario. Dado el truncamiento en 5.0
+documentado arriba, cabía esperar una tendencia hacia valores negativos, ya que la
+cola derecha fue amputada mientras que la izquierda permaneció intacta.
+
+**¿Cuándo preferir la MAD sobre la desviación estándar?** La MAD, definida como
+$\mathrm{MAD} = 1.4826 \cdot \mathrm{mediana}(|x_i - \mathrm{Me}|)$, tiene punto de
+ruptura del 50%: se necesita contaminar la mitad de la muestra para desestabilizarla,
+frente al punto de ruptura de 0% de la desviación estándar, donde **una sola
+observación** arbitrariamente grande basta para hacerla explotar. Se prefiere la MAD
+cuando:
+
+- se sospecha contaminación, errores de digitación o mezcla de poblaciones;
+- la distribución tiene colas pesadas y el interés está en la dispersión típica y no
+  en la total;
+- se va a usar la medida como insumo para detectar atípicos (usar $s$ para ese fin es
+  circular, porque los atípicos inflan el propio criterio).
+
+El costo es de eficiencia: bajo normalidad exacta, la MAD tiene alrededor del 37% de
+la eficiencia asintótica de $s$. La constante 1.4826 existe precisamente para que
+ambas estimen el mismo parámetro $\sigma$ en el caso gaussiano. La razón
+$\mathrm{MAD}/s$ reportada en la tabla oscila en torno a 1 en todos los programas,
+lo que confirma la ausencia de contaminación relevante.
+
+---
+
+# Ejercicio 3: valores atípicos
+
+## Función de detección y corrección del agrupamiento
+
+```{r outliers-funcion}
+detectar_outliers <- function(x) {
+  q1 <- quantile(x, 0.25); q3 <- quantile(x, 0.75)
+  iqr <- q3 - q1
+  z <- (x - mean(x)) / sd(x)
+  tibble(
+    valor       = x,
+    outlier_iqr = x < (q1 - 1.5 * iqr) | x > (q3 + 1.5 * iqr),
+    outlier_z   = abs(z) > 3
+  )
+}
+```
+
+> **Nota sobre el código del enunciado.** `reframe()` devuelve siempre un tibble
+> **desagrupado**, de modo que el `summarise()` encadenado que aparece en la
+> diapositiva agrega sobre las 400 filas y produce una sola línea, no una por
+> programa. Se restaura el agrupamiento con el argumento `.by`.
+
+```{r outliers-tabla}
+puntos <- estudiantes |>
+  group_by(programa) |>
+  reframe(detectar_outliers(nota_final))
+
+comparacion <- puntos |>
+  summarise(
+    n         = n(),
+    n_iqr     = sum(outlier_iqr),
+    n_z       = sum(outlier_z),
+    ambos     = sum(outlier_iqr & outlier_z),
+    solo_iqr  = sum(outlier_iqr & !outlier_z),
+    solo_z    = sum(!outlier_iqr & outlier_z),
+    max_abs_z = max(abs((valor - mean(valor)) / sd(valor))),
+    .by = programa
+  )
+
+kable(comparacion, digits = 3,
+      caption = "Criterio IQR (1.5·RIC) frente a criterio Z (|z| > 3)")
+```
+
+## Visualización
+
+```{r outliers-plot, fig.height=5.5}
+ggplot(puntos, aes(x = programa, y = valor)) +
+  geom_boxplot(outlier.shape = NA, fill = "grey93", width = 0.55) +
+  geom_jitter(aes(color = outlier_iqr, size = outlier_iqr),
+              width = 0.16, alpha = 0.65) +
+  scale_color_manual(values = c(`FALSE` = "grey45", `TRUE` = "red"),
+                     labels = c("Regular", "Atípico (IQR)"), name = NULL) +
+  scale_size_manual(values = c(`FALSE` = 1.3, `TRUE` = 2.6), guide = "none") +
+  labs(title = "Atípicos según el criterio IQR",
+       subtitle = "Los puntos rojos caen fuera de 1.5 · RIC respecto de los cuartiles del grupo",
+       x = NULL, y = "Nota final")
+```
+
+## Discusión
+
+**¿Coinciden los dos criterios?** `r if (sum(comparacion$n_z) == 0) "No. El criterio IQR marca observaciones en varios programas mientras que el criterio Z no marca ninguna en todo el conjunto." else "Coinciden solo parcialmente."`
+La discrepancia es estructural, no accidental: bajo normalidad exacta, las vallas de
+Tukey se ubican aproximadamente en $\mu \pm 2.698\sigma$, de modo que el criterio IQR
+señala cerca del **0.7%** de las observaciones incluso cuando no hay contaminación
+alguna. El criterio $|z| > 3$, en cambio, señala alrededor del **0.27%**. El primero
+es sistemáticamente más liberal.
+
+**¿Cuándo falla el criterio Z con muestras pequeñas?** Falla de manera literal, y el
+argumento es algebraico. Para cualquier muestra de tamaño $n$, el puntaje
+estandarizado está acotado:
+
+$$\max_i |z_i| \;\le\; \frac{n-1}{\sqrt{n}}$$
+
+Por lo tanto, si $n \le 10$ se cumple $\max_i|z_i| \le 9/\sqrt{10} \approx 2.846 < 3$,
+y **ninguna observación puede ser declarada atípica**, por extrema que sea.
+
+```{r cota-z}
+tibble(n = c(5, 10, 11, 20, 50, 100)) |>
+  mutate(
+    cota_max_z    = (n - 1) / sqrt(n),
+    puede_marcar  = if_else(cota_max_z > 3, "Sí", "No")
+  ) |>
+  kable(digits = 3, caption = "Cota superior del |z| máximo alcanzable según n")
+```
+
+A esto se suma el **efecto de enmascaramiento**: media y desviación estándar se
+calculan *incluyendo* al atípico, que infla $s$ y desplaza $\bar{x}$ hacia sí mismo,
+reduciendo su propio $z$. Con dos atípicos en la misma dirección el enmascaramiento
+es aún mayor. La alternativa robusta es sustituir $\bar{x}$ y $s$ por la mediana y la
+MAD:
+
+```{r z-robusto}
+puntos |>
+  summarise(
+    n_z_clasico = sum(outlier_z),
+    n_z_robusto = sum(abs(valor - median(valor)) / mad(valor) > 3),
+    .by = programa
+  ) |>
+  kable(caption = "Puntaje Z clásico frente a puntaje Z robusto (mediana y MAD)")
+```
+
+**¿Eliminaría esos puntos?** No, y por tres razones estadísticas:
+
+1. **Los valores son admisibles.** Todos caen dentro del rango válido de una nota
+   ($[0, 5]$). No hay evidencia de error de medición ni de registro, que es la única
+   justificación sólida para eliminar una observación.
+2. **La detección es endógena al mecanismo generador.** Sabemos que los datos
+   provienen de una normal truncada; marcar como atípico un valor extremo legítimo de
+   una distribución continua y luego eliminarlo sesga a la baja la estimación de la
+   varianza y falsea la cobertura de cualquier intervalo de confianza posterior.
+3. **La eliminación es autoalimentada.** Al remover las observaciones extremas, los
+   cuartiles se contraen y en la siguiente iteración aparecen nuevos "atípicos".
+   Recortar por criterio automático hasta que no queden atípicos es un procedimiento
+   que no converge a nada interpretable.
+
+La conducta apropiada es **documentarlos, verificar su plausibilidad sustantiva y
+reportar el análisis con y sin ellos** como prueba de sensibilidad. Si la conclusión
+cambia, el hallazgo depende de un puñado de observaciones y hay que decirlo; si no
+cambia, la discusión queda zanjada.
+
+---
+
+# Ejercicio 4: correlación y su significancia
+
+```{r correlacion}
+correlaciones <- estudiantes |>
+  group_by(programa) |>
+  summarise(
+    n          = n(),
+    r_pearson  = cor(horas_sem, nota_final, method = "pearson"),
+    r_spearman = cor(horas_sem, nota_final, method = "spearman"),
+    p_pearson  = cor.test(horas_sem, nota_final, method = "pearson")$p.value,
+    p_spearman = cor.test(horas_sem, nota_final, method = "spearman")$p.value
+  ) |>
+  mutate(
+    p_pearson_bh  = p.adjust(p_pearson,  method = "BH"),
+    p_spearman_bh = p.adjust(p_spearman, method = "BH"),
+    signif_005    = if_else(p_pearson < 0.05, "Sí", "No")
+  )
+
+kable(correlaciones, digits = 4,
+      caption = "Correlación entre horas semanales de estudio y nota final")
+```
+
+```{r cor-aux, include=FALSE}
+signif_prog <- correlaciones |> filter(p_pearson < 0.05) |> pull(programa)
+mayor_gap   <- correlaciones |>
+  mutate(gap = r_spearman - r_pearson) |>
+  slice_max(gap, n = 1)
+r_global    <- cor(estudiantes$horas_sem, estudiantes$nota_final)
+p_global    <- cor.test(estudiantes$horas_sem, estudiantes$nota_final)$p.value
+```
+
+**¿En qué programas hay correlación significativa?**
+`r if (length(signif_prog) == 0) "En ninguno al nivel de 0.05." else paste0("En ", knitr::combine_words(signif_prog, and = " y "), " al nivel nominal de 0.05, aunque conviene contrastar contra los p-valores ajustados por Benjamini-Hochberg antes de darlos por buenos, dado que se realizan cuatro contrastes.")`
+Sobre el conjunto completo, $r = `r round(r_global, 4)`$ con
+$p = `r signif(p_global, 3)`$, es decir
+`r if (p_global < 0.05) "significativo" else "no significativo"`. Este es el resultado
+esperado: `horas_sem` y `nota_final` se generaron como variables independientes, de
+modo que la correlación poblacional es exactamente cero y todo lo observado es ruido
+muestral. El error estándar aproximado de $r$ bajo $H_0$ es
+$1/\sqrt{n-3} \approx `r round(1/sqrt(nrow(estudiantes)-3), 3)`$ para el conjunto y
+cerca de `r round(1/sqrt(min(correlaciones$n)-3), 3)` para el grupo más pequeño, lo
+que da la escala de la fluctuación aleatoria esperable.
+
+**¿Coinciden Pearson y Spearman?** Sus magnitudes son similares en todos los
+programas. La diferencia más marcada corresponde a **`r mayor_gap$programa`**
+($r_S - r_P = `r round(mayor_gap$r_spearman - mayor_gap$r_pearson, 4)`$).
+
+**Si Spearman supera a Pearson, ¿qué sugiere sobre la forma de la relación?**
+Spearman mide asociación **monótona** sobre rangos; Pearson mide asociación
+**lineal** sobre valores. Que el primero sea sustancialmente mayor indica alguna de
+estas tres situaciones:
+
+- la relación es monótona pero **curva** (por ejemplo, saturante o exponencial), de
+  modo que la recta la subestima;
+- existen **atípicos** que distorsionan a Pearson, ya que los rangos los comprimen
+  automáticamente y Spearman apenas los nota;
+- alguna de las variables está fuertemente **asimétrica**, situación en la que la
+  transformación a rangos linealiza la relación.
+
+En este caso las diferencias son pequeñas y atribuibles al ruido, no a estructura.
+
+```{r dispersion, fig.height=6.5}
+ggplot(estudiantes, aes(x = horas_sem, y = nota_final)) +
+  geom_point(alpha = 0.5, color = "#2563eb", size = 1.8) +
+  geom_smooth(method = "lm", se = TRUE, color = "firebrick", linewidth = 0.9) +
+  facet_wrap(~ programa) +
+  labs(title = "Horas de estudio semanales frente a nota final",
+       subtitle = "Recta de mínimos cuadrados con banda de confianza al 95%",
+       x = "Horas semanales de estudio", y = "Nota final")
+```
+
+Las bandas de confianza incluyen rectas horizontales en todos los paneles, lo cual es
+la lectura gráfica de la ausencia de pendiente significativa.
+
+---
+
+# Ejercicio 5: comparación de grupos con tamaño del efecto
+
+## Kruskal-Wallis
+
+```{r kruskal}
+kw <- kruskal.test(nota_final ~ programa, data = estudiantes)
+kw
+```
+
+```{r eta2}
+H  <- unname(kw$statistic)
+k  <- n_distinct(estudiantes$programa)
+N  <- nrow(estudiantes)
+
+eta2 <- (H - k + 1) / (N - k)
+epsilon2 <- H / ((N^2 - 1) / (N + 1))
+
+tibble(
+  estadistico_H = H,
+  gl            = unname(kw$parameter),
+  p_valor       = kw$p.value,
+  eta2          = eta2,
+  epsilon2      = epsilon2
+) |>
+  kable(digits = 5, caption = "Kruskal-Wallis y tamaños del efecto")
+```
+
+**¿Se rechaza la hipótesis nula?**
+`r if (kw$p.value < 0.05) "Sí" else "No"`: con $H = `r round(H, 3)`$ sobre
+`r unname(kw$parameter)` grados de libertad, $p = `r signif(kw$p.value, 4)`$, de modo
+que **`r if (kw$p.value < 0.05) "se rechaza" else "no se rechaza"`** $H_0$ al 5%.
+
+La interpretación sustantiva requiere precisión sobre qué afirma $H_0$ en esta prueba.
+Kruskal-Wallis **no** contrasta igualdad de medianas, salvo bajo el supuesto adicional
+de que las distribuciones comparten forma y escala. Lo que contrasta es la hipótesis
+de que las muestras provienen de la misma distribución, o equivalentemente, que
+$P(X_i > X_j) = 1/2$ para todo par de grupos: es una prueba de **dominancia
+estocástica**. `r if (kw$p.value >= 0.05) "No rechazar significa entonces que no hay evidencia de que las notas de un programa tiendan a superar a las de otro, lo cual es exactamente lo esperado dado que 'programa' se asignó al azar y con independencia de la nota." else "Rechazar indicaría que las notas de al menos un programa tienden a superar sistemáticamente a las de otro."`
+
+**Interpretación del tamaño del efecto.** El $\eta^2$ del enunciado es
+`r round(eta2, 5)`.
+`r if (eta2 < 0) "Es **negativo**, lo cual conviene comentar en lugar de ocultar: la fórmula $(H - k + 1)/(N - k)$ no está acotada inferiormente en cero y arroja valores negativos cuando $H < k - 1$, es decir, cuando el estadístico observado queda por debajo de su esperanza bajo $H_0$. Un $\\eta^2$ negativo debe reportarse como un efecto **nulo**: la proporción de varianza explicada por el programa es indistinguible de cero." else "Corresponde a un efecto **pequeño** según los umbrales convencionales (pequeño si es menor que 0.06, mediano entre 0.06 y 0.14, grande por encima de 0.14)."`
+Se incluye también $\epsilon^2 = H/\frac{N^2-1}{N+1}$, que está acotado en $[0,1]$ por
+construcción y es preferible como medida reportable.
+
+Vale la pena subrayar la distinción metodológica: el p-valor responde *si existe*
+diferencia y depende críticamente de $n$; el tamaño del efecto responde *cuánto
+importa* y es invariante al tamaño muestral. Con $n$ suficientemente grande, cualquier
+diferencia arbitrariamente pequeña se vuelve significativa, y por eso reportar ambos
+no es redundancia sino requisito.
+
+## Prueba post-hoc
+
+```{r posthoc}
+if (kw$p.value < 0.05) {
+  if (requireNamespace("FSA", quietly = TRUE)) {
+    dunn <- FSA::dunnTest(nota_final ~ factor(programa),
+                          data = estudiantes, method = "bonferroni")
+    kable(dunn$res, digits = 4,
+          caption = "Prueba de Dunn con corrección de Bonferroni")
+  } else {
+    pw <- pairwise.wilcox.test(estudiantes$nota_final, estudiantes$programa,
+                               p.adjust.method = "bonferroni")
+    kable(pw$p.value, digits = 4,
+          caption = "Wilcoxon por pares con corrección de Bonferroni (alternativa base)")
+  }
+} else {
+  cat("Kruskal-Wallis no rechaza H0 (p =", signif(kw$p.value, 4),
+      "). No se aplica prueba post-hoc.\n\n",
+      "Aplicar comparaciones múltiples tras una prueba global no significativa",
+      "infla la tasa de error tipo I y carece de justificación:",
+      "el procedimiento post-hoc está condicionado al rechazo previo.\n")
+}
+```
+
+`r if (kw$p.value >= 0.05) "El código anterior deja implementada la prueba de Dunn con corrección de Bonferroni, que se ejecutaría automáticamente si el contraste global resultara significativo. Se prefiere Dunn sobre Wilcoxon por pares porque reutiliza el ranking conjunto de la muestra completa, de forma coherente con el estadístico de Kruskal-Wallis, en lugar de rerankear dentro de cada par." else "Los pares con p ajustado por debajo de 0.05 son los que difieren significativamente."`
+
+## Visualización comparativa
+
+```{r comparacion-grupos, fig.height=5.5}
+ggplot(estudiantes, aes(x = reorder(programa, nota_final, median),
+                        y = nota_final, fill = programa)) +
+  geom_violin(trim = FALSE, alpha = 0.35, color = NA) +
+  geom_boxplot(width = 0.18, outlier.alpha = 0.5, fill = "white") +
+  stat_summary(fun = mean, geom = "point", shape = 23,
+               size = 3, fill = "firebrick", color = "firebrick") +
+  labs(title = "Distribución de la nota final por programa",
+       subtitle = "Violín y boxplot; el rombo rojo marca la media",
+       x = NULL, y = "Nota final") +
+  theme(legend.position = "none")
+```
+
+---
+
+# Ejercicio 6: síntesis y conclusión estadística
+
+## Resumen de resultados
+
+```{r sintesis}
+tibble(
+  Sección = c("Normalidad", "Robustez", "Atípicos", "Correlación", "Grupos"),
+  Método = c("Shapiro-Wilk por programa + QQ-plots",
+             "Media recortada, MAD, asimetría de Pearson",
+             "Vallas de Tukey (1.5·RIC) frente a |z| > 3",
+             "Pearson frente a Spearman, ajuste BH",
+             "Kruskal-Wallis + eta² + post-hoc condicional"),
+  Resultado = c(
+    if (length(rechazan) == 0) "No se rechaza normalidad en ningún programa"
+    else paste("Se rechaza en:", paste(rechazan, collapse = ", ")),
+    sprintf("Discrepancia media/recortada máxima: %.3f (%s)",
+            mayor_disc$discrepancia, mayor_disc$programa),
+    sprintf("IQR marca %d; Z marca %d", sum(comparacion$n_iqr), sum(comparacion$n_z)),
+    if (length(signif_prog) == 0) "Sin correlación significativa en ningún programa"
+    else paste("Significativa en:", paste(signif_prog, collapse = ", ")),
+    sprintf("H = %.3f, p = %.4f, eta² = %.4f", H, kw$p.value, eta2)
+  )
+) |>
+  kable(caption = "Síntesis del taller")
+```
+
+## Conclusión
+
+El análisis converge de manera consistente hacia un **resultado nulo**, y esa es la
+conclusión correcta: el conjunto de datos se genera con `programa`, `horas_sem` y
+`nota_final` mutuamente independientes, de modo que no existe en la población ni
+efecto de grupo ni asociación entre esfuerzo y desempeño. El valor del taller no está
+en descubrir estructura donde no la hay, sino en verificar que **el instrumental
+estadístico no fabrica hallazgos** cuando se aplica correctamente.
+
+Tres observaciones metodológicas se desprenden del ejercicio:
+
+1. **La forma de la distribución observada no es la del mecanismo generador.** El
+   truncamiento en 5.0 y el redondeo a décimas introducen una masa puntual y empates
+   que alteran las pruebas de normalidad y obligan a las pruebas de rangos a usar
+   aproximaciones asintóticas. Documentar el preprocesamiento es tan importante como
+   documentar el modelo.
+2. **Los criterios de detección de atípicos difieren por construcción, no por
+   desacuerdo empírico.** El criterio IQR marca por diseño cerca del 0.7% de una
+   muestra normal limpia, y el criterio $Z$ es matemáticamente incapaz de marcar nada
+   cuando $n \le 10$. Ninguno de los dos identifica "errores": identifican valores
+   extremos, que es una noción distinta.
+3. **La multiplicidad de contrastes exige control.** Este taller ejecuta cuatro
+   pruebas de normalidad y ocho de correlación. Sin ajuste, la probabilidad de al
+   menos un falso positivo supera el 40%. Los p-valores ajustados por Bonferroni y
+   Benjamini-Hochberg se incluyeron en las tablas por esa razón.
+
+En términos de minería de datos, la lección operativa es que **el análisis
+exploratorio debe poder concluir que no hay señal**. Un pipeline que siempre encuentra
+patrones es un pipeline que no está midiendo nada.
+
+---
+
+# Información de la sesión
+
+```{r sesion}
+sessionInfo()
+```
