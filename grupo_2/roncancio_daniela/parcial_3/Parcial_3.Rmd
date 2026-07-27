@@ -1,0 +1,1121 @@
+---
+title: "Taller 3 - Minería de Datos"
+subtitle: "Análisis predictivo: Diabetes mellitus (CIDs E10-E14 + HbA1c)"
+author: "Daniela Roncancio"
+date: "`r Sys.Date()`"
+output:
+  md_document:
+    variant: gfm
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      fig.width = 8, fig.height = 5)
+```
+
+```{r paquetes, include=FALSE}
+paquetes <- c("tidyverse", "lubridate", "caret", "randomForest",
+              "pROC", "PRROC", "rpart", "rpart.plot", "vip",
+              "scales", "broom")
+instalar <- paquetes[!paquetes %in% installed.packages()[,"Package"]]
+if (length(instalar) > 0) install.packages(instalar)
+
+library(tidyverse); library(lubridate); library(caret)
+library(randomForest); library(pROC); library(PRROC)
+library(rpart); library(rpart.plot); library(vip)
+library(scales); library(broom)
+```
+
+---
+
+## 1. Definición del problema
+
+La **diabetes mellitus** es un conjunto de enfermedades metabólicas caracterizadas por hiperglucemia crónica. Se seleccionó esta condición porque es una de las enfermedades crónicas más prevalentes en Brasil y genera una carga significativa sobre los sistemas de salud suplementaria. Los códigos CID de referencia son **E10, E11, E12, E13 y E14**, que cubren diabetes tipo 1, tipo 2, malnutricional, otros tipos especificados y no especificados.
+
+**Estrategia de construcción de la variable objetivo:** durante la exploración de la base se identificó que el 82% de los registros tiene CID = "N/A", ya que la mayoría corresponden a procedimientos sin diagnóstico asociado. Usar únicamente los CIDs produce solo 57 beneficiarios positivos (0.01%), insuficiente para modelar. Por ello, la variable objetivo se construye combinando dos criterios:
+
+1. Presencia de al menos un CID en el rango E10-E14.
+2. Solicitud de al menos un examen de **Hemoglobina Glicada (HbA1c)**, que es el marcador diagnóstico y de control oficial de diabetes según la OMS (valor >= 6.5% confirma diagnóstico).
+
+Un beneficiario recibe etiqueta `1` si cumple cualquiera de los dos criterios; `0` en caso contrario. Esta estrategia produce 97.175 positivos (14.94%), balance adecuado para clasificación.
+
+---
+
+## 2. Carga de datos
+
+```{r carga}
+db <- read.csv("db_2026.csv", stringsAsFactors = FALSE, encoding = "UTF-8")
+cat("Filas (procedimientos):", nrow(db))
+cat("\nColumnas:", ncol(db))
+cat("\nBeneficiarios únicos:", n_distinct(db$CHAVE_FUNCIONAL))
+cat("\nConsultas únicas (CHAVE+FECHA):",
+    n_distinct(paste(db$CHAVE_FUNCIONAL, db$DT_UTILIZACAO)))
+```
+
+La base contiene más de 9 millones de registros correspondientes a procedimientos y utilizaciones médicas de aproximadamente 653.000 beneficiarios. Cada fila representa un procedimiento realizado a un beneficiario en una fecha específica, por lo que un mismo beneficiario puede aparecer múltiples veces.
+
+---
+
+## 3. Calidad de datos y limpieza
+
+```{r tabla_problemas, echo=FALSE}
+tibble(
+  Problema = c("CID faltante", "Sexo inconsistente", "Fechas inválidas",
+               "VALOR negativo", "Outliers en costo",
+               "Registros duplicados", "PORTE_ANESTESICO"),
+  Descripcion = c("82% de registros con CID = N/A",
+                  "Un CHAVE puede tener más de un sexo registrado",
+                  "Edades fuera del rango [0, 120] años",
+                  "Costos negativos sin sentido clínico",
+                  "Valores extremos en VALOR_UTILIZACAO",
+                  "Misma consulta+procedimiento repetida con valores distintos",
+                  "45% de registros sin valor"),
+  Estrategia = c("Complementar con HbA1c para la variable objetivo",
+                 "Asignar el valor más frecuente por beneficiario",
+                 "Filtrar y remover esos registros",
+                 "Tratar como NA antes de modelar",
+                 "Winsorizar en el percentil 99",
+                 "Deduplicar promediando el valor del procedimiento",
+                 "Excluir del modelo por alta proporción de faltantes")
+) %>%
+  knitr::kable(col.names = c("Problema", "Descripción", "Estrategia aplicada"))
+```
+
+```{r limpieza}
+# Estandarizar sexo en db antes de crear db_clean
+db <- db %>%
+  mutate(
+    SEXO_BENEFICIARIO = toupper(trimws(SEXO_BENEFICIARIO)),
+    SEXO_BENEFICIARIO = case_when(
+      SEXO_BENEFICIARIO %in% c("M","MASCULINO","MASC","MALE")  ~ "M",
+      SEXO_BENEFICIARIO %in% c("F","FEMININO","FEM","FEMALE")  ~ "F",
+      TRUE ~ NA_character_
+    )
+  )
+
+db_clean <- db %>%
+  mutate(
+    DT_UTILIZACAO              = as.Date(DT_UTILIZACAO),
+    DT_NASCIMENTO_BENEFICIARIO = as.Date(DT_NASCIMENTO_BENEFICIARIO),
+    edad = as.numeric(difftime(DT_UTILIZACAO,
+                               DT_NASCIMENTO_BENEFICIARIO,
+                               units = "days")) / 365.25,
+    VALOR_UTILIZACAO  = as.numeric(VALOR_UTILIZACAO),
+    VALOR_UTILIZACAO  = ifelse(VALOR_UTILIZACAO < 0, NA, VALOR_UTILIZACAO),
+    UTI_bin           = ifelse(toupper(as.character(UTI)) %in%
+                                 c("S","SIM","1","YES"), 1, 0),
+    INTERNADO_bin     = ifelse(toupper(as.character(INTERNADO)) %in%
+                                 c("S","SIM","1","YES"), 1, 0)
+  ) %>%
+  filter(is.na(edad) | (edad >= 0 & edad <= 120)) %>%
+  group_by(CHAVE_FUNCIONAL) %>%
+  mutate(SEXO_LIMPIO = {
+    tab <- table(SEXO_BENEFICIARIO[!is.na(SEXO_BENEFICIARIO)])
+    if (length(tab) == 0) NA_character_ else names(which.max(tab))
+  }) %>%
+  ungroup()
+
+cat("Valores únicos de SEXO tras estandarización:\n")
+print(table(db_clean$SEXO_BENEFICIARIO, useNA = "always"))
+
+p99 <- quantile(db_clean$VALOR_UTILIZACAO, 0.99, na.rm = TRUE)
+db_clean <- db_clean %>%
+  mutate(VALOR_UTILIZACAO_W = pmin(VALOR_UTILIZACAO, p99))
+
+cat("Registros originales:", nrow(db))
+cat("\nRegistros tras limpieza:", nrow(db_clean))
+cat("\nRegistros eliminados:", nrow(db) - nrow(db_clean))
+```
+
+Tras la estandarización, el sexo quedó codificado en solo dos categorías válidas: F (5.238.446 registros) y M (3.467.742 registros), con 603.083 registros sin información válida de sexo que se tratan como NA. La limpieza eliminó 36.007 registros correspondientes a beneficiarios con fechas de nacimiento inválidas o edades imposibles. El resto de las decisiones de limpieza no eliminan registros sino que corrigen o imputan los valores problemáticos, preservando la mayor cantidad de información posible para el modelamiento.
+
+
+---
+
+## 4. Variable objetivo
+
+```{r objetivo}
+cids_diabetes <- c("E10","E11","E12","E13","E14")
+
+db_clean <- db_clean %>%
+  mutate(
+    CID_3     = substr(toupper(trimws(gsub("\\.", "", CID))), 1, 3),
+    DESC_PROC = toupper(trimws(DESCRICAO_PROCEDIMENTO)),
+    es_diabetes_tx = CID_3 %in% cids_diabetes |
+                     grepl("HEMOGLOBINA GLICADA", DESC_PROC)
+  )
+
+positivos_chave <- db_clean %>%
+  group_by(CHAVE_FUNCIONAL) %>%
+  summarise(tiene_diabetes = as.integer(any(es_diabetes_tx))) %>%
+  ungroup()
+
+positivos_chave %>%
+  count(tiene_diabetes) %>%
+  mutate(
+    Grupo      = ifelse(tiene_diabetes == 1, "Con diabetes", "Sin diabetes"),
+    Porcentaje = round(n / sum(n) * 100, 2)
+  ) %>%
+  select(Grupo, N = n, Porcentaje) %>%
+  knitr::kable(caption = "Distribución de la variable objetivo")
+```
+
+La combinación de CIDs E10-E14 con la solicitud de HbA1c permite identificar 97.175 beneficiarios positivos, equivalentes al 14.94% del total. Este balance es adecuado para clasificación supervisada: suficientes casos positivos para que el modelo aprenda patrones de la enfermedad, sin el desbalance extremo que hubiese resultado de usar solo los códigos CID.
+
+---
+
+## 5. Construcción de variables a nivel de beneficiario
+
+Antes de agregar se deduplica a nivel `CHAVE_FUNCIONAL + DT_UTILIZACAO + CD_PROCEDIMENTO` para evitar conteos duplicados. El enunciado advierte que una misma consulta puede estar asociada a más de un procedimiento, y que un mismo procedimiento puede aparecer más de una vez en la misma consulta con valores ligeramente distintos. En esos casos se promedia el valor.
+
+```{r features}
+db_dedup <- db_clean %>%
+  group_by(CHAVE_FUNCIONAL, DT_UTILIZACAO, CD_PROCEDIMENTO) %>%
+  summarise(
+    VALOR_UTILIZACAO_W            = mean(VALOR_UTILIZACAO_W, na.rm = TRUE),
+    CID_3                         = first(CID_3),
+    DESC_PROC                     = first(DESC_PROC),
+    es_diabetes_tx                = any(es_diabetes_tx),
+    UTI_bin                       = max(UTI_bin, na.rm = TRUE),
+    INTERNADO_bin                 = max(INTERNADO_bin, na.rm = TRUE),
+    DESC_ESPECIALIDADE            = first(DESC_ESPECIALIDADE),
+    TIPO_UNIDADE_PREST_HOSPITALAR = first(TIPO_UNIDADE_PREST_HOSPITALAR),
+    UF_CNES_PREST_HOSPITALAR      = first(UF_CNES_PREST_HOSPITALAR),
+    TIPO_BENEFICIARIO             = first(TIPO_BENEFICIARIO),
+    SEXO_LIMPIO                   = first(SEXO_LIMPIO),
+    CETIPO                        = first(CETIPO),
+    edad                          = first(edad),
+    .groups = "drop"
+  )
+
+cat("Registros antes de dedup:", nrow(db_clean))
+cat("\nRegistros después de dedup:", nrow(db_dedup))
+cat("\nFilas eliminadas:", nrow(db_clean) - nrow(db_dedup))
+```
+
+```{r agregacion}
+edad_benef <- db_dedup %>%
+  group_by(CHAVE_FUNCIONAL) %>%
+  summarise(edad = max(edad, na.rm = TRUE)) %>%
+  mutate(edad = ifelse(!is.finite(edad), NA, edad)) %>%
+  ungroup()
+
+sexo_benef <- db_dedup %>% distinct(CHAVE_FUNCIONAL, SEXO_LIMPIO)
+
+features <- db_dedup %>%
+  group_by(CHAVE_FUNCIONAL) %>%
+  summarise(
+    n_utilizaciones  = n_distinct(DT_UTILIZACAO),
+    n_procedimientos = n(),
+    n_especialidades = n_distinct(DESC_ESPECIALIDADE, na.rm = TRUE),
+    tuvo_internacion = as.integer(any(INTERNADO_bin == 1)),
+    n_internaciones  = sum(INTERNADO_bin, na.rm = TRUE),
+    tuvo_uti         = as.integer(any(UTI_bin == 1)),
+    costo_total      = sum(VALOR_UTILIZACAO_W,  na.rm = TRUE),
+    costo_promedio   = mean(VALOR_UTILIZACAO_W, na.rm = TRUE),
+    costo_max        = max(VALOR_UTILIZACAO_W,  na.rm = TRUE),
+    prop_consulta    = mean(CETIPO == "C", na.rm = TRUE),
+    prop_examen      = mean(CETIPO == "E", na.rm = TRUE),
+    prop_terapia     = mean(CETIPO == "T", na.rm = TRUE),
+    prop_internacion = mean(CETIPO == "I", na.rm = TRUE),
+    prop_urgencia    = mean(CETIPO == "P", na.rm = TRUE),
+    tipo_benef = {
+      tab <- table(TIPO_BENEFICIARIO[TIPO_BENEFICIARIO != ""])
+      if (length(tab) == 0) NA_character_ else names(which.max(tab))
+    },
+    uf_moda = {
+      tab <- table(UF_CNES_PREST_HOSPITALAR[UF_CNES_PREST_HOSPITALAR != ""])
+      if (length(tab) == 0) NA_character_ else names(which.max(tab))
+    },
+    .groups = "drop"
+  )
+
+df_model <- features %>%
+  left_join(edad_benef,      by = "CHAVE_FUNCIONAL") %>%
+  left_join(sexo_benef,      by = "CHAVE_FUNCIONAL") %>%
+  left_join(positivos_chave, by = "CHAVE_FUNCIONAL") %>%
+  mutate(
+    tiene_diabetes = factor(tiene_diabetes, levels = c(0,1),
+                            labels = c("No","Si")),
+    SEXO_LIMPIO = factor(SEXO_LIMPIO),
+    tipo_benef  = factor(tipo_benef),
+    uf_moda     = factor(uf_moda),
+    edad           = ifelse(is.na(edad), median(edad, na.rm=TRUE), edad),
+    costo_total    = ifelse(is.na(costo_total),    0, costo_total),
+    costo_promedio = ifelse(is.na(costo_promedio), 0, costo_promedio),
+    costo_max      = ifelse(is.na(costo_max),      0, costo_max)
+  )
+
+cat("Beneficiarios en dataset final:", nrow(df_model))
+cat("\nVariables construidas:", ncol(df_model) - 2)
+```
+
+La deduplicación eliminó un número significativo de filas redundantes, garantizando que cada fila del dataset de modelamiento represente un procedimiento único por beneficiario y fecha. Las variables resultantes capturan distintas dimensiones del comportamiento del beneficiario en el sistema de salud: volumen de uso, complejidad clínica, costos y perfil demográfico.
+
+```{r tabla_variables, echo=FALSE}
+tibble(
+  Variable = c("n_utilizaciones", "n_procedimientos", "n_especialidades",
+               "tuvo_internacion", "n_internaciones", "tuvo_uti",
+               "costo_total", "costo_promedio", "costo_max",
+               "prop_C/E/T/I/P", "edad", "SEXO_LIMPIO", "tipo_benef"),
+  Descripcion = c("Consultas únicas (CHAVE + fecha) tras dedup",
+                  "Total de procedimientos únicos por beneficiario",
+                  "Especialidades distintas consultadas",
+                  "Indicador binario de internación (0/1)",
+                  "Número total de internaciones",
+                  "Indicador binario de uso de UCI (0/1)",
+                  "Suma de VALOR_UTILIZACAO winsorizado",
+                  "Promedio de VALOR_UTILIZACAO",
+                  "Costo máximo de un procedimiento individual",
+                  "Proporción de cada tipo de utilización (C/E/T/I/P)",
+                  "Edad calculada desde fecha de nacimiento",
+                  "Sexo más frecuente registrado por beneficiario",
+                  "Tipo de beneficiario más frecuente")
+) %>%
+  knitr::kable(col.names = c("Variable", "Descripción"))
+```
+
+---
+
+## 6. Análisis descriptivo
+
+### 6.1 Estadísticas generales
+
+```{r desc_general}
+n_benef        <- n_distinct(db_dedup$CHAVE_FUNCIONAL)
+n_consultas    <- n_distinct(paste(db_dedup$CHAVE_FUNCIONAL,
+                                   db_dedup$DT_UTILIZACAO))
+n_proc         <- nrow(db_dedup)
+n_con_diabetes <- sum(positivos_chave$tiene_diabetes == 1)
+n_sin_diabetes <- sum(positivos_chave$tiene_diabetes == 0)
+pct_diabetes   <- round(n_con_diabetes / n_benef * 100, 2)
+
+tibble(
+  Indicador = c(
+    "Beneficiarios únicos analizados",
+    "Utilizaciones o consultas únicas (CHAVE + FECHA)",
+    "Procedimientos únicos (tras deduplicación)",
+    "Beneficiarios CON diabetes (objetivo = 1)",
+    "Beneficiarios SIN diabetes (objetivo = 0)",
+    "Porcentaje con diabetes"
+  ),
+  Valor = c(
+    format(n_benef,        big.mark = ","),
+    format(n_consultas,    big.mark = ","),
+    format(n_proc,         big.mark = ","),
+    format(n_con_diabetes, big.mark = ","),
+    format(n_sin_diabetes, big.mark = ","),
+    paste0(pct_diabetes, "%")
+  )
+) %>%
+  knitr::kable(caption = "Estadísticas generales de la base y la enfermedad")
+```
+
+La base analizada es de gran escala: más de 650.000 beneficiarios con más de 2 millones de consultas únicas. La prevalencia de diabetes en la población es del 14.94%, lo que indica que aproximadamente 1 de cada 7 beneficiarios tiene algún registro relacionado con esta condición. Este porcentaje es consistente con las cifras de prevalencia de diabetes en la población adulta brasileña reportadas por la IDF.
+
+### 6.2 Distribución de la variable objetivo
+
+```{r desc_objetivo}
+dist_obj <- positivos_chave %>%
+  count(tiene_diabetes) %>%
+  mutate(Grupo = ifelse(tiene_diabetes == 1, "Con diabetes", "Sin diabetes"),
+         Pct   = round(n / sum(n) * 100, 2))
+
+ggplot(dist_obj, aes(x = Grupo, y = n, fill = Grupo)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  geom_text(aes(label = paste0(Pct, "%")), vjust = -0.5, size = 4) +
+  scale_fill_manual(values = c("Con diabetes" = "#E74C3C",
+                               "Sin diabetes" = "#3498DB")) +
+  scale_y_continuous(labels = comma) +
+  labs(title = "Distribución de la variable objetivo",
+       subtitle = "Diabetes mellitus (CIDs E10-E14 + HbA1c)",
+       x = "", y = "Número de beneficiarios") +
+  theme_minimal() + theme(legend.position = "none")
+```
+
+El gráfico confirma el desbalance moderado de la variable objetivo: la clase negativa representa el 85% de los beneficiarios. Este nivel de desbalance es manejable con las métricas adecuadas (ROC-AUC, F1, PR-AUC) y no requiere técnicas de sobremuestreo como SMOTE, dado que la clase minoritaria cuenta con más de 97.000 casos.
+
+### 6.3 Distribución por sexo
+
+```{r desc_sexo}
+df_model %>%
+  count(SEXO_LIMPIO, tiene_diabetes) %>%
+  group_by(SEXO_LIMPIO) %>%
+  mutate(Pct = round(n / sum(n) * 100, 1)) %>%
+  knitr::kable(caption = "Distribución por sexo y grupo")
+
+ggplot(df_model %>% count(SEXO_LIMPIO, tiene_diabetes) %>%
+         group_by(SEXO_LIMPIO) %>%
+         mutate(pct = n / sum(n)),
+       aes(x = SEXO_LIMPIO, y = pct, fill = tiene_diabetes)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(labels = percent) +
+  scale_fill_manual(values = c("No" = "#3498DB", "Si" = "#E74C3C")) +
+  labs(title = "Proporción de diabetes por sexo",
+       x = "Sexo", y = "Proporción", fill = "Diabetes") +
+  theme_minimal()
+```
+
+Las tres barras corresponden a F, M y NA (beneficiarios sin sexo registrado). La prevalencia de diabetes es muy similar entre los tres grupos, rondando el 15% en todos los casos. Esto indica que el sexo no parece ser un factor diferenciador fuerte de la diabetes en esta población, al menos a nivel descriptivo. Las mujeres (F) muestran una proporción ligeramente mayor que los hombres (M), lo cual es consistente con algunos reportes epidemiológicos que señalan mayor prevalencia de diabetes tipo 2 en mujeres en América Latina, posiblemente asociado a antecedentes de diabetes gestacional. El grupo NA tiene una proporción similar, lo que sugiere que la ausencia de información de sexo no está sesgada hacia un grupo particular de beneficiarios.
+
+### 6.4 Distribución por edad
+
+```{r desc_edad}
+df_model %>%
+  group_by(tiene_diabetes) %>%
+  summarise(
+    N            = n(),
+    Edad_media   = round(mean(edad,   na.rm = TRUE), 1),
+    Edad_mediana = round(median(edad, na.rm = TRUE), 1),
+    Edad_sd      = round(sd(edad,     na.rm = TRUE), 1),
+    Edad_min     = round(min(edad,    na.rm = TRUE), 1),
+    Edad_max     = round(max(edad,    na.rm = TRUE), 1)
+  ) %>%
+  knitr::kable(caption = "Estadísticas de edad por grupo")
+
+ggplot(df_model, aes(x = edad, fill = tiene_diabetes)) +
+  geom_histogram(bins = 35, alpha = 0.65, position = "identity") +
+  scale_fill_manual(values = c("No" = "#3498DB", "Si" = "#E74C3C")) +
+  labs(title = "Distribución de edad por grupo",
+       x = "Edad (años)", y = "Frecuencia", fill = "Diabetes") +
+  theme_minimal()
+```
+
+La distribución de edad muestra patrones claramente diferenciados entre los dos grupos. Los beneficiarios sin diabetes (azul) presentan una distribución bimodal con un pico importante en edades muy tempranas (0-5 años, correspondiente a hijos dependientes del plan) y otro pico más pronunciado alrededor de los 35-40 años. Esto refleja la composición típica de una población de salud suplementaria que incluye tanto titulares adultos como sus dependientes menores.
+
+Los beneficiarios con diabetes (rojo) muestran una distribución unimodal centrada alrededor de los 50-55 años, con muy pocos casos en edades menores de 20 años y una caída gradual después de los 70. Esto es consistente con la epidemiología conocida de la diabetes tipo 2, que aumenta progresivamente con la edad y alcanza su mayor prevalencia en adultos de mediana edad y adultos mayores.
+
+La separación entre ambas distribuciones confirma que la edad será una variable predictora importante en el modelo: un beneficiario de 50 años tiene una probabilidad notablemente mayor de pertenecer al grupo con diabetes que uno de 10 o 25 años. Sin embargo, el solapamiento entre los 30 y 70 años indica que la edad por sí sola no es suficiente para discriminar entre grupos, lo que justifica el uso de modelos multivariados.
+
+
+### 6.5 Distribución por tipo de beneficiario
+
+```{r desc_tipo}
+df_model %>%
+  count(tipo_benef, tiene_diabetes) %>%
+  group_by(tipo_benef) %>%
+  mutate(Pct = round(n / sum(n) * 100, 1)) %>%
+  arrange(tipo_benef, tiene_diabetes) %>%
+  knitr::kable(caption = "Distribución por tipo de beneficiario")
+
+df_model %>%
+  count(tipo_benef, tiene_diabetes) %>%
+  group_by(tipo_benef) %>%
+  mutate(pct = n / sum(n)) %>%
+  ggplot(aes(x = tipo_benef, y = pct, fill = tiene_diabetes)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(pct * 100, 1), "%")),
+            position = position_stack(vjust = 0.5),
+            size = 3.5, color = "white", fontface = "bold") +
+  scale_y_continuous(labels = percent) +
+  scale_fill_manual(values = c("No" = "#3498DB", "Si" = "#E74C3C")) +
+  labs(title = "Proporción de diabetes por tipo de beneficiario",
+       x = "Tipo de beneficiario", y = "Proporción", fill = "Diabetes") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+```
+
+El gráfico revela diferencias importantes en la prevalencia de diabetes según el tipo de beneficiario. El cónyuge presenta la mayor proporción de diabetes (18.5%), seguido por el agregado (14.2%) y el titular (16.8%), que son los tipos de beneficiario que típicamente corresponden a adultos de mayor edad. Esto es coherente con el patrón etario observado anteriormente: los cónyuges y titulares suelen ser adultos de mediana edad o adultos mayores, población con mayor riesgo de diabetes tipo 2.
+
+En contraste, los tipos FILHO (hijo, 7.5%), IGNORADO (8.7%) y TUTELADO (100% sin diabetes, aunque probablemente con muy pocos casos) muestran prevalencias mucho menores, lo que refleja que estos grupos corresponden en su mayoría a menores de edad o dependientes jóvenes donde la diabetes es menos frecuente.
+
+Los grupos OUTROS (1.4%) y Não Informado (100% sin diabetes) deben interpretarse con cautela ya que probablemente tienen muy pocos registros y sus porcentajes no son representativos. El tipo MAE (madre, 13.8%) también muestra una prevalencia moderada, consistente con su perfil etario adulto.
+
+En general, el tipo de beneficiario será una variable predictora útil en el modelo precisamente porque captura indirectamente información sobre la edad y el rol del beneficiario dentro del núcleo familiar asegurado.
+
+### 6.6 Distribución por estado (top 10)
+
+```{r desc_estado}
+# Tabla
+df_model %>%
+  count(uf_moda, tiene_diabetes) %>%
+  group_by(uf_moda) %>%
+  mutate(total = sum(n)) %>%
+  filter(tiene_diabetes == "Si") %>%
+  mutate(pct_diabetes = round(n / total * 100, 1)) %>%
+  arrange(desc(total)) %>%
+  head(10) %>%
+  select(Estado = uf_moda, Total_benef = total,
+         Con_diabetes = n, Pct_diabetes = pct_diabetes) %>%
+  knitr::kable(caption = "Top 10 estados por total de beneficiarios")
+
+# Grafico
+top10_estados <- df_model %>%
+  count(uf_moda, tiene_diabetes) %>%
+  group_by(uf_moda) %>%
+  mutate(total = sum(n),
+         pct   = n / total) %>%
+  ungroup() %>%
+  filter(tiene_diabetes == "Si") %>%
+  arrange(desc(total)) %>%
+  head(10)
+
+ggplot(top10_estados,
+       aes(x = reorder(uf_moda, pct), y = pct, fill = pct)) +
+  geom_bar(stat = "identity", width = 0.7) +
+  geom_text(aes(label = paste0(round(pct * 100, 1), "%")),
+            hjust = -0.15, size = 3.5) +
+  coord_flip() +
+  scale_y_continuous(labels = percent,
+                     expand = expansion(mult = c(0, 0.15))) +
+  scale_fill_gradient(low = "#F8C471", high = "#E74C3C") +
+  labs(title = "Prevalencia de diabetes por estado (top 10 por volumen)",
+       x = "Estado", y = "% beneficiarios con diabetes") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Existe una variabilidad geográfica marcada en la prevalencia de diabetes entre los estados con mayor volumen de beneficiarios. Santa Catarina (SC) presenta la prevalencia más alta con un 34.6%, casi el doble que el segundo estado, São Paulo (SP) con 24.5%. Esta diferencia tan pronunciada en SC podría reflejar una población asegurada de mayor edad promedio en ese estado, o una mayor cobertura y detección activa de la enfermedad a través de exámenes de HbA1c en esa región.
+
+Los estados del sureste como Minas Gerais (MG, 20.3%) y Rio de Janeiro (RJ, 18.5%) muestran prevalencias moderadas-altas, consistentes con ser regiones urbanizadas con poblaciones adultas bien representadas en el sistema de salud suplementaria. En contraste, estados del norte y noreste como Pará (PA, 7.1%) y Bahia (BA, 13.3%) presentan prevalencias más bajas, lo que podría reflejar una composición demográfica más joven o diferencias en el acceso y uso de exámenes diagnósticos.
+
+La categoría "-" con 6.5% corresponde a registros sin estado identificado y debe interpretarse con cautela. En general, la variabilidad geográfica observada justifica incluir el estado como variable predictora en el modelo, aunque su alto número de niveles motivó la decisión de excluirla del entrenamiento directo y usarla solo en el análisis descriptivo.
+
+### 6.7 Especialidades más frecuentes
+
+```{r desc_especialidad}
+# Tabla
+top15_esp <- db_dedup %>%
+  filter(DESC_ESPECIALIDADE != "-", DESC_ESPECIALIDADE != "") %>%
+  group_by(DESC_ESPECIALIDADE) %>%
+  summarise(n_benef = n_distinct(CHAVE_FUNCIONAL)) %>%
+  arrange(desc(n_benef)) %>%
+  head(15)
+
+top15_esp %>%
+  knitr::kable(caption = "Top 15 especialidades por beneficiarios únicos")
+
+# Grafico
+ggplot(top15_esp,
+       aes(x = reorder(DESC_ESPECIALIDADE, n_benef),
+           y = n_benef, fill = n_benef)) +
+  geom_bar(stat = "identity", width = 0.7) +
+  geom_text(aes(label = comma(n_benef)),
+            hjust = -0.15, size = 3) +
+  coord_flip() +
+  scale_y_continuous(labels = comma,
+                     expand = expansion(mult = c(0, 0.2))) +
+  scale_fill_gradient(low = "#AED6F1", high = "#1A5276") +
+  labs(title = "Top 15 especialidades por beneficiarios únicos",
+       x = "", y = "Número de beneficiarios") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+El médico clínico es la especialidad más consultada con 41.498 beneficiarios únicos, casi el doble que la segunda especialidad, lo cual refleja su rol como puerta de entrada al sistema de salud y principal responsable del seguimiento de enfermedades crónicas como la diabetes.
+
+La presencia destacada de oftalmología (18.393) y médico oftalmólogo (9.790) es particularmente relevante en el contexto de la diabetes, ya que la retinopatía diabética es una de las complicaciones más frecuentes de la enfermedad y requiere controles periódicos de la visión. De manera similar, cardiología (12.639) y médico cardiólogo (9.955) aparecen entre las especialidades más frecuentes, lo que es consistente con el mayor riesgo cardiovascular asociado a la diabetes.
+
+Análises clínicas diversas (13.936) y patología clínica / medicina laboratorial (11.437) reflejan el alto volumen de exámenes de laboratorio solicitados en esta población, entre los cuales se encuentra precisamente la HbA1c utilizada para construir la variable objetivo. El hospital como categoría (19.567) agrupa atenciones hospitalarias generales que incluyen internaciones y procedimientos de mayor complejidad.
+
+En conjunto, el perfil de especialidades consultadas es coherente con una población que incluye un porcentaje significativo de pacientes diabéticos con necesidades de atención multidisciplinaria, lo que refuerza la validez de la estrategia de identificación de la enfermedad utilizada en este trabajo.
+
+### 6.8 Valores faltantes
+
+```{r desc_faltantes}
+db %>%
+  summarise(across(everything(),
+                   ~ sum(is.na(.) | trimws(as.character(.)) == "" |
+                         trimws(as.character(.)) == "N/A"))) %>%
+  pivot_longer(everything(),
+               names_to  = "Variable",
+               values_to = "N_faltantes") %>%
+  mutate(Pct_faltante = round(N_faltantes / nrow(db) * 100, 2)) %>%
+  arrange(desc(N_faltantes)) %>%
+  knitr::kable(caption = "Valores faltantes por variable")
+```
+
+Las dos variables con mayor proporción de faltantes son `PORTE_ANESTESICO` (45%) y `CID` (88% entre N/A y vacíos). La primera fue excluida del modelo por su alta tasa de ausencia. La segunda motivó la estrategia de construcción de la variable objetivo basada en procedimientos (HbA1c) en lugar de diagnósticos exclusivamente.
+
+### 6.9 Inconsistencias identificadas
+
+```{r desc_inconsistencias}
+n_sexo_multiple <- db %>%
+  group_by(CHAVE_FUNCIONAL) %>%
+  summarise(n_sexos = n_distinct(SEXO_BENEFICIARIO)) %>%
+  filter(n_sexos > 1) %>% nrow()
+
+n_edad_imposible <- db %>%
+  mutate(edad_raw = as.numeric(difftime(as.Date(DT_UTILIZACAO),
+                                        as.Date(DT_NASCIMENTO_BENEFICIARIO),
+                                        units = "days")) / 365.25) %>%
+  filter(!is.na(edad_raw), (edad_raw < 0 | edad_raw > 120)) %>%
+  summarise(n = n_distinct(CHAVE_FUNCIONAL)) %>% pull(n)
+
+n_dup <- nrow(db_clean) - nrow(db_dedup)
+
+tibble(
+  Inconsistencia = c("Beneficiarios con más de un sexo registrado",
+                     "Beneficiarios con edad imposible (< 0 o > 120 años)",
+                     "Registros con CID = N/A o vacío",
+                     "Registros duplicados (CHAVE+FECHA+PROC)"),
+  N = c(n_sexo_multiple, n_edad_imposible,
+        sum(toupper(trimws(db$CID)) %in% c("N/A","","NA"), na.rm=TRUE),
+        n_dup)
+) %>%
+  mutate(N = format(N, big.mark = ",")) %>%
+  knitr::kable(caption = "Inconsistencias identificadas en la base")
+```
+
+Los 8.280.732 registros sin CID válido (88% de la base) son la inconsistencia más crítica y motivaron directamente el uso de HbA1c como proxy para construir la variable objetivo. Los 2.711.103 duplicados (29% de la base) son igualmente relevantes: sin tratamiento habrían inflado artificialmente los costos y conteos de procedimientos en casi un tercio, por lo que se deduplicaron promediando el valor cuando difería. Los 3.177 beneficiarios con edad imposible se eliminaron sin afectar la representatividad dado el tamaño total de la muestra, y los 525 con sexo inconsistente se resolvieron asignando el valor más frecuente por beneficiario.
+
+
+
+### 6.10 Valores extremos en VALOR_UTILIZACAO
+
+```{r desc_outliers}
+val_stats <- db_clean %>%
+  summarise(
+    N_total = n(),
+    N_cero  = sum(VALOR_UTILIZACAO == 0,  na.rm = TRUE),
+    N_NA    = sum(is.na(VALOR_UTILIZACAO)),
+    Min     = round(min(VALOR_UTILIZACAO,                na.rm=TRUE), 2),
+    P25     = round(quantile(VALOR_UTILIZACAO, 0.25,     na.rm=TRUE), 2),
+    Mediana = round(median(VALOR_UTILIZACAO,             na.rm=TRUE), 2),
+    Media   = round(mean(VALOR_UTILIZACAO,               na.rm=TRUE), 2),
+    P75     = round(quantile(VALOR_UTILIZACAO, 0.75,     na.rm=TRUE), 2),
+    P99     = round(quantile(VALOR_UTILIZACAO, 0.99,     na.rm=TRUE), 2),
+    Max     = round(max(VALOR_UTILIZACAO,                na.rm=TRUE), 2)
+  )
+knitr::kable(t(val_stats), col.names = c("Valor"),
+             caption = "Estadísticas de VALOR_UTILIZACAO")
+
+lim_sup <- val_stats$P75 + 3 * (val_stats$P75 - val_stats$P25)
+cat("Límite outliers (P75 + 3*IQR):", round(lim_sup, 2))
+cat("\nRegistros sobre el límite:",
+    sum(db_clean$VALOR_UTILIZACAO > lim_sup, na.rm=TRUE))
+cat("\nEstrategia: winsorizar en P99 =", val_stats$P99)
+
+ggplot(db_clean %>%
+         filter(VALOR_UTILIZACAO > 0,
+                VALOR_UTILIZACAO <= val_stats$P99),
+       aes(x = VALOR_UTILIZACAO)) +
+  geom_histogram(bins = 50, fill = "steelblue", alpha = 0.7) +
+  scale_x_continuous(labels = comma) +
+  labs(title = "Distribución de VALOR_UTILIZACAO (hasta P99)",
+       x = "Valor de utilización (BRL)", y = "Frecuencia") +
+  theme_minimal()
+```
+
+La distribución de VALOR_UTILIZACAO es fuertemente asimétrica hacia la derecha, lo cual es típico de datos de costos en salud. La gran mayoría de los procedimientos tienen un valor bajo: la mediana es de apenas BRL 17.40, muy por debajo de la media de BRL 106.76, lo que confirma que unos pocos procedimientos de alto costo jalan el promedio hacia arriba. El pico inicial del histograma concentra millones de registros con valores cercanos a cero, correspondientes principalmente a consultas y exámenes de bajo costo.
+
+Hay 431.985 registros (4.6% de la base) que superan el límite de outliers de BRL 283, y el valor máximo observado es de BRL 628.388, que corresponde casi con certeza a internaciones de alta complejidad o procedimientos quirúrgicos mayores. Se decidió winsorizar en el percentil 99 (BRL 1.216) en lugar de eliminar estos registros, lo que permite conservar todos los beneficiarios en el análisis mientras se limita el impacto de los valores más extremos en las variables agregadas de costo. Los 70.256 registros con valor cero y los 3.001 NA representan una proporción pequeña y se tratan como parte del cálculo normal sin imputación adicional.
+
+---
+
+## 7. Modelamiento predictivo
+
+Se entrenaron tres modelos de clasificación con validación cruzada 5-fold. La **métrica principal es ROC-AUC** por las siguientes razones:
+
+- La variable objetivo tiene 15% de positivos (desbalance moderado).
+- ROC-AUC es invariante al umbral de clasificación y al desbalance de clases.
+- En el contexto de salud, es preferible a accuracy porque penaliza tanto falsos positivos como falsos negativos de manera balanceada.
+- Permite comparar modelos independientemente del umbral de decisión.
+
+```{r modelos, cache=TRUE}
+set.seed(123)
+
+df_vars <- df_model %>%
+  select(-CHAVE_FUNCIONAL, -uf_moda) %>%
+  filter(!is.na(tiene_diabetes)) %>%
+  select(where(~ n_distinct(.) > 1))
+
+# Imputar NAs en variables categoricas con la moda
+moda <- function(x) names(sort(table(x), decreasing = TRUE))[1]
+
+df_vars <- df_vars %>%
+  mutate(
+    SEXO_LIMPIO = ifelse(is.na(SEXO_LIMPIO),
+                         moda(SEXO_LIMPIO), as.character(SEXO_LIMPIO)),
+    SEXO_LIMPIO = factor(SEXO_LIMPIO),
+    tipo_benef  = ifelse(is.na(tipo_benef),
+                         moda(tipo_benef), as.character(tipo_benef)),
+    tipo_benef  = factor(tipo_benef)
+  )
+
+cat("NAs totales en df_vars:", sum(is.na(df_vars)), "\n")
+
+idx_train <- createDataPartition(df_vars$tiene_diabetes,
+                                 p = 0.70, list = FALSE)
+train <- df_vars[idx_train, ]
+test  <- df_vars[-idx_train, ]
+
+cat("Train:", nrow(train), "| Test:", nrow(test))
+cat("\n% diabetes en train:",
+    round(mean(train$tiene_diabetes == "Si") * 100, 2), "%")
+
+ctrl <- trainControl(
+  method          = "cv",
+  number          = 5,
+  classProbs      = TRUE,
+  summaryFunction = twoClassSummary,
+  savePredictions = "final"
+)
+
+modelo_lr <- train(
+  tiene_diabetes ~ ., data = train,
+  method = "glm", family = "binomial",
+  trControl = ctrl, metric = "ROC",
+  preProcess = c("center","scale","nzv","medianImpute")
+)
+
+modelo_arbol <- train(
+  tiene_diabetes ~ ., data = train,
+  method = "rpart", trControl = ctrl,
+  metric = "ROC", tuneLength = 10
+)
+
+modelo_rf <- train(
+  tiene_diabetes ~ ., data = train,
+  method = "rf", trControl = ctrl,
+  metric = "ROC", tuneLength = 3, ntree = 100
+)
+
+cat("\nROC CV - Regresión logística: ", round(max(modelo_lr$results$ROC),    4))
+cat("\nROC CV - Árbol de decisión:   ", round(max(modelo_arbol$results$ROC), 4))
+cat("\nROC CV - Random Forest:       ", round(max(modelo_rf$results$ROC),    4))
+```
+
+Los tres modelos muestran un desempeño superior al 85% en ROC-AUC durante la validación cruzada, lo que supera la referencia establecida por el enunciado. El Random Forest obtiene el mayor AUC, seguido por la regresión logística. La variable `uf_moda` fue excluida del modelo por tener demasiados niveles categóricos que generarían problemas de dimensionalidad.
+
+---
+
+## 8. Evaluación y comparación de modelos
+
+```{r evaluacion}
+real_test        <- test$tiene_diabetes
+pred_lr_prob     <- predict(modelo_lr,    test, type = "prob")[,"Si"]
+pred_lr_clase    <- predict(modelo_lr,    test)
+pred_arbol_prob  <- predict(modelo_arbol, test, type = "prob")[,"Si"]
+pred_arbol_clase <- predict(modelo_arbol, test)
+pred_rf_prob     <- predict(modelo_rf,    test, type = "prob")[,"Si"]
+pred_rf_clase    <- predict(modelo_rf,    test)
+
+cm_lr    <- confusionMatrix(pred_lr_clase,    real_test, positive = "Si")
+cm_arbol <- confusionMatrix(pred_arbol_clase, real_test, positive = "Si")
+cm_rf    <- confusionMatrix(pred_rf_clase,    real_test, positive = "Si")
+
+extraer_metricas <- function(cm, prob, real, nombre) {
+  roc_obj <- roc(real, prob, quiet = TRUE)
+  pr_obj  <- pr.curve(scores.class0 = prob[real == "Si"],
+                      scores.class1 = prob[real == "No"],
+                      curve = FALSE)
+  tibble(
+    Modelo        = nombre,
+    Accuracy      = round(cm$overall["Accuracy"],    4),
+    Sensibilidad  = round(cm$byClass["Sensitivity"], 4),
+    Especificidad = round(cm$byClass["Specificity"], 4),
+    F1            = round(cm$byClass["F1"],          4),
+    ROC_AUC       = round(auc(roc_obj),              4),
+    PR_AUC        = round(pr_obj$auc.integral,       4)
+  )
+}
+
+tabla_metricas <- bind_rows(
+  extraer_metricas(cm_lr,    pred_lr_prob,    real_test, "Logística"),
+  extraer_metricas(cm_arbol, pred_arbol_prob, real_test, "Árbol"),
+  extraer_metricas(cm_rf,    pred_rf_prob,    real_test, "Random Forest")
+)
+
+knitr::kable(tabla_metricas, caption = "Comparación de modelos en conjunto de test")
+```
+
+El Random Forest obtiene el mejor desempeño en todas las métricas, especialmente en ROC-AUC y PR-AUC. La regresión logística le sigue de cerca, lo que sugiere que las relaciones entre las variables y la diabetes tienen un componente lineal importante. El árbol de decisión muestra menor desempeño, probablemente por sobreajuste al conjunto de entrenamiento.
+
+```{r roc_plot}
+roc_lr    <- roc(real_test, pred_lr_prob,    quiet = TRUE)
+roc_arbol <- roc(real_test, pred_arbol_prob, quiet = TRUE)
+roc_rf    <- roc(real_test, pred_rf_prob,    quiet = TRUE)
+
+plot(roc_rf,    col = "steelblue", lwd = 2,
+     main = "Curvas ROC - Comparación de modelos")
+plot(roc_lr,    col = "tomato",    lwd = 2, add = TRUE)
+plot(roc_arbol, col = "darkgreen", lwd = 2, add = TRUE)
+abline(a = 0, b = 1, lty = 2, col = "gray60")
+legend("bottomright",
+       legend = c(
+         paste0("Random Forest  AUC=", round(auc(roc_rf),    3)),
+         paste0("Logística      AUC=", round(auc(roc_lr),    3)),
+         paste0("Árbol          AUC=", round(auc(roc_arbol), 3))
+       ),
+       col = c("steelblue","tomato","darkgreen"), lwd = 2, bty = "n")
+```
+
+Las curvas ROC muestran que los tres modelos superan ampliamente la línea diagonal (clasificador aleatorio). La separación entre las curvas del Random Forest y la logística es pequeña, mientras que el árbol queda claramente por debajo de los otros dos modelos.
+
+```{r pr_plot}
+pr_lr    <- pr.curve(scores.class0 = pred_lr_prob[real_test=="Si"],
+                     scores.class1 = pred_lr_prob[real_test=="No"], curve=TRUE)
+pr_arbol <- pr.curve(scores.class0 = pred_arbol_prob[real_test=="Si"],
+                     scores.class1 = pred_arbol_prob[real_test=="No"], curve=TRUE)
+pr_rf    <- pr.curve(scores.class0 = pred_rf_prob[real_test=="Si"],
+                     scores.class1 = pred_rf_prob[real_test=="No"], curve=TRUE)
+
+plot(pr_rf,    col = "steelblue", lwd = 2,
+     main = "Curvas Precisión-Recall", auc.main = FALSE)
+plot(pr_lr,    col = "tomato",    lwd = 2, add = TRUE)
+plot(pr_arbol, col = "darkgreen", lwd = 2, add = TRUE)
+legend("topright",
+       legend = c(
+         paste0("Random Forest  PR-AUC=", round(pr_rf$auc.integral,    3)),
+         paste0("Logística      PR-AUC=", round(pr_lr$auc.integral,    3)),
+         paste0("Árbol          PR-AUC=", round(pr_arbol$auc.integral, 3))
+       ),
+       col = c("steelblue","tomato","darkgreen"), lwd = 2, bty = "n")
+```
+
+La curva precisión-recall es especialmente informativa en presencia de desbalance de clases. Un PR-AUC alto indica que el modelo mantiene alta precisión incluso cuando se intenta recuperar una proporción grande de los positivos reales, lo cual es crítico en un contexto de salud donde los falsos negativos tienen consecuencias clínicas.
+
+```{r metricas_plot}
+tabla_metricas %>%
+  pivot_longer(cols = -Modelo, names_to = "Métrica", values_to = "Valor") %>%
+  ggplot(aes(x = Métrica, y = Valor, fill = Modelo)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  geom_hline(yintercept = 0.85, linetype = "dashed",
+             color = "red", linewidth = 0.7) +
+  annotate("text", x = 0.6, y = 0.87,
+           label = "Ref. 85%", color = "red", size = 3) +
+  scale_fill_manual(values = c("Logística"     = "tomato",
+                               "Árbol"         = "darkgreen",
+                               "Random Forest" = "steelblue")) +
+  scale_y_continuous(limits = c(0,1), labels = percent) +
+  labs(title = "Comparación de métricas por modelo",
+       x = "Métrica", y = "Valor", fill = "Modelo") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+El gráfico comparativo confirma que el Random Forest supera la línea de referencia del 85% en ROC-AUC y en varias otras métricas. Es notable que la sensibilidad (capacidad de detectar verdaderos positivos) es alta en los tres modelos, lo cual es deseable en un contexto clínico donde no detectar a un diabético tiene consecuencias más graves que un falso positivo.
+
+---
+
+## 9. Interpretación de resultados
+
+### 9.1 Importancia de variables
+
+```{r importancia}
+plot(varImp(modelo_rf), top = 15,
+     main = "Importancia de variables - Random Forest")
+```
+
+```{r importancia_arbol}
+plot(varImp(modelo_arbol), top = 15,
+     main = "Importancia de variables - Árbol de decisión")
+
+rpart.plot(modelo_arbol$finalModel, type = 4, extra = 104,
+           main = "Árbol de decisión - Diabetes", cex = 0.7)
+```
+
+Las variables más importantes en el Random Forest son consistentes con la lógica clínica: `prop_examen` refleja que los diabéticos solicitan más exámenes de laboratorio (glucosa, HbA1c, perfil lipídico, función renal); `costo_total` y `n_utilizaciones` capturan la mayor carga de uso del sistema de salud asociada a una enfermedad crónica; y `edad` refleja que la diabetes tipo 2 es más prevalente en adultos mayores.
+
+```{r coeficientes_lr}
+coef_lr <- coef(modelo_lr$finalModel)
+coef_df <- data.frame(
+  variable    = names(coef_lr),
+  coeficiente = round(coef_lr, 4),
+  odds_ratio  = round(exp(coef_lr), 4)
+) %>%
+  filter(variable != "(Intercept)") %>%
+  arrange(desc(abs(coeficiente)))
+
+coef_df %>%
+  head(15) %>%
+  mutate(direccion = ifelse(coeficiente > 0,
+                            "Aumenta riesgo","Reduce riesgo")) %>%
+  ggplot(aes(x = reorder(variable, coeficiente),
+             y = coeficiente, fill = direccion)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_fill_manual(values = c("Aumenta riesgo" = "#E74C3C",
+                               "Reduce riesgo"  = "#3498DB")) +
+  labs(title = "Coeficientes modelo logístico (top 15)",
+       subtitle = "Positivo = aumenta probabilidad de diabetes",
+       x = "", y = "Coeficiente estandarizado", fill = "") +
+  theme_minimal()
+
+knitr::kable(head(coef_df, 15),
+             caption = "Top 15 coeficientes del modelo logístico con odds ratio")
+```
+
+Los coeficientes del modelo logístico permiten una interpretación directa en términos de odds ratio. Variables con coeficiente positivo aumentan la probabilidad de diabetes, mientras que las negativas la reducen. El odds ratio indica cuánto aumenta (o disminuye) la probabilidad relativa por cada unidad de cambio en la variable, manteniendo las demás constantes.
+
+### 9.2 Comparación entre modelos
+
+```{r tabla_comparacion_modelos, echo=FALSE}
+tibble(
+  Modelo = c("Regresión logística", "Árbol de decisión", "Random Forest"),
+  Fortaleza = c("Interpretable, odds ratio directo, rápido de entrenar",
+                "Visual, captura interacciones, fácil de explicar",
+                "Mayor AUC, robusto, captura relaciones no lineales"),
+  Debilidad = c("Asume linealidad, problemas de convergencia con separación perfecta",
+                "Inestable, propenso a sobreajuste, menor AUC",
+                "Menos interpretable, mayor costo computacional")
+) %>%
+  knitr::kable(col.names = c("Modelo", "Fortaleza", "Debilidad"))
+```
+
+Se selecciona el **Random Forest** como modelo principal por obtener el mayor ROC-AUC en el conjunto de test. Sin embargo, la regresión logística es útil como modelo complementario por su interpretabilidad directa, especialmente para comunicar los resultados a audiencias no técnicas o para justificar decisiones clínicas.
+
+### 9.3 Análisis de errores
+
+```{r errores}
+errores <- test %>%
+  mutate(
+    pred_clase = pred_rf_clase,
+    prob_si    = pred_rf_prob,
+    tipo_error = case_when(
+      tiene_diabetes == "Si" & pred_clase == "Si" ~ "Verdadero Positivo",
+      tiene_diabetes == "No" & pred_clase == "No" ~ "Verdadero Negativo",
+      tiene_diabetes == "Si" & pred_clase == "No" ~ "Falso Negativo",
+      tiene_diabetes == "No" & pred_clase == "Si" ~ "Falso Positivo"
+    )
+  )
+
+errores %>%
+  count(tipo_error) %>%
+  mutate(Pct = round(n / sum(n) * 100, 2)) %>%
+  knitr::kable(caption = "Clasificación en el conjunto de test")
+
+fn <- errores %>% filter(tipo_error == "Falso Negativo")
+fp <- errores %>% filter(tipo_error == "Falso Positivo")
+
+tibble(
+  Grupo           = c("Falsos Negativos", "Falsos Positivos"),
+  N               = c(nrow(fn), nrow(fp)),
+  Edad_media      = c(round(mean(fn$edad, na.rm=TRUE), 1),
+                      round(mean(fp$edad, na.rm=TRUE), 1)),
+  Costo_medio     = c(round(mean(fn$costo_total, na.rm=TRUE), 2),
+                      round(mean(fp$costo_total, na.rm=TRUE), 2)),
+  Prob_media_asig = c(round(mean(fn$prob_si), 3),
+                      round(mean(fp$prob_si), 3))
+) %>%
+  knitr::kable(caption = "Perfil de los errores del modelo")
+
+ggplot(errores, aes(x = prob_si, fill = tipo_error)) +
+  geom_histogram(bins = 40, alpha = 0.7) +
+  facet_wrap(~ tipo_error, scales = "free_y") +
+  scale_fill_manual(values = c("Verdadero Positivo" = "#27AE60",
+                               "Verdadero Negativo" = "#3498DB",
+                               "Falso Negativo"     = "#E74C3C",
+                               "Falso Positivo"     = "#F39C12")) +
+  labs(title = "Distribución de probabilidad predicha por tipo de clasificación",
+       x = "Probabilidad predicha (Si)", y = "Frecuencia") +
+  theme_minimal() + theme(legend.position = "none")
+```
+
+Los falsos negativos son los errores más críticos desde el punto de vista clínico: corresponden a beneficiarios con diabetes que el modelo no logró identificar. Su probabilidad media asignada está cerca del umbral de 0.5, lo que sugiere que son casos borderline. Analizar su perfil (edad, costo, uso de servicios) puede orientar estrategias de detección activa en esa población.
+
+### 9.4 Sesgos y limitaciones
+
+1. **Sesgo de definición:** la variable objetivo incluye cualquier solicitud de HbA1c, no solo resultados confirmados. Personas en estudio sin diabetes pueden clasificarse como positivos.
+
+2. **Sesgo de registro:** el 82% de registros no tiene CID válido, lo que obliga al uso de proxies de procedimiento.
+
+3. **Data leakage potencial:** `costo_total` y `n_utilizaciones` pueden ser consecuencia del diagnóstico. Si el objetivo fuera predecir antes del diagnóstico, estas variables deberían excluirse.
+
+4. **Inconsistencia de sexo:** 302 beneficiarios sin fecha de nacimiento válida reciben la edad mediana, introduciendo ruido.
+
+5. **Cobertura geográfica:** la base corresponde a salud suplementaria de Brasil y los patrones pueden no generalizarse a otros sistemas de salud.
+
+---
+
+## 10. Estimación del costo asociado a la enfermedad
+
+**Unidad de análisis: beneficiario.** Se justifica porque la aseguradora toma decisiones de gestión de riesgo a nivel de persona asegurada (programas de crónica, primas diferenciales, cobertura). Agregar el costo al nivel de beneficiario permite comparar el impacto económico entre grupos y estimar el costo esperado por perfil de paciente.
+
+### 10.1 Costo promedio observado
+
+```{r costo_obs}
+resumen_costo <- df_model %>%
+  group_by(tiene_diabetes) %>%
+  summarise(
+    N             = n(),
+    Costo_medio   = round(mean(costo_total,           na.rm=TRUE), 2),
+    Costo_mediana = round(median(costo_total,         na.rm=TRUE), 2),
+    Costo_sd      = round(sd(costo_total,             na.rm=TRUE), 2),
+    Costo_P25     = round(quantile(costo_total, 0.25, na.rm=TRUE), 2),
+    Costo_P75     = round(quantile(costo_total, 0.75, na.rm=TRUE), 2),
+    Costo_max     = round(max(costo_total,            na.rm=TRUE), 2)
+  )
+
+knitr::kable(resumen_costo,
+             caption = "Estadísticas de costo total por grupo (BRL)")
+
+costo_con <- resumen_costo$Costo_medio[resumen_costo$tiene_diabetes=="Si"]
+costo_sin <- resumen_costo$Costo_medio[resumen_costo$tiene_diabetes=="No"]
+cat("Diferencia absoluta:", round(costo_con - costo_sin, 2), "BRL")
+cat("\nDiferencia relativa:", round((costo_con-costo_sin)/costo_sin*100,1), "%")
+
+ggplot(df_model,
+       aes(x = tiene_diabetes, y = costo_total, fill = tiene_diabetes)) +
+  geom_boxplot(outlier.alpha = 0.15, width = 0.5) +
+  scale_y_continuous(labels = comma) +
+  scale_fill_manual(values = c("No"="#3498DB","Si"="#E74C3C")) +
+  labs(title = "Distribución del costo total por beneficiario",
+       x = "Diabetes", y = "Costo total acumulado (BRL)") +
+  theme_minimal() + theme(legend.position = "none")
+```
+
+Los beneficiarios con diabetes presentan un costo total significativamente mayor que los no diabéticos. Esta diferencia refleja la naturaleza crónica de la enfermedad: los pacientes diabéticos requieren consultas periódicas de control, múltiples exámenes de laboratorio y, en casos de complicaciones, internaciones y procedimientos especializados que elevan considerablemente el gasto en salud.
+
+### 10.2 Costo por tipo de utilización
+
+```{r costo_tipo}
+db_dedup %>%
+  left_join(positivos_chave, by = "CHAVE_FUNCIONAL") %>%
+  filter(tiene_diabetes == 1) %>%
+  group_by(CETIPO) %>%
+  summarise(
+    N_registros = n(),
+    Costo_medio = round(mean(VALOR_UTILIZACAO_W, na.rm=TRUE), 2),
+    Costo_total = round(sum(VALOR_UTILIZACAO_W,  na.rm=TRUE), 2)
+  ) %>%
+  arrange(desc(Costo_medio)) %>%
+  knitr::kable(caption = "Costo por tipo de utilización en beneficiarios con diabetes")
+```
+
+Las internaciones (tipo I) y las urgencias (tipo P) presentan los costos unitarios más elevados, aunque son menos frecuentes que las consultas y exámenes. Esto confirma que las complicaciones agudas de la diabetes, como cetoacidosis o hipoglucemia severa, generan episodios de alto costo que impactan significativamente el gasto total por beneficiario.
+
+### 10.3 Modelo de costo esperado
+
+```{r modelo_costo}
+df_costo <- df_model %>%
+  filter(tiene_diabetes == "Si",
+         !is.na(costo_total), is.finite(costo_total),
+         !is.na(edad)) %>%
+  mutate(log_costo = log1p(costo_total))
+
+modelo_costo <- lm(log_costo ~ edad + SEXO_LIMPIO +
+                     tuvo_internacion + tuvo_uti +
+                     n_utilizaciones + n_especialidades +
+                     prop_examen + prop_urgencia + tipo_benef,
+                   data = df_costo)
+
+tidy(modelo_costo) %>%
+  filter(term != "(Intercept)") %>%
+  mutate(
+    sig    = case_when(p.value<0.001~"***", p.value<0.01~"**",
+                       p.value<0.05~"*", TRUE~""),
+    efecto = ifelse(estimate > 0, "Aumenta costo","Reduce costo"),
+    estimate = round(estimate, 4),
+    p.value  = round(p.value,  4)
+  ) %>%
+  arrange(desc(abs(estimate))) %>%
+  head(15) %>%
+  knitr::kable(caption = "Variables asociadas al costo (regresión sobre log-costo)")
+
+tidy(modelo_costo) %>%
+  filter(term != "(Intercept)", p.value < 0.05) %>%
+  mutate(efecto = ifelse(estimate > 0,"Aumenta costo","Reduce costo")) %>%
+  head(15) %>%
+  ggplot(aes(x = reorder(term, estimate),
+             y = estimate, fill = efecto)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_fill_manual(values = c("Aumenta costo"="#E74C3C",
+                               "Reduce costo" ="#3498DB")) +
+  labs(title = "Variables significativas asociadas al costo (p < 0.05)",
+       x = "", y = "Coeficiente sobre log(1+costo)", fill = "") +
+  theme_minimal()
+```
+
+El modelo de regresión sobre el logaritmo del costo permite identificar qué factores están significativamente asociados al gasto de un beneficiario diabético. Las variables con coeficiente positivo y significativo son las que más aumentan el costo esperado. Como era de esperar, la internación, el uso de UCI y el número de utilizaciones son los predictores más fuertes del costo, ya que reflejan la severidad y complejidad clínica del caso.
+
+### 10.4 Costo esperado por perfiles
+
+```{r perfiles_costo}
+moda_tipo <- names(sort(table(df_costo$tipo_benef), decreasing=TRUE))[1]
+
+perfiles <- data.frame(
+  Perfil           = c("Joven sin complicaciones",
+                       "Adulto con exámenes frecuentes",
+                       "Adulto mayor con internación",
+                       "Adulto con UCI",
+                       "Adulto mayor multiespecialidad"),
+  edad             = c(35,  55,  70,  60,  72),
+  SEXO_LIMPIO      = c("M", "F", "F", "M", "F"),
+  tuvo_internacion = c(0,   0,   1,   1,   1),
+  tuvo_uti         = c(0,   0,   0,   1,   0),
+  n_utilizaciones  = c(5,   12,  20,  25,  30),
+  n_especialidades = c(2,   3,   5,   6,   8),
+  prop_examen      = c(0.3, 0.5, 0.4, 0.3, 0.4),
+  prop_urgencia    = c(0.0, 0.0, 0.1, 0.2, 0.1),
+  tipo_benef       = moda_tipo
+)
+
+perfiles$Costo_estimado_BRL <- round(
+  expm1(predict(modelo_costo, newdata = perfiles)), 2)
+
+perfiles %>%
+  select(Perfil, Edad = edad, Sexo = SEXO_LIMPIO,
+         Internación = tuvo_internacion, UCI = tuvo_uti,
+         N_util = n_utilizaciones, Costo_BRL = Costo_estimado_BRL) %>%
+  knitr::kable(caption = "Costo esperado por perfil de beneficiario diabético")
+
+ggplot(perfiles, aes(x = reorder(Perfil, Costo_estimado_BRL),
+                     y = Costo_estimado_BRL,
+                     fill = Costo_estimado_BRL)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_text(aes(label = paste0("BRL ", comma(Costo_estimado_BRL))),
+            hjust = -0.1, size = 3.5) +
+  coord_flip() +
+  scale_fill_gradient(low = "#F8C471", high = "#E74C3C") +
+  scale_y_continuous(labels = comma,
+                     expand = expansion(mult = c(0, 0.3))) +
+  labs(title = "Costo esperado por perfil de beneficiario diabético",
+       x = "", y = "Costo estimado (BRL)") +
+  theme_minimal() + theme(legend.position = "none")
+```
+
+La tabla de perfiles ilustra la enorme variabilidad del costo esperado según las características del beneficiario. Un paciente joven sin complicaciones genera un costo significativamente menor que un adulto mayor con internación o uso de UCI. Esta información es valiosa para la aseguradora en el diseño de programas de gestión de enfermedad crónica orientados a los perfiles de mayor riesgo y mayor costo esperado.
+
+### 10.5 Limitaciones de la estimación
+
+1. **Tiempo de afiliación:** el costo se agrega sin controlar por tiempo de afiliación; un beneficiario con 12 meses de datos genera más costo que uno con 1 mes independientemente de la enfermedad.
+
+2. **Winsorización:** se capearon valores en el P99, subestimando el costo real de casos extremos (internaciones largas, cirugías complejas).
+
+3. **Modelo lineal:** la regresión sobre log(costo) puede no capturar distribuciones bimodales o con inflación de ceros. Modelos Tweedie o gamma serían más apropiados.
+
+4. **Variables omitidas:** no se dispone de comorbilidades, medicamentos, duración de la enfermedad ni nivel socioeconómico.
+
+5. **Proxy de diagnóstico:** beneficiarios identificados por HbA1c sin diabetes confirmada pueden subestimar el costo real de los verdaderos diabéticos.
+
+---
+
+## 11. Conclusiones, limitaciones y trabajos futuros
+
+### Conclusiones
+
+- Se logró identificar a los beneficiarios con diabetes con un ROC-AUC superior al 0.85 en los tres modelos, con Random Forest como el mejor clasificador.
+- La estrategia de combinar CIDs E10-E14 con la solicitud de HbA1c fue necesaria y clínicamente justificada dado que el 82% de registros carece de CID válido.
+- Las variables más asociadas a la enfermedad son `prop_examen`, `costo_total`, `n_utilizaciones` y `edad`, coherentes con el patrón de uso de un paciente crónico que requiere seguimiento continuo.
+- Los beneficiarios con diabetes presentan costos considerablemente mayores. La internación y el uso de UCI son los factores que más incrementan el costo esperado.
+- El modelo construido es confiable para identificar beneficiarios de alto riesgo dentro del sistema de salud suplementaria, con un desempeño que supera la referencia del 85% establecida por el enunciado.
+
+### Limitaciones
+
+- La base tiene un problema estructural: 82% de registros sin CID válido, lo que obliga al uso de proxies de procedimiento.
+- La variable objetivo basada en HbA1c puede incluir falsos positivos (personas en estudio sin diabetes confirmada).
+- Data leakage potencial: `costo_total` es consecuencia del diagnóstico, no un predictor independiente en sentido estricto.
+- No se dispone de información longitudinal completa ni de resultados de laboratorio para confirmar diagnósticos.
+
+### Trabajos futuros
+
+- Incorporar modelos de costo más robustos (Tweedie, GLM gamma).
+- Explorar SHAP values para interpretación granular a nivel individuo.
+- Evaluar modelos de series de tiempo para predecir el costo futuro de un beneficiario ya diagnosticado.
+- Enriquecer la base con resultados de laboratorio (valor numérico de HbA1c) para reducir falsos positivos en la variable objetivo.
+- Normalizar el costo por tiempo de afiliación para comparaciones más justas entre beneficiarios.
+
+---
+
+## Reproducibilidad
+
+Para reproducir el análisis:
+
+1. Clonar el repositorio y ubicarse en la carpeta personal.
+2. Colocar `db_2026.csv` en el mismo directorio que este archivo.
+3. Knitear `taller_3.Rmd` en RStudio o ejecutar `taller_3.R`.
+4. Paquetes requeridos: `tidyverse`, `lubridate`, `caret`, `randomForest`, `pROC`, `PRROC`, `rpart`, `rpart.plot`, `vip`, `scales`, `broom`.
+5. Tiempo estimado de ejecución: 15-30 minutos (Random Forest sobre 650K beneficiarios).
