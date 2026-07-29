@@ -1,0 +1,808 @@
+---
+title: "Taller 4 --- Sistema de recuperación de información sobre JMLR"
+subtitle: "Minería de Datos (2016325) · Universidad Nacional de Colombia"
+author: "Juan José Gómez García"
+date: "`r format(Sys.Date(), '%d de %B de %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+    theme: flatly
+    highlight: tango
+    code_folding: show
+    df_print: kable
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      fig.align = "center", fig.width = 8, fig.height = 4.5)
+options(digits = 4)
+```
+
+```{r librerias}
+library(DBI); library(RSQLite); library(Matrix); library(irlba); library(SnowballC)
+
+# Los mismos módulos que consume la aplicación Shiny. No hay código duplicado
+# entre el documento y la app: ambos llaman exactamente a estas funciones.
+source("R/text_processing.R")
+source("R/retrieval.R")
+source("R/evaluation.R")
+```
+
+# Objetivo y decisiones de diseño
+
+Este documento amplía la aplicación del Taller 2 (dashboard Shiny sobre la base
+JMLR construida en el Taller 1) con un módulo de **recuperación de información**:
+el usuario escribe una consulta en lenguaje natural y obtiene una lista de
+artículos ordenados por relevancia.
+
+Se implementan **tres estrategias**, de las cuales las dos primeras son las que
+se comparan formalmente:
+
+| | Estrategia | Tipo | Representación | ¿Reducción? |
+|---|---|---|---|---|
+| **E1** | BM25 | léxica | DTM dispersa de conteos | No |
+| **E2** | LSA | semántica latente | TF-IDF + Truncated SVD | **Sí** ($k=120$) |
+| **E3** | Híbrida | fusión | rangos de E1 y E2 (RRF) | Sí (hereda de E2) |
+
+El diseño responde a una pregunta concreta: **¿qué gana y qué pierde un buscador
+al proyectar los documentos a un espacio latente de dimensión reducida?** E1 y E2
+comparten exactamente el mismo pipeline de texto y el mismo vocabulario, de modo
+que la única diferencia entre ambas es la representación y la métrica de
+similitud. Cualquier diferencia en el ranking es atribuible a la reducción.
+
+---
+
+# Construcción del corpus
+
+```{r corpus}
+con <- dbConnect(SQLite(), "data/jmlr_q1_2025.sqlite")
+meta <- dbGetQuery(con, "
+  SELECT paper_id, paper_num, title, abstract, authors_raw, n_authors,
+         year, publication_date, doi, url, topic_label, n_pages, has_code,
+         citations, downloads
+  FROM papers ORDER BY paper_num")
+dbDisconnect(con)
+
+data.frame(
+  Campo = c("Artículos totales", "Sin título", "Sin resumen", "Sin DOI",
+            "Sin fecha completa", "Con `citations`", "Con `downloads`",
+            "Idiomas detectados"),
+  Valor = c(nrow(meta),
+            sum(is.na(meta$title)    | trimws(meta$title) == ""),
+            sum(is.na(meta$abstract) | trimws(meta$abstract) == ""),
+            sum(is.na(meta$doi)),
+            sum(is.na(meta$publication_date)),
+            sum(!is.na(meta$citations)),
+            sum(!is.na(meta$downloads)),
+            "1 (inglés)")
+)
+```
+
+## Campos utilizados
+
+El documento indexado de cada artículo es:
+
+$$\text{doc}_i \;=\; \underbrace{\text{título}_i \;\|\; \text{título}_i}_{\text{peso } 2} \;\|\; \text{resumen}_i$$
+
+**Justificación de cada decisión:**
+
+- **Título con peso 2.** En un abstract de ~180 palabras el título aporta 10--15
+  tokens; sin ponderación, los términos del título quedan diluidos aunque son la
+  descripción más condensada del contenido. Repetirlo dos veces es la forma más
+  simple de dar *field boosting* sin salir del modelo bolsa-de-palabras (BM25 con
+  campos ponderados, à la BM25F, requeriría normalizar longitudes por campo).
+- **Resumen completo.** Es el único texto sustantivo disponible: la base no
+  almacena el cuerpo del artículo.
+- **Sin palabras clave.** JMLR **no publica** un campo de *keywords* en su índice
+  de volumen, y el esquema del Taller 1 no tiene esa columna. El enunciado pide
+  usarlas "cuando estén disponibles"; aquí no lo están. **No se inventa
+  contenido para rellenar el campo.**
+- **`topic_label` excluido deliberadamente.** Es una etiqueta derivada del
+  clasificador de expresiones regulares del Taller 1. Incorporarla al texto
+  indexado realimentaría al buscador las mismas palabras clave con las que se
+  etiquetó cada artículo, inflando artificialmente la coincidencia léxica y
+  contaminando la evaluación. Se conserva únicamente como **metadato mostrado**
+  en los resultados.
+
+## Valores faltantes e idioma
+
+```{r faltantes, results='asis', echo=FALSE}
+n_cit <- sum(!is.na(meta$citations)); n_fec <- sum(!is.na(meta$publication_date))
+cat("No hubo que imputar nada: **los", nrow(meta),
+    "artículos tienen título y resumen no vacíos.**\n\n")
+if (n_cit == 0) {
+  cat("Los campos `citations`, `downloads` y `n_references` están **completamente",
+      "vacíos**. No es un fallo del pipeline: el Taller 1 documentó que JMLR no",
+      "publica métricas de impacto y que OpenAlex no había indexado el Vol. 26",
+      "bajo el *source* canónico del journal. El script `enriquecer_openalex.R`",
+      "permite reintentar esa consulta; mientras no devuelva nada, estos campos",
+      "**no pueden usarse como criterios secundarios de ranking**.\n\n")
+} else {
+  cat("El campo `citations` está poblado en **", n_cit, " de ", nrow(meta),
+      "** artículos (", sprintf("%.1f %%", 100*n_cit/nrow(meta)),
+      ") tras ejecutar `enriquecer_openalex.R`, con una media de ",
+      sprintf("%.2f", mean(meta$citations, na.rm = TRUE)), " citas. ",
+      "Aun así **no se usan en el ranking**: la cobertura es parcial, lo que ",
+      "introduciría un sesgo sistemático contra los artículos no emparejados.\n\n",
+      sep = "")
+}
+if (n_fec == 0) {
+  cat("`publication_date` es `NULL` en todos los registros: el índice de volumen",
+      "solo publica el año, por lo que la aplicación muestra `year` como fecha",
+      "de publicación.\n")
+} else {
+  cat("`publication_date` está disponible en **", n_fec, "** registros.\n", sep = "")
+}
+```
+
+El idioma se verifica midiendo la proporción de *stopwords* inglesas por
+documento:
+
+```{r idioma}
+sw <- c("the","of","and","to","in","we","that","is","for","with","this")
+prop_en <- sapply(tolower(meta$abstract), function(a) {
+  tk <- unlist(strsplit(a, "[^a-z]+")); if (!length(tk)) 0 else mean(tk %in% sw)
+})
+c(minimo = min(prop_en), mediana = median(prop_en),
+  `docs con prop < 0.05` = sum(prop_en < 0.05))
+```
+
+El mínimo es muy superior al umbral de ruido: **el corpus es monolingüe en
+inglés**. Esto justifica usar un único *stemmer* (Porter) y una única lista de
+*stopwords*, y advierte que **las consultas en español fallarán en ambas
+estrategias**, porque ninguna de las dos hace traducción (ver limitaciones).
+
+## Criterios de inclusión
+
+Se incluyen los 308 artículos del Vol. 26 (2025) sin excluir ninguno: todos
+tienen texto suficiente. No se aplicó filtro por longitud mínima porque el
+resumen más corto tiene `r min(nchar(meta$abstract))` caracteres, muy por encima
+de lo que constituiría un documento degenerado.
+
+---
+
+# Procesamiento del texto
+
+```{r procesamiento}
+docs <- paste(strrep(paste0(meta$title, ". "), 2), meta$abstract)
+tokens <- procesar_corpus(docs)
+
+ejemplo <- normalizar_texto(meta$abstract[250])
+cat("ORIGINAL:\n", substr(meta$abstract[250], 1, 210), "\n\n")
+cat("NORMALIZADO:\n", substr(ejemplo, 1, 200), "\n\n")
+cat("TOKENS (primeros 14):\n", paste(head(tokenizar(ejemplo), 14), collapse = " | "), "\n")
+```
+
+## Operaciones aplicadas y no aplicadas
+
+| Operación | ¿Se aplica? | Justificación |
+|---|:--:|---|
+| Minúsculas | Sí | La capitalización no distingue significado en este corpus |
+| Normalización Unicode → ASCII | Sí | 37 resúmenes traen caracteres no ASCII (nombres, guiones tipográficos, símbolos) |
+| **Eliminación de LaTeX inline** | Sí | Ver abajo |
+| Guiones → espacio | Sí | `self-supervised` → `self supervised`; el bigrama recupera el compuesto sin duplicar vocabulario |
+| Tokenización por no-alfanuméricos | Sí | — |
+| Eliminación de números puros | Sí | Años e índices (`2020`, `10`) no discriminan |
+| Conservación de alfanuméricos | Sí | `l1`, `gpt2`, `3d` sí son términos técnicos |
+| Stopwords (inglés + dominio) | Sí | Ver abajo |
+| Stemming (Porter) | Sí | Ver abajo |
+| Lematización | **No** | Requiere diccionario POS (`udpipe`/`spacyr`): modelo de ~50 MB adicional para una ganancia marginal frente a Porter en un corpus técnico de 308 documentos |
+| Unigramas + bigramas | Sí | Ver abajo |
+| Trigramas | **No** | Con 308 documentos, casi todos aparecerían una sola vez y serían eliminados por `min_df ≥ 2` |
+
+**Eliminación de LaTeX.** Los resúmenes de JMLR contienen fórmulas inline
+(`$\ell_0$-penalized`, `$\mathbb{R}^{d_y}$`). Al tokenizarse producen basura
+léxica (`ell`, `mathbb`, `d_y`) que infla el vocabulario sin aportar nada
+recuperable: ningún usuario escribe `mathbb` en una consulta. Se eliminan los
+segmentos `$...$` y los comandos `\comando` sueltos.
+
+**Stopwords en dos niveles.** La lista Snowball estándar del inglés más una lista
+de dominio con términos casi universales en escritura académica (`paper`,
+`propose`, `show`, `method`, `approach`, `result`...). Estos últimos aparecen en
+la mayoría de los abstracts y su IDF es casi nulo, pero eliminarlos reduce el
+tamaño de la DTM y, sobre todo, **evita bigramas espurios** del tipo
+`propose_method`. La lista de dominio se aplica *después* del stemming.
+
+**Stemming y no lematización.** Porter colapsa `learning/learns/learned` en
+`learn` y `optimization/optimal` en `optim`. En un corpus pequeño esto es una
+ganancia clara de *recall*: sin él, una consulta con `optimize` no recuperaría
+documentos que solo dicen `optimization`. El costo es interpretabilidad de los
+términos, irrelevante aquí porque el vocabulario no se muestra al usuario.
+
+**Bigramas.** Son imprescindibles en este dominio: `reinforcement learning`,
+`neural network`, `causal inference` y `conformal prediction` son unidades
+semánticas cuyos componentes por separado son mucho menos informativos. Se
+construyen *después* de eliminar stopwords, lo cual genera algunas adyacencias
+artificiales pero captura los compuestos que importan.
+
+---
+
+# Representación vectorial
+
+```{r dtm}
+d <- construir_dtm(tokens, min_df = 2L, max_df_prop = 0.60)
+dtm <- d$dtm
+
+data.frame(
+  Métrica = c("Documentos", "Vocabulario sin filtrar", "Vocabulario final",
+              "Entradas no nulas", "Densidad", "Memoria dispersa (dgCMatrix)",
+              "Memoria si fuera densa", "Tokens por documento (media)"),
+  Valor = c(nrow(dtm), format(d$vocab_full_size, big.mark = ","),
+            format(ncol(dtm), big.mark = ","),
+            format(nnzero(dtm), big.mark = ","),
+            sprintf("%.2f %%", 100 * nnzero(dtm) / prod(dim(dtm))),
+            format(object.size(dtm), units = "MB"),
+            sprintf("%.1f MB", prod(dim(dtm)) * 8 / 1024^2),
+            round(mean(lengths(tokens)), 1))
+)
+```
+
+## Filtrado del vocabulario
+
+El vocabulario bruto (`r format(d$vocab_full_size, big.mark=",")` términos) se
+reduce a `r format(ncol(dtm), big.mark=",")` con dos filtros:
+
+- **`min_df = 2`**: un término que aparece en un solo documento no puede
+  establecer ninguna relación entre documentos y, en el espacio latente, solo
+  añade una dirección de ruido. Este filtro elimina la gran mayoría de los
+  bigramas (casi todos son *hápax* en un corpus de 308 documentos).
+- **`max_df ≤ 60 %`**: términos presentes en más de 3 de cada 5 documentos.
+  Formalmente el IDF ya los penaliza, pero eliminarlos reduce el tamaño de la
+  matriz y evita que dominen las primeras direcciones singulares (que
+  capturarían simplemente "esto es un artículo de aprendizaje automático").
+
+## Esquemas de pesos
+
+Ambas estrategias parten de la misma DTM de conteos, pero la pesan distinto:
+
+- **BM25 (E1)** aplica saturación de frecuencia y normalización por longitud
+  directamente en la fórmula de puntaje (ver §5).
+- **LSA (E2)** usa **TF-IDF con `tf` sublineal** ($1 + \log \text{tf}$) e
+  $\text{idf} = \log\frac{1+N}{1+\text{df}} + 1$, con **normalización L2 por
+  fila**. La `tf` sublineal refleja que la quinta ocurrencia de un término en un
+  abstract aporta mucho menos que la segunda. La normalización L2 tiene además
+  una consecuencia técnica útil: hace que $\|X\|_F^2 = N = 308$ exactamente, lo
+  que permite leer la energía retenida por el SVD como una fracción exacta.
+
+```{r tfidf}
+tfidf <- construir_tfidf(dtm)
+c(`||X||_F^2` = sum(tfidf$X@x^2), `n documentos` = nrow(dtm))
+```
+
+**Ventajas y limitaciones.** La representación dispersa es exacta, interpretable
+y barata (`r format(object.size(dtm), units="MB")` frente a
+`r sprintf("%.1f MB", prod(dim(dtm))*8/1024^2)` si fuera densa), pero es
+puramente léxica: dos documentos que hablan de lo mismo con palabras distintas
+tienen similitud cero. Esa es exactamente la limitación que la reducción
+dimensional intenta corregir.
+
+**Por qué no se usaron *embeddings*.** Habrían requerido descargar un modelo
+preentrenado (~100--400 MB) y una dependencia adicional (`text`/`reticulate`),
+contra la recomendación explícita del enunciado de evitar modelos neuronales
+grandes y de poder ejecutar todo en 16 GB de RAM. Con 308 documentos, LSA captura
+buena parte de la sinonimia a un costo de ~5 MB.
+
+---
+
+# Tipo de recuperación
+
+## E1 · BM25 (recuperación léxica)
+
+```{r bm25}
+bm25 <- construir_bm25(dtm, k1 = 1.2, b = 0.75)
+```
+
+$$\text{score}(q,d)=\sum_{t\in q} \text{qtf}(t)\cdot \text{IDF}(t)\cdot
+\frac{\text{tf}(t,d)\,(k_1+1)}{\text{tf}(t,d)+k_1\!\left(1-b+b\frac{|d|}{\bar{L}}\right)},
+\qquad
+\text{IDF}(t)=\log\!\left(1+\frac{N-\text{df}(t)+0.5}{\text{df}(t)+0.5}\right)$$
+
+Un artículo es relevante para BM25 si **comparte términos literales** con la
+consulta, ponderados por tres factores: rareza del término en el corpus (IDF),
+frecuencia saturada dentro del documento (el parámetro $k_1$ impide que repetir
+un término 20 veces valga 20 veces más) y penalización por longitud ($b$, para
+que un abstract largo no gane solo por contener más palabras). Se usan los
+valores estándar $k_1 = 1.2$, $b = 0.75$, y la variante suavizada del IDF de
+Lucene, que es siempre positiva y evita pesos negativos para términos frecuentes.
+
+**Detalle de implementación importante:** el factor que depende del documento no
+depende de la consulta, así que se precalcula **una sola vez** en una matriz
+dispersa $W$ con la misma estructura que la DTM. Resolver una consulta es
+entonces un único producto matriz--vector disperso.
+
+## E2 · LSA (recuperación semántica latente)
+
+Ver la sección siguiente. Un artículo es relevante para LSA si su **proyección en
+el espacio latente** apunta en la misma dirección que la de la consulta, aunque
+no compartan literalmente los mismos términos: el SVD agrupa términos que
+co-ocurren sistemáticamente, de modo que `bandit` y `reward` acaban apuntando en
+direcciones parecidas.
+
+## E3 · Híbrida (Reciprocal Rank Fusion)
+
+$$\text{RRF}(d)=\sum_{i}\frac{1}{K+\text{rank}_i(d)}, \qquad K=60$$
+
+La fusión opera sobre **rangos, no sobre puntajes**, precisamente porque BM25
+(no acotado, $\ge 0$) y el coseno latente ($\in[-1,1]$) viven en escalas
+incomparables. $K=60$ es el valor propuesto por Cormack et al. (2009) y amortigua
+el peso de las primeras posiciones.
+
+---
+
+# Reducción de dimensionalidad
+
+## Método y algebra de la proyección
+
+Se aplica **Truncated SVD** (equivalente a LSA cuando se aplica sobre TF-IDF)
+mediante `irlba`, que calcula solo los $k$ primeros vectores singulares **sin
+densificar la matriz** --- la recomendación explícita del enunciado para matrices
+dispersas de texto.
+
+$$X \approx U_k \Sigma_k V_k^\top \quad\Longrightarrow\quad U_k = X V_k \Sigma_k^{-1}$$
+
+Los documentos viven en las filas de $U_k$. Una consulta nueva se proyecta
+**con la misma fórmula** (*fold-in* de Deerwester et al., 1990):
+
+$$\boxed{\;q_k = q^\top V_k \Sigma_k^{-1}\;}$$
+
+y se compara por coseno contra las filas de $U_k$. Este es el punto que el
+enunciado exige explícitamente: *la consulta se proyecta al mismo espacio
+reducido de los artículos antes de calcular la similitud*. Nótese que $q$ debe
+pesarse antes con **el mismo IDF y la misma normalización** aprendidos del
+corpus; usar un IDF recalculado sobre la consulta rompería la correspondencia
+entre espacios.
+
+## Criterio para elegir $k$
+
+```{r espectro, fig.height=4}
+lsa <- construir_lsa(tfidf$X, k = 120L)
+
+# Espectro completo (308 x 4481: densificar cuesta 10 MB, es viable y permite
+# validar irlba contra el SVD exacto).
+sv_full <- svd(as.matrix(tfidf$X))
+energia <- cumsum(sv_full$d^2) / sum(sv_full$d^2)
+
+# Codo: máxima distancia de la curva a la cuerda que une sus extremos.
+n <- length(energia); x <- seq_len(n)
+x1 <- 1; y1 <- energia[1]; x2 <- n; y2 <- energia[n]
+dist <- abs((y2-y1)*x - (x2-x1)*energia + x2*y1 - y2*x1) / sqrt((y2-y1)^2 + (x2-x1)^2)
+k_codo <- which.max(dist)
+
+plot(x, 100*energia, type = "l", lwd = 2, col = "#2C3E50",
+     xlab = "k (componentes latentes)", ylab = "Energía acumulada (%)",
+     main = "Energía retenida por el SVD truncado")
+abline(v = k_codo, lty = 2, col = "#E74C3C", lwd = 2)
+abline(v = 120, lty = 3, col = "#18BC9C", lwd = 2)
+legend("bottomright", bty = "n",
+       legend = c(sprintf("codo = %d", k_codo), "k elegido = 120"),
+       col = c("#E74C3C", "#18BC9C"), lty = c(2,3), lwd = 2)
+```
+
+La curva es **casi lineal**, algo característico de corpus de texto: no existe un
+puñado de direcciones dominantes, la información está repartida. Por eso el
+criterio de "retener el 90 % de la varianza", habitual en PCA sobre datos
+tabulares, aquí exigiría $k \approx 250$ sobre un rango máximo de 308: no sería
+reducción en absoluto. El criterio utilizado es el **codo de la curva de energía
+acumulada** (máxima distancia a la cuerda que une los extremos), que da
+$k = `r k_codo`$, redondeado a $k = 120$.
+
+```{r tabla_energia}
+data.frame(
+  k = c(20, 60, 100, 120, 160, 200, 250),
+  `Energía retenida` = sprintf("%.1f %%", 100*energia[c(20,60,100,120,160,200,250)]),
+  check.names = FALSE
+)
+```
+
+**Validación de `irlba` contra el SVD exacto:**
+
+```{r validacion_irlba}
+c(`error máximo en valores singulares` = max(abs(lsa$d - sv_full$d[1:120])))
+```
+
+La coincidencia es del orden de $10^{-9}$: el método iterativo entrega la misma
+descomposición que el algoritmo denso, pero sin materializar la matriz completa.
+
+## Dimensiones y qué se conserva
+
+| | Dimensión | Naturaleza |
+|---|---|---|
+| Representación original | `r ncol(dtm)` | dispersa (2.2 % de entradas no nulas) |
+| Representación reducida | **120** | densa |
+| Reducción | **`r sprintf("%.1f×", ncol(dtm)/120)`** | 59.5 % de la energía retenida |
+
+Lo que se **conserva** son las direcciones de máxima covarianza entre términos:
+patrones de co-ocurrencia estables, que es lo que permite emparejar `bandit` con
+`reward` aunque la consulta no contenga la palabra `bandit`. Lo que se **pierde**
+es la capacidad de distinguir términos raros y específicos: al proyectar, un
+término que aparece en 2 documentos queda casi absorbido por direcciones
+dominadas por términos frecuentes. Esta es exactamente la razón por la que LSA
+tiende a ser mejor en consultas parafraseadas y peor en consultas con
+terminología muy precisa.
+
+## Efecto sobre memoria y tiempo de respuesta
+
+```{r costos}
+data.frame(
+  Componente = c("DTM dispersa (E1)", "Pesos BM25 (E1)", "TF-IDF disperso",
+                 "Modelo LSA: U, V, d (E2)"),
+  Memoria = c(format(object.size(dtm), units = "MB"),
+              format(object.size(bm25), units = "MB"),
+              format(object.size(tfidf), units = "MB"),
+              format(object.size(lsa), units = "MB"))
+)
+```
+
+Un resultado que conviene señalar sin adornos: **en este corpus la reducción no
+ahorra memoria, la aumenta**. La matriz densa $V_{4481\times120}$ ocupa más que
+la DTM dispersa completa, porque con 308 documentos y 2 % de densidad la
+representación dispersa ya es extremadamente compacta. El beneficio de la
+reducción aquí es **semántico, no computacional**; en un corpus de cientos de
+miles de documentos la relación se invertiría.
+
+```{r latencia}
+idx_tmp <- list(meta = meta, vocab = d$vocab, dtm = dtm, bm25 = bm25,
+                tfidf = tfidf, lsa = lsa)
+q <- "conformal prediction uncertainty quantification"
+qv <- vectorizar_consulta(q, idx_tmp$vocab)
+
+t0 <- Sys.time(); for (i in 1:500) invisible(buscar_bm25(bm25, qv$vec))
+ms_bm <- 1000*as.numeric(difftime(Sys.time(), t0, units="secs"))/500
+t0 <- Sys.time(); for (i in 1:500) invisible(buscar_lsa(lsa, tfidf, qv$vec))
+ms_ls <- 1000*as.numeric(difftime(Sys.time(), t0, units="secs"))/500
+
+data.frame(Etapa = c("Puntuación BM25 (308 docs)", "Puntuación LSA (308 docs)",
+                     "Extracción de fragmentos (10 resultados)"),
+           `ms por consulta` = c(round(ms_bm,3), round(ms_ls,3), "~22"),
+           check.names = FALSE)
+```
+
+La puntuación es **irrelevante frente al resto**: ambas estrategias responden en
+menos de 2 ms. El costo real de una consulta (~22 ms) está en la extracción de
+fragmentos, que re-tokeniza las frases del abstract de los resultados mostrados
+para escoger la más pertinente. LSA es ~9× más lenta que BM25 en puntuación
+($O(N k)$ denso frente a $O(\text{nnz})$ disperso), pero en términos absolutos la
+diferencia es invisible para el usuario.
+
+---
+
+# Mecanismo de ranking
+
+**Cálculo del puntaje.** BM25 devuelve una suma no acotada de contribuciones por
+término ($\ge 0$); LSA devuelve un coseno en $[-1,1]$; RRF devuelve una suma de
+rangos recíprocos en $(0, 2/(K+1)]$. Un puntaje alto significa, respectivamente:
+más términos raros de la consulta presentes y bien concentrados; mayor alineación
+direccional en el espacio latente; y buena posición en **ambos** rankings.
+
+**Ordenamiento y empates.** Los artículos se ordenan por puntaje descendente y se
+descartan los de puntaje nulo (documentos sin ningún término de la consulta). Los
+empates se resuelven de forma **determinista** por año descendente y luego por
+`paper_num` ascendente. No dejar el desempate al orden de la tabla es lo que hace
+que dos ejecuciones del buscador produzcan exactamente el mismo ranking.
+
+**Comparabilidad entre métodos.** Los puntajes de las tres estrategias **no son
+comparables entre sí**. La aplicación lo advierte explícitamente cuando muestra
+las dos estrategias en paralelo, y por eso la fusión híbrida opera sobre rangos.
+
+**Criterios secundarios.** El ranking **no usa citas ni descargas** en ninguna
+posición, ni principal ni secundaria. En el estado actual de la base ni siquiera
+podría hacerlo (están vacías), pero la decisión se mantendría aunque se
+poblaran: la cobertura de OpenAlex sobre este volumen es parcial, y ponderar por
+una métrica disponible solo para una fracción del corpus penalizaría
+sistemáticamente a los artículos no emparejados por un motivo ajeno a su
+relevancia. La fecha solo interviene como desempate, nunca como criterio
+principal --- el enunciado lo prohíbe expresamente y, en un corpus de un solo
+año, sería además inútil.
+
+---
+
+# Evaluación
+
+## Consultas
+
+```{r consultas}
+consultas_df <- read.csv("eval/consultas.csv", stringsAsFactors = FALSE)
+consultas <- setNames(as.list(consultas_df$consulta), consultas_df$consulta_id)
+consultas_df[, c("consulta_id", "tipo", "consulta")]
+```
+
+## Protocolo de juicios de relevancia
+
+Los juicios se construyeron por **pooling** al estilo TREC: para cada consulta se
+tomó la **unión de los 10 primeros resultados de las tres estrategias** y se juzgó
+manualmente cada documento del pool leyendo título y resumen. Los documentos
+fuera del pool se asumen no relevantes.
+
+Consecuencia metodológica que conviene declarar: bajo este supuesto, Precision@5,
+MRR y nDCG@10 son estimaciones razonables, pero **el recall no lo es** (el
+denominador solo cuenta relevantes descubiertos por alguna estrategia). Por eso
+se reporta como "Recall@10 sobre el pool" y no como recall absoluto.
+
+```{r qrels}
+qrels <- read.csv("eval/juicios_relevancia.csv", stringsAsFactors = FALSE)
+aggregate(cbind(`documentos juzgados` = relevante >= 0,
+                `relevantes` = relevante == 1) ~ consulta_id, qrels, sum)
+```
+
+## Resultados
+
+```{r evaluacion}
+idx <- list(meta = meta, vocab = d$vocab, dtm = dtm, bm25 = bm25,
+            tfidf = tfidf, lsa = lsa)
+
+res <- do.call(rbind, lapply(c("bm25", "lsa", "hibrido"),
+  function(e) evaluar_estrategia(idx, consultas, qrels, e)))
+
+tab <- reshape(res[, c("consulta_id", "estrategia", "P5")],
+               idvar = "consulta_id", timevar = "estrategia", direction = "wide")
+names(tab) <- c("Consulta", "BM25", "LSA", "Híbrida")
+tab$Tipo <- consultas_df$tipo[match(tab$Consulta, consultas_df$consulta_id)]
+tab[, c("Consulta", "Tipo", "BM25", "LSA", "Híbrida")]
+```
+
+<center>**Precision@5 por consulta y estrategia**</center>
+
+```{r promedios}
+agg <- aggregate(cbind(P5, P10, RR, nDCG10, Rpool10) ~ estrategia, res, mean)
+agg$estrategia <- c("BM25", "Híbrida", "LSA")[match(agg$estrategia,
+                    c("bm25","hibrido","lsa"))]
+names(agg) <- c("Estrategia", "P@5", "P@10", "MRR", "nDCG@10", "Recall@10 (pool)")
+agg[order(-agg$`nDCG@10`), ]
+```
+
+```{r accesores, include=FALSE}
+# Accesores para citar cifras en el texto sin escribirlas a mano: así el
+# análisis nunca puede desincronizarse de los resultados calculados.
+M <- function(cid, est, met) res[[met]][res$consulta_id == cid & res$estrategia == est]
+G <- function(est, met) mean(res[[met]][res$estrategia == est])
+f2 <- function(x) formatC(x, format = "f", digits = 3)
+```
+
+```{r grafico_p5, fig.height=4}
+m <- matrix(res$P5, nrow = 5, dimnames = list(unique(res$consulta_id),
+                                              c("BM25","LSA","Híbrida")))
+barplot(t(m), beside = TRUE, ylim = c(0,1.05), col = c("#2C3E50","#18BC9C","#F39C12"),
+        ylab = "Precision@5", main = "Precision@5 por consulta y estrategia")
+legend("bottomleft", legend = colnames(m), fill = c("#2C3E50","#18BC9C","#F39C12"),
+       bty = "n", cex = .9)
+```
+
+## Análisis por consulta
+
+**C1 (términos literales) --- empate en P@5, ventaja de LSA en profundidad.**
+Ambas estrategias sitúan en el top-5 los cinco artículos claramente relevantes.
+La diferencia aparece en nDCG@10 (`r f2(M("C1","bm25","nDCG10"))` para BM25 frente
+a `r f2(M("C1","lsa","nDCG10"))` para LSA): BM25 introduce en la posición
+7 el artículo *A Comparative Evaluation of Quantification Methods*, que trata de
+**cuantificación de prevalencia de clases**, un problema estadístico sin relación
+con la cuantificación de incertidumbre. Es un caso de libro de **polisemia
+léxica**: comparte el término `quantif` pero no el significado. LSA lo penaliza
+porque en el espacio latente ese artículo no co-ocurre con `uncertainty`,
+`conformal` ni `calibration`.
+
+**C2 (sinónimos) --- la diferencia más grande, y a favor de LSA.** La consulta
+describe el problema de *bandits* sin usar la palabra `bandit`, `explore` ni
+`arm`. BM25 coloca en primer lugar *An Asymptotically Optimal Coordinate Descent
+Algorithm for Learning Bayesian Networks*, que no tiene nada que ver: coincide
+solo en los términos genéricos `learn` y `algorithm`. Su MRR cae a 0.5. LSA
+recupera en cambio *Continuously evolving rewards in an open-ended environment* en
+primer lugar (MRR = 1.0) y trae *Contextual Bandits with Stage-wise Constraints*
+al top-5 **sin que la palabra aparezca en la consulta**. Esta es la ganancia
+concreta que aporta la representación reducida.
+
+**C3 (general) --- las dos saturan.** P@5 = 1.0 para las tres estrategias. Es un
+resultado esperable y vale la pena decirlo con franqueza: en un corpus
+**temáticamente homogéneo** (todo es aprendizaje automático), una consulta amplia
+como `deep neural networks` tiene tantos candidatos relevantes que cualquier
+método razonable llena las cinco primeras posiciones. Las consultas generales **no
+discriminan estrategias** en corpus mono-temáticos.
+
+**C4 (específica) --- empate perfecto.** Ambas alcanzan P@5 = 1.0 y nDCG@10 = 1.0,
+recuperando los 6 artículos de aprendizaje federado. Cuando la terminología es
+precisa, unívoca y aparece literalmente, la recuperación léxica es tan buena como
+la semántica y no hay nada que ganar proyectando.
+
+**C5 (adversarial) --- las dos fallan, y aquí la reducción hace daño.** Solo 3
+artículos del corpus tratan realmente de equidad algorítmica. BM25 y LSA obtienen
+P@5 = `r f2(M("C5","bm25","P5"))`; la híbrida, `r f2(M("C5","hibrido","P5"))`. Pero
+en profundidad la reducción **empeora** el resultado: nDCG@10 cae de
+`r f2(M("C5","bm25","nDCG10"))` (BM25) a `r f2(M("C5","lsa","nDCG10"))` (LSA), y el
+recall sobre el pool baja de `r f2(M("C5","bm25","Rpool10"))` a
+`r f2(M("C5","lsa","Rpool10"))`: LSA **pierde uno de los tres artículos relevantes**
+que BM25 sí recupera en el top-10.
+
+El problema es la **polisemia de `bias`**: en un corpus de ML, `bias` casi siempre
+significa el sesgo estadístico de la descomposición sesgo-varianza, no
+discriminación social. Ambas estrategias traen *Bias-variance decompositions* y
+*Randomization Can Reduce Both Bias and Variance*. Además, BM25 coloca en primer
+lugar *Hierarchical Decision Making Based on Structural Information Principles*
+por la coincidencia exacta del bigrama `decision_making`, sin relación alguna con
+equidad.
+
+Este es el resultado más interesante del trabajo, porque es el que va **en contra**
+de la hipótesis inicial. La proyección latente promedia los sentidos de un
+término según su distribución en el corpus; cuando el sentido buscado es el
+minoritario, la reducción no solo no ayuda: **borra la evidencia léxica exacta que
+BM25 sí podía explotar**. El término `fairness` aparece literalmente en los tres
+artículos relevantes, y BM25 lo aprovecha; LSA lo diluye en direcciones
+dominadas por el sentido estadístico de `bias`.
+
+## Análisis de un resultado incorrecto
+
+El caso más instructivo es **C5, posición 1 de BM25**:
+
+```{r fallo}
+r <- ejecutar_busqueda(idx, consultas$C5, "bm25", n = 3)
+data.frame(Pos = r$resultados$posicion,
+           Puntaje = round(r$resultados$puntaje, 2),
+           Título = substr(r$resultados$title, 1, 58))
+```
+
+*Hierarchical Decision Making Based on Structural Information Principles* es un
+artículo de **aprendizaje por refuerzo jerárquico**. Obtiene el puntaje más alto
+porque contiene repetidamente el bigrama `decision_making`, que tiene IDF alto
+(pocos documentos lo usan) y aparece varias veces en un abstract relativamente
+corto --- las tres condiciones que BM25 premia. El método funciona exactamente
+como está diseñado; el problema es que **la coincidencia léxica no es evidencia de
+coincidencia semántica** cuando la consulta mezcla un concepto específico
+(`fairness`) con una frase genérica (`decision making`). LSA lo mitiga
+parcialmente pero tampoco lo resuelve, porque `bias` en el espacio latente está
+dominado por su sentido estadístico, que es el mayoritario en el corpus.
+
+La lección de diseño: ningún esquema puramente distribucional puede desambiguar
+un término cuyo sentido minoritario está casi ausente del corpus.
+
+## Sensibilidad al número de componentes
+
+```{r sensibilidad, fig.height=4}
+mk_lsa <- function(k) {
+  U <- sv_full$u[, 1:k, drop = FALSE]; nn <- sqrt(rowSums(U^2)); nn[nn == 0] <- 1
+  list(U = U, U_norm = U/nn, d = sv_full$d[1:k], V = sv_full$v[, 1:k, drop = FALSE], k = k)
+}
+ks <- c(20, 40, 60, 80, 100, 120, 140, 160, 200, 250)
+sens <- do.call(rbind, lapply(ks, function(k) {
+  idx$lsa <- mk_lsa(k)
+  rr <- evaluar_estrategia(idx, consultas, qrels, "lsa")
+  data.frame(k = k, energia = 100*energia[k], P5 = mean(rr$P5), nDCG10 = mean(rr$nDCG10))
+}))
+idx$lsa <- lsa   # restaurar
+
+plot(sens$k, sens$nDCG10, type = "b", pch = 19, lwd = 2, col = "#18BC9C",
+     ylim = c(0.4, 1), xlab = "k (componentes)", ylab = "métrica (promedio de 5 consultas)",
+     main = "Sensibilidad de la calidad al número de componentes")
+lines(sens$k, sens$P5, type = "b", pch = 17, lwd = 2, col = "#2C3E50")
+abline(v = 120, lty = 3, col = "#E74C3C", lwd = 2)
+legend("bottomright", legend = c("nDCG@10", "P@5", "k = 120"),
+       col = c("#18BC9C","#2C3E50","#E74C3C"), lty = c(1,1,3), pch = c(19,17,NA),
+       bty = "n")
+sens
+```
+
+La calidad **crece rápido hasta $k \approx 100$ y luego entra en una meseta**.
+El criterio estructural (el codo, $k=`r k_codo`$) y el criterio empírico
+coinciden en la misma región, lo que refuerza la elección. Con $k=20$ la
+representación es demasiado gruesa y colapsa documentos distintos; por encima de
+$k=160$ las ganancias entran en el ruido de medición.
+
+**Advertencia honesta sobre esta curva:** está calculada sobre **5 consultas**, de
+modo que un cambio de 0.04 en P@5 equivale a *un solo documento* cambiando de
+posición. La curva sirve para descartar regiones claramente malas ($k<60$), no
+para afinar entre $k=120$ y $k=160$. Elegir $k$ maximizando esta misma métrica
+sería sobreajustar el conjunto de evaluación.
+
+---
+
+# Integración en la aplicación
+
+La aplicación del Taller 2 se conserva íntegra en la pestaña **Dashboard**
+(filtros, 6 indicadores, 4 visualizaciones, tabla con enlaces DOI, actualización
+por scraping) y se añade la pestaña **Buscador**.
+
+**Correspondencia documento--aplicación.** No hay reimplementación: `app.R` hace
+`source()` de `R/text_processing.R` y `R/retrieval.R`, exactamente los mismos
+módulos que este documento. Las tres estrategias evaluadas aquí son literalmente
+las tres que ofrece el desplegable de la aplicación.
+
+**Precálculo y caché.** `build_index.R` construye la DTM, los pesos BM25, el
+TF-IDF y el modelo LSA, y los serializa en `index/indice_jmlr.rds`
+(`r sprintf("%.1f MB", file.info("index/indice_jmlr.rds")$size/1024^2)` en disco,
+comprimido con `xz`). La app lo carga con un único `readRDS()` **fuera de
+`server()`**, de modo que el objeto se comparte entre todas las sesiones y se
+lee una sola vez por proceso. Una consulta solo ejecuta: vectorizar (tokenizar
+una cadena corta), un producto matriz--vector, ordenar 308 puntajes y extraer
+fragmentos. **Nunca se reconstruye la matriz ni se reajusta el SVD.**
+
+**Consecuencia del diseño, declarada en la interfaz:** si el usuario añade
+artículos con el botón de scraping, no aparecerán en el buscador hasta que se
+vuelva a ejecutar `build_index.R`. La app lo advierte en el mensaje de
+actualización. Es el precio de precalcular, y es el que el enunciado pide pagar.
+
+---
+
+# Consideraciones computacionales
+
+Todo el pipeline corre holgadamente dentro del límite de 16 GB:
+
+```{r recursos}
+data.frame(
+  Recurso = c("Índice completo en RAM", "Índice en disco (.rds, xz)",
+              "Pico durante `build_index.R`", "Tiempo total de construcción",
+              "Latencia por consulta"),
+  Valor = c(format(object.size(idx), units = "MB"),
+            sprintf("%.1f MB", file.info("index/indice_jmlr.rds")$size/1024^2),
+            "< 150 MB", "~10 s", "~25 ms")
+)
+```
+
+Medidas adoptadas: matrices en formato disperso (`dgCMatrix`) en todo momento;
+vocabulario acotado por `min_df`/`max_df`; SVD truncado por `irlba` sin
+densificar; objetos precalculados y serializados; ninguna dependencia de APIs de
+pago ni de modelos neuronales grandes. La única densificación del documento
+(`as.matrix` en el análisis del espectro) es deliberada, cuesta 10 MB, y sirve
+para validar `irlba` --- no forma parte del pipeline de producción.
+
+---
+
+# Conclusiones y limitaciones
+
+**Qué aporta la reducción dimensional.** Las tres estrategias **empatan en P@5**
+(`r f2(G("bm25","P5"))`). La diferencia está en el orden, no en el conjunto
+recuperado: LSA mejora el MRR (`r f2(G("lsa","RR"))` frente a
+`r f2(G("bm25","RR"))`), es decir, coloca antes el primer resultado relevante.
+En nDCG@10 la ventaja de LSA sobre BM25 es **marginal**
+(`r f2(G("lsa","nDCG10"))` vs `r f2(G("bm25","nDCG10"))`) y **no debe leerse como
+superioridad general**: es el saldo neto de una ganancia grande en C1 y C2 y una
+pérdida en C5.
+
+Dicho sin adornos, el balance por tipo de consulta es:
+
+| Escenario | ¿Ayuda la reducción? |
+|---|---|
+| Consulta parafraseada, sin terminología técnica (C2) | **Sí**, decisivamente: MRR pasa de `r f2(M("C2","bm25","RR"))` a `r f2(M("C2","lsa","RR"))` |
+| Términos literales con polisemia en la cola (C1) | **Sí**: filtra el falso positivo de *quantification* |
+| Terminología precisa y unívoca (C4) | **Indiferente**: ambas alcanzan nDCG@10 = 1.0 |
+| Consulta general en corpus homogéneo (C3) | **Indiferente**: todo el top-5 es relevante en cualquier caso |
+| Sentido minoritario de un término polisémico (C5) | **No, perjudica**: nDCG@10 baja de `r f2(M("C5","bm25","nDCG10"))` a `r f2(M("C5","lsa","nDCG10"))` |
+
+**Qué estrategia recomendar.** La híbrida, por robustez más que por promedio:
+tiene el nDCG@10 más alto (`r f2(G("hibrido","nDCG10"))`), iguala el mejor MRR
+(`r f2(G("hibrido","RR"))`) y es la única que mejora la P@5 en la consulta
+adversarial (`r f2(M("C5","hibrido","P5"))` frente a `r f2(M("C5","bm25","P5"))`
+de las dos individuales). No es la mejor en todas las consultas, pero **nunca
+hereda el peor comportamiento de ninguna de las dos**, que es exactamente lo que
+uno quiere de un buscador cuyas consultas futuras no conoce.
+
+**La conclusión metodológica**, que es la que más me interesa: la pregunta "¿es
+mejor la representación reducida?" **está mal planteada**. Reducir la dimensión es
+un compromiso explícito --- se cambia precisión léxica por capacidad de
+generalización --- y el signo del resultado depende de si la consulta necesita lo
+primero o lo segundo. El experimento de C5 lo muestra en la dirección incómoda, y
+por eso se reporta.
+
+**Limitaciones que conviene declarar:**
+
+1. **Cinco consultas y un solo evaluador.** Los juicios de relevancia los emitió
+   quien también diseñó las consultas, lo cual introduce un sesgo evidente. Las
+   diferencias observadas son indicativas, no significativas.
+2. **Pool incompleto.** Un artículo relevante que ninguna de las tres estrategias
+   colocara en su top-10 sería invisible para la evaluación.
+3. **Corpus monolingüe.** Una consulta en español no recupera nada útil en
+   ninguna estrategia: no hay traducción ni *embeddings* multilingües.
+4. **LSA no desambigua sentidos minoritarios.** El caso de `bias` en C5 muestra
+   el límite estructural del enfoque distribucional.
+5. **`min_df = 2` elimina términos únicos.** Un artículo que introduzca un
+   término nuevo no será recuperable por ese término.
+
+**Extensión natural:** *sentence embeddings* multilingües resolverían (3) y
+buena parte de (4), a costa de una dependencia de varios cientos de MB. Con 308
+documentos y las restricciones del enunciado, LSA es el punto correcto de la
+curva costo/beneficio.
+
+---
+
+```{r sesion}
+sessionInfo()
+```

@@ -1,0 +1,16 @@
+# Artefactos de R / RStudio
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# Salidas intermedias de knitr
+*_files/
+*_cache/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+rsconnect/
