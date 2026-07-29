@@ -1,0 +1,6 @@
+consulta_id,tipo,consulta,justificacion
+C1,terminos literales,conformal prediction uncertainty quantification,"Los tres terminos aparecen textualmente en titulos y resumenes del corpus"
+C2,sinonimos y terminos relacionados,algorithms that learn by trying options and observing only the reward of the chosen one,"Describe el problema de bandits/RL sin usar ninguno de sus terminos tecnicos"
+C3,general,deep neural networks,"Consulta amplia sobre un tema transversal a gran parte del corpus"
+C4,especifica,federated learning with heterogeneous clients,"Subtema estrecho con un conjunto pequeno y bien delimitado de articulos"
+C5,adversarial para un metodo,fairness and bias in automated decision making,"'bias' y 'decision making' son polisemicos en un corpus de ML: inducen falsos positivos lexicos"

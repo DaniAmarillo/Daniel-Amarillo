@@ -1,0 +1,15 @@
+# Evita que Git corrompa los binarios convirtiendo saltos de línea en Windows.
+*.rds     binary
+*.sqlite  binary
+*.RData   binary
+*.rda     binary
+
+# Fuerza LF en el código, para que el diff no salga entero en rojo si el PR
+# se revisa desde Linux/macOS.
+*.R       text eol=lf
+*.Rmd     text eol=lf
+*.md      text eol=lf
+*.csv     text eol=lf
+
+# GitHub no cuenta el HTML compilado en las estadísticas de lenguajes del repo.
+taller_4.html linguist-documentation
