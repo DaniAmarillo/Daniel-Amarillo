@@ -1,0 +1,872 @@
+{
+  "per_query": [
+    {
+      "qid": "Q1",
+      "query": "protein ligand docking with deep learning",
+      "kind": "Términos que aparecen directamente en los artículos",
+      "n_relevant": 6,
+      "strategies": {
+        "bm25": {
+          "P@5": 1.0,
+          "P@10": 0.6,
+          "Recall@10": 1.0,
+          "MRR": 1.0,
+          "AP@10": 1.0,
+          "nDCG@10": 1.0,
+          "latency_ms": 13.623300001199823,
+          "top5": [
+            {
+              "rank": 1,
+              "paper_id": "s42256-025-01160-1",
+              "title": "Assessing the potential of deep learning for protein–ligand docking",
+              "score": 17.6121,
+              "relevant": true
+            },
+            {
+              "rank": 2,
+              "paper_id": "s42256-025-01091-x",
+              "title": "Informed protein–ligand docking via geodesic guidance in translational, rotational and torsional spaces",
+              "score": 15.6512,
+              "relevant": true
+            },
+            {
+              "rank": 3,
+              "paper_id": "s42256-025-00993-0",
+              "title": "Benchmarking AI-powered docking methods from the perspective of virtual screening",
+              "score": 11.4562,
+              "relevant": true
+            },
+            {
+              "rank": 4,
+              "paper_id": "s42256-025-00997-w",
+              "title": "Deep lead optimization enveloped in protein pocket and its application in designing potent and selective ligands targeting LTK protein",
+              "score": 10.1072,
+              "relevant": true
+            },
+            {
+              "rank": 5,
+              "paper_id": "s42256-025-01077-9",
+              "title": "Protein–peptide docking with a rational and accurate diffusion generative model",
+              "score": 9.1902,
+              "relevant": true
+            }
+          ]
+        },
+        "lsa": {
+          "P@5": 1.0,
+          "P@10": 0.6,
+          "Recall@10": 1.0,
+          "MRR": 1.0,
+          "AP@10": 0.9761904761904762,
+          "nDCG@10": 0.9930783166417602,
+          "latency_ms": 15.466900000319583,
+          "top5": [
+            {
+              "rank": 1,
+              "paper_id": "s42256-025-01160-1",
+              "title": "Assessing the potential of deep learning for protein–ligand docking",
+              "score": 0.8218,
+              "relevant": true
+            },
+            {
+              "rank": 2,
+              "paper_id": "s42256-025-01091-x",
+              "title": "Informed protein–ligand docking via geodesic guidance in translational, rotational and torsional spaces",
+              "score": 0.7407,
+              "relevant": true
+            },
+            {
+              "rank": 3,
+              "paper_id": "s42256-025-00993-0",
+              "title": "Benchmarking AI-powered docking methods from the perspective of virtual screening",
+              "score": 0.6215,
+              "relevant": true
+            },
+            {
+              "rank": 4,
+              "paper_id": "s42256-025-01077-9",
+              "title": "Protein–peptide docking with a rational and accurate diffusion generative model",
+              "score": 0.5833,
+              "relevant": true
+            },
+            {
+              "rank": 5,
+              "paper_id": "s42256-025-00997-w",
+              "title": "Deep lead optimization enveloped in protein pocket and its application in designing potent and selective ligands targeting LTK protein",
+              "score": 0.5419,
+              "relevant": true
+            }
+          ]
+        },
+        "hybrid": {
+          "P@5": 1.0,
+          "P@10": 0.6,
+          "Recall@10": 1.0,
+          "MRR": 1.0,
+          "AP@10": 1.0,
+          "nDCG@10": 1.0,
+          "latency_ms": 14.619399997172877,
+          "top5": [
+            {
+              "rank": 1,
+              "paper_id": "s42256-025-01160-1",
+              "title": "Assessing the potential of deep learning for protein–ligand docking",
+              "score": 0.0328,
+              "relevant": true
+            },
+            {
+              "rank": 2,
+              "paper_id": "s42256-025-01091-x",
+              "title": "Informed protein–ligand docking via geodesic guidance in translational, rotational and torsional spaces",
+              "score": 0.0323,
+              "relevant": true
+            },
+            {
+              "rank": 3,
+              "paper_id": "s42256-025-00993-0",
+              "title": "Benchmarking AI-powered docking methods from the perspective of virtual screening",
+              "score": 0.0317,
+              "relevant": true
+            },
+            {
+              "rank": 4,
+              "paper_id": "s42256-025-00997-w",
+              "title": "Deep lead optimization enveloped in protein pocket and its application in designing potent and selective ligands targeting LTK protein",
+              "score": 0.031,
+              "relevant": true
+            },
+            {
+              "rank": 5,
+              "paper_id": "s42256-025-01077-9",
+              "title": "Protein–peptide docking with a rational and accurate diffusion generative model",
+              "score": 0.031,
+              "relevant": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "qid": "Q2",
+      "query": "making AI decisions transparent and understandable",
+      "kind": "Términos relacionados o sinónimos",
+      "n_relevant": 8,
+      "strategies": {
+        "bm25": {
+          "P@5": 0.6,
+          "P@10": 0.4,
+          "Recall@10": 0.5,
+          "MRR": 1.0,
+          "AP@10": 0.4151785714285714,
+          "nDCG@10": 0.605782506766195,
+          "latency_ms": 13.37739999871701,
+          "top5": [
+            {
+              "rank": 1,
+              "paper_id": "s42256-025-01084-w",
+              "title": "Mechanistic understanding and validation of large AI models with SemanticLens",
+              "score": 8.4276,
+              "relevant": true
+            },
+            {
+              "rank": 2,
+              "paper_id": "s42256-024-00976-7",
+              "title": "What large language models know and what people think they know",
+              "score": 8.1729,
+              "relevant": true
+            },
+            {
+              "rank": 3,
+              "paper_id": "s42256-025-01135-2",
+              "title": "Empowering artificial intelligence with homomorphic encryption for secure deep reinforcement learning",
+              "score": 6.3014,
+              "relevant": false
+            },
+            {
+              "rank": 4,
+              "paper_id": "s42256-025-00998-9",
+              "title": "Towards unveiling sensitive and decisive patterns in explainable AI with a case study in geometric deep learning",
+              "score": 5.6456,
+              "relevant": true
+            },
+            {
+              "rank": 5,
+              "paper_id": "s42256-025-01029-3",
+              "title": "Compositional pretraining improves computational efficiency and matches animal behaviour on complex tasks",
+              "score": 4.8059,
+              "relevant": false
+            }
+          ]
+        },
+        "lsa": {
+          "P@5": 0.8,
+          "P@10": 0.4,
+          "Recall@10": 0.5,
+          "MRR": 1.0,
+          "AP@10": 0.475,
+          "nDCG@10": 0.6368547259115425,
+          "latency_ms": 13.0410000019765,
+          "top5": [
+            {
+              "rank": 1,
+              "paper_id": "s42256-025-01084-w",
+              "title": "Mechanistic understanding and validation of large AI models with SemanticLens",
+              "score": 0.6547,
+              "relevant": true
+            },
+            {
+              "rank": 2,
+              "paper_id": "s42256-025-00998-9",
+              "title": "Towards unveiling sensitive and decisive patterns in explainable AI with a case study in geometric deep learning",
+              "score": 0.6148,
+              "relevant": true
+            },
+            {
+              "rank": 3,
+              "paper_id": "s42256-024-00976-7",
+              "title": "What large language models know and what people think they know",
+              "score": 0.4919,
+              "relevant": true
+            },
+            {
+              "rank": 4,
+              "paper_id": "s42256-025-01135-2",
+              "title": "Empowering artificial intelligence with homomorphic encryption for secure deep reinforcement learning",
+              "score": 0.3665,
+              "relevant": false
+            },
+            {
+              "rank": 5,
+              "paper_id": "s42256-025-01113-8",
+              "title": "Language models cannot reliably distinguish belief from knowledge and fact",
+              "score": 0.346,
+              "relevant": true
+            }
+          ]
+        },
+        "hybrid": {
+          "P@5": 0.6,
+          "P@10": 0.4,
+          "Recall@10": 0.5,
+          "MRR": 1.0,
+          "AP@10": 0.4583333333333333,
+          "nDCG@10": 0.6291031399287498,
+          "latency_ms": 12.37810000020545,
+          "top5": [
+            {
+              "rank": 1,
+              "paper_id": "s42256-025-01084-w",
+              "title": "Mechanistic understanding and validation of large AI models with SemanticLens",
+              "score": 0.0328,
+              "relevant": true
+            },
+            {
+              "rank": 2,
+              "paper_id": "s42256-024-00976-7",
+              "title": "What large language models know and what people think they know",
+              "score": 0.032,
+              "relevant": true
+            },
+            {
+              "rank": 3,
+              "paper_id": "s42256-025-00998-9",
+              "title": "Towards unveiling sensitive and decisive patterns in explainable AI with a case study in geometric deep learning",
+              "score": 0.0318,
+              "relevant": true
+            },
+            {
+              "rank": 4,
+              "paper_id": "s42256-025-01135-2",
+              "title": "Empowering artificial intelligence with homomorphic encryption for secure deep reinforcement learning",
+              "score": 0.0315,
+              "relevant": false
+            },
+            {
+              "rank": 5,
+              "paper_id": "s42256-025-01029-3",
+              "title": "Compositional pretraining improves computational efficiency and matches animal behaviour on complex tasks",
+              "score": 0.0305,
+              "relevant": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "qid": "Q3",
+      "query": "drug discovery",
+      "kind": "Consulta general",
+      "n_relevant": 14,
+      "strategies": {
+        "bm25": {
+          "P@5": 1.0,
+          "P@10": 0.8,
+          "Recall@10": 0.5714285714285714,
+          "MRR": 1.0,
+          "AP@10": 0.7434920634920634,
+          "nDCG@10": 0.8521705090845474,
+          "latency_ms": 13.466199998219963,
+          "top5": [
+            {
+              "rank": 1,
+              "paper_id": "s42256-025-00991-2",
+              "title": "Data-driven federated learning in drug discovery with knowledge distillation",
+              "score": 6.4111,
+              "relevant": true
+            },
+            {
+              "rank": 2,
+              "paper_id": "s42256-025-01082-y",
+              "title": "Target-specific de novo design of drug candidate molecules with graph-transformer-based generative adversarial networks",
+              "score": 5.3934,
+              "relevant": true
+            },
+            {
+              "rank": 3,
+              "paper_id": "s42256-025-01091-x",
+              "title": "Informed protein–ligand docking via geodesic guidance in translational, rotational and torsional spaces",
+              "score": 5.2291,
+              "relevant": true
+            },
+            {
+              "rank": 4,
+              "paper_id": "s42256-025-01030-w",
+              "title": "Generating 3D small binding molecules using shape-conditioned diffusion models with guidance",
+              "score": 5.0266,
+              "relevant": true
+            },
+            {
+              "rank": 5,
+              "paper_id": "s42256-025-00997-w",
+              "title": "Deep lead optimization enveloped in protein pocket and its application in designing potent and selective ligands targeting LTK protein",
+              "score": 4.8173,
+              "relevant": true
+            }
+          ]
+        },
+        "lsa": {
+          "P@5": 1.0,
+          "P@10": 0.9,
+          "Recall@10": 0.6428571428571429,
+          "MRR": 1.0,
+          "AP@10": 0.8521031746031745,
+          "nDCG@10": 0.9216017310213247,
+          "latency_ms": 13.373099998716498,
+          "top5": [
+            {
+              "rank": 1,
+              "paper_id": "s42256-025-01082-y",
+              "title": "Target-specific de novo design of drug candidate molecules with graph-transformer-based generative adversarial networks",
+              "score": 0.5726,
+              "relevant": true
+            },
+            {
+              "rank": 2,
+              "paper_id": "s42256-025-00991-2",
+              "title": "Data-driven federated learning in drug discovery with knowledge distillation",
+              "score": 0.5435,
+              "relevant": true
+            },
+            {
+              "rank": 3,
+              "paper_id": "s42256-025-01030-w",
+              "title": "Generating 3D small binding molecules using shape-conditioned diffusion models with guidance",
+              "score": 0.5327,
+              "relevant": true
+            },
+            {
+              "rank": 4,
+              "paper_id": "s42256-025-00987-y",
+              "title": "Towards a more inductive world for drug repurposing approaches",
+              "score": 0.5324,
+              "relevant": true
+            },
+            {
+              "rank": 5,
+              "paper_id": "s42256-025-00997-w",
+              "title": "Deep lead optimization enveloped in protein pocket and its application in designing potent and selective ligands targeting LTK protein",
+              "score": 0.4972,
+              "relevant": true
+            }
+          ]
+        },
+        "hybrid": {
+          "P@5": 1.0,
+          "P@10": 0.8,
+          "Recall@10": 0.5714285714285714,
+          "MRR": 1.0,
+          "AP@10": 0.7577777777777778,
+          "nDCG@10": 0.8572048559638628,
+          "latency_ms": 13.009800000872929,
+          "top5": [
+            {
+              "rank": 1,
+              "paper_id": "s42256-025-00991-2",
+              "title": "Data-driven federated learning in drug discovery with knowledge distillation",
+              "score": 0.0325,
+              "relevant": true
+            },
+            {
+              "rank": 2,
+              "paper_id": "s42256-025-01082-y",
+              "title": "Target-specific de novo design of drug candidate molecules with graph-transformer-based generative adversarial networks",
+              "score": 0.0325,
+              "relevant": true
+            },
+            {
+              "rank": 3,
+              "paper_id": "s42256-025-01030-w",
+              "title": "Generating 3D small binding molecules using shape-conditioned diffusion models with guidance",
+              "score": 0.0315,
+              "relevant": true
+            },
+            {
+              "rank": 4,
+              "paper_id": "s42256-025-00997-w",
+              "title": "Deep lead optimization enveloped in protein pocket and its application in designing potent and selective ligands targeting LTK protein",
+              "score": 0.0308,
+              "relevant": true
+            },
+            {
+              "rank": 5,
+              "paper_id": "s42256-025-01091-x",
+              "title": "Informed protein–ligand docking via geodesic guidance in translational, rotational and torsional spaces",
+              "score": 0.0306,
+              "relevant": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "qid": "Q4",
+      "query": "E(3)-equivariant interatomic potentials for atomistic simulation",
+      "kind": "Consulta específica",
+      "n_relevant": 4,
+      "strategies": {
+        "bm25": {
+          "P@5": 0.6,
+          "P@10": 0.4,
+          "Recall@10": 1.0,
+          "MRR": 1.0,
+          "AP@10": 0.8928571428571428,
+          "nDCG@10": 0.9619991470595832,
+          "latency_ms": 12.198200001876103,
+          "top5": [
+            {
+              "rank": 1,
+              "paper_id": "s42256-024-00956-x",
+              "title": "The design space of E(3)-equivariant atom-centred interatomic potentials",
+              "score": 18.2198,
+              "relevant": true
+            },
+            {
+              "rank": 2,
+              "paper_id": "s42256-025-01055-1",
+              "title": "A framework to evaluate machine learning crystal stability predictions",
+              "score": 8.6746,
+              "relevant": true
+            },
+            {
+              "rank": 3,
+              "paper_id": "s42256-025-01009-7",
+              "title": "A predictive machine learning force-field framework for liquid electrolyte development",
+              "score": 6.9508,
+              "relevant": true
+            },
+            {
+              "rank": 4,
+              "paper_id": "s42256-024-00958-9",
+              "title": "Reusability report: Deep learning-based analysis of images and spectroscopy data with AtomAI",
+              "score": 6.3301,
+              "relevant": false
+            },
+            {
+              "rank": 5,
+              "paper_id": "s42256-025-01006-w",
+              "title": "Teaching robots to build simulations of themselves",
+              "score": 5.7683,
+              "relevant": false
+            }
+          ]
+        },
+        "lsa": {
+          "P@5": 0.8,
+          "P@10": 0.4,
+          "Recall@10": 1.0,
+          "MRR": 1.0,
+          "AP@10": 1.0,
+          "nDCG@10": 1.0,
+          "latency_ms": 11.201999997865641,
+          "top5": [
+            {
+              "rank": 1,
+              "paper_id": "s42256-024-00956-x",
+              "title": "The design space of E(3)-equivariant atom-centred interatomic potentials",
+              "score": 0.834,
+              "relevant": true
+            },
+            {
+              "rank": 2,
+              "paper_id": "s42256-025-01055-1",
+              "title": "A framework to evaluate machine learning crystal stability predictions",
+              "score": 0.5864,
+              "relevant": true
+            },
+            {
+              "rank": 3,
+              "paper_id": "s42256-025-01125-4",
+              "title": "Flow matching for accelerated simulation of atomic transport in crystalline materials",
+              "score": 0.4325,
+              "relevant": true
+            },
+            {
+              "rank": 4,
+              "paper_id": "s42256-025-01009-7",
+              "title": "A predictive machine learning force-field framework for liquid electrolyte development",
+              "score": 0.2703,
+              "relevant": true
+            },
+            {
+              "rank": 5,
+              "paper_id": "s42256-024-00978-5",
+              "title": "Discovering fully semantic representations via centroid- and orientation-aware feature learning",
+              "score": 0.2295,
+              "relevant": false
+            }
+          ]
+        },
+        "hybrid": {
+          "P@5": 0.8,
+          "P@10": 0.4,
+          "Recall@10": 1.0,
+          "MRR": 1.0,
+          "AP@10": 1.0,
+          "nDCG@10": 1.0,
+          "latency_ms": 11.727300003258279,
+          "top5": [
+            {
+              "rank": 1,
+              "paper_id": "s42256-024-00956-x",
+              "title": "The design space of E(3)-equivariant atom-centred interatomic potentials",
+              "score": 0.0328,
+              "relevant": true
+            },
+            {
+              "rank": 2,
+              "paper_id": "s42256-025-01055-1",
+              "title": "A framework to evaluate machine learning crystal stability predictions",
+              "score": 0.0323,
+              "relevant": true
+            },
+            {
+              "rank": 3,
+              "paper_id": "s42256-025-01009-7",
+              "title": "A predictive machine learning force-field framework for liquid electrolyte development",
+              "score": 0.0315,
+              "relevant": true
+            },
+            {
+              "rank": 4,
+              "paper_id": "s42256-025-01125-4",
+              "title": "Flow matching for accelerated simulation of atomic transport in crystalline materials",
+              "score": 0.0308,
+              "relevant": true
+            },
+            {
+              "rank": 5,
+              "paper_id": "s42256-025-01006-w",
+              "title": "Teaching robots to build simulations of themselves",
+              "score": 0.0305,
+              "relevant": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "qid": "Q5",
+      "query": "software that writes and understands human text",
+      "kind": "Consulta en la que los métodos producen resultados poco relevantes",
+      "n_relevant": 10,
+      "strategies": {
+        "bm25": {
+          "P@5": 0.4,
+          "P@10": 0.3,
+          "Recall@10": 0.3,
+          "MRR": 0.5,
+          "AP@10": 0.13333333333333333,
+          "nDCG@10": 0.2999050316974944,
+          "latency_ms": 12.06350000211387,
+          "top5": [
+            {
+              "rank": 1,
+              "paper_id": "s42256-025-01011-z",
+              "title": "A text-guided protein design framework",
+              "score": 8.5542,
+              "relevant": false
+            },
+            {
+              "rank": 2,
+              "paper_id": "s42256-025-01033-7",
+              "title": "Lossless data compression by large models",
+              "score": 8.5121,
+              "relevant": true
+            },
+            {
+              "rank": 3,
+              "paper_id": "s42256-025-01018-6",
+              "title": "Human-centred design and fabrication of a wearable multimodal visual assistance system",
+              "score": 7.8951,
+              "relevant": false
+            },
+            {
+              "rank": 4,
+              "paper_id": "s42256-025-01115-6",
+              "title": "A psychometric framework for evaluating and shaping personality traits in large language models",
+              "score": 6.9567,
+              "relevant": true
+            },
+            {
+              "rank": 5,
+              "paper_id": "s42256-024-00965-w",
+              "title": "Exploring scalable medical image encoders beyond text supervision",
+              "score": 6.5059,
+              "relevant": false
+            }
+          ]
+        },
+        "lsa": {
+          "P@5": 0.2,
+          "P@10": 0.3,
+          "Recall@10": 0.3,
+          "MRR": 1.0,
+          "AP@10": 0.16666666666666666,
+          "nDCG@10": 0.3647442587311445,
+          "latency_ms": 12.274700002308236,
+          "top5": [
+            {
+              "rank": 1,
+              "paper_id": "s42256-025-01033-7",
+              "title": "Lossless data compression by large models",
+              "score": 0.6387,
+              "relevant": true
+            },
+            {
+              "rank": 2,
+              "paper_id": "s42256-025-01011-z",
+              "title": "A text-guided protein design framework",
+              "score": 0.6321,
+              "relevant": false
+            },
+            {
+              "rank": 3,
+              "paper_id": "s42256-024-00965-w",
+              "title": "Exploring scalable medical image encoders beyond text supervision",
+              "score": 0.4634,
+              "relevant": false
+            },
+            {
+              "rank": 4,
+              "paper_id": "s42256-025-01088-6",
+              "title": "Boosting the predictive power of protein representations with a corpus of text annotations",
+              "score": 0.4374,
+              "relevant": false
+            },
+            {
+              "rank": 5,
+              "paper_id": "s42256-025-01064-0",
+              "title": "Advancing biomolecular understanding and design following human instructions",
+              "score": 0.4307,
+              "relevant": false
+            }
+          ]
+        },
+        "hybrid": {
+          "P@5": 0.4,
+          "P@10": 0.3,
+          "Recall@10": 0.3,
+          "MRR": 0.5,
+          "AP@10": 0.13333333333333333,
+          "nDCG@10": 0.2999050316974944,
+          "latency_ms": 11.510700001963414,
+          "top5": [
+            {
+              "rank": 1,
+              "paper_id": "s42256-025-01011-z",
+              "title": "A text-guided protein design framework",
+              "score": 0.0325,
+              "relevant": false
+            },
+            {
+              "rank": 2,
+              "paper_id": "s42256-025-01033-7",
+              "title": "Lossless data compression by large models",
+              "score": 0.0325,
+              "relevant": true
+            },
+            {
+              "rank": 3,
+              "paper_id": "s42256-024-00965-w",
+              "title": "Exploring scalable medical image encoders beyond text supervision",
+              "score": 0.0313,
+              "relevant": false
+            },
+            {
+              "rank": 4,
+              "paper_id": "s42256-025-01115-6",
+              "title": "A psychometric framework for evaluating and shaping personality traits in large language models",
+              "score": 0.0308,
+              "relevant": true
+            },
+            {
+              "rank": 5,
+              "paper_id": "s42256-025-01088-6",
+              "title": "Boosting the predictive power of protein representations with a corpus of text annotations",
+              "score": 0.0308,
+              "relevant": false
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "summary": {
+    "bm25": {
+      "P@5": 0.72,
+      "P@10": 0.5,
+      "Recall@10": 0.6742857142857142,
+      "MRR": 0.9,
+      "nDCG@10": 0.7439714389215639,
+      "MAP@10": 0.6369722222222223,
+      "latency_ms_mean": 12.945720000425354
+    },
+    "lsa": {
+      "P@5": 0.76,
+      "P@10": 0.5199999999999999,
+      "Recall@10": 0.6885714285714285,
+      "MRR": 1.0,
+      "nDCG@10": 0.7832558064611543,
+      "MAP@10": 0.6939920634920634,
+      "latency_ms_mean": 13.071540000237292
+    },
+    "hybrid": {
+      "P@5": 0.76,
+      "P@10": 0.5,
+      "Recall@10": 0.6742857142857142,
+      "MRR": 0.9,
+      "nDCG@10": 0.7572426055180214,
+      "MAP@10": 0.6698888888888889,
+      "latency_ms_mean": 12.64906000069459
+    }
+  },
+  "config": {
+    "n_documents": 138,
+    "use_stemming": true,
+    "bm25_k1": 1.5,
+    "bm25_b": 0.75,
+    "bm25_vocabulary": 3146,
+    "tfidf_min_df": 2,
+    "tfidf_max_df": 0.6,
+    "tfidf_vocabulary": 1429,
+    "tfidf_shape": [
+      138,
+      1429
+    ],
+    "tfidf_density": 0.05868601738319084,
+    "lsa_components": 60,
+    "lsa_explained_variance": 0.614812970161438,
+    "title_boost": 3,
+    "subjects_boost": 2
+  },
+  "top_k": 10,
+  "queries": [
+    {
+      "qid": "Q1",
+      "query": "protein ligand docking with deep learning",
+      "kind": "Términos que aparecen directamente en los artículos",
+      "rationale": "Todos los términos de la consulta ('protein', 'ligand', 'docking', 'deep learning') aparecen literalmente en varios títulos y resúmenes. Es el escenario favorable para la recuperación léxica.",
+      "criterion": "Relevante = el artículo trata sobre acoplamiento molecular (docking) proteína–ligando o proteína–péptido, o sobre la puntuación/optimización de esos complejos.",
+      "relevant": [
+        "s42256-025-00993-0",
+        "s42256-025-00997-w",
+        "s42256-025-01077-9",
+        "s42256-025-01091-x",
+        "s42256-025-01136-1",
+        "s42256-025-01160-1"
+      ]
+    },
+    {
+      "qid": "Q2",
+      "query": "making AI decisions transparent and understandable",
+      "kind": "Términos relacionados o sinónimos",
+      "rationale": "La consulta describe la interpretabilidad sin usar el vocabulario del dominio: no contiene 'explainable', 'interpretable', 'XAI' ni 'attribution'. Obliga a los métodos a salvar la brecha léxica.",
+      "criterion": "Relevante = el artículo tiene como objeto de estudio explicar, auditar o calibrar la confianza en modelos de IA.",
+      "relevant": [
+        "s42256-024-00976-7",
+        "s42256-025-00998-9",
+        "s42256-025-01000-2",
+        "s42256-025-01083-x",
+        "s42256-025-01084-w",
+        "s42256-025-01086-8",
+        "s42256-025-01111-w",
+        "s42256-025-01113-8"
+      ]
+    },
+    {
+      "qid": "Q3",
+      "query": "drug discovery",
+      "kind": "Consulta general",
+      "rationale": "Dos palabras, sin restricciones metodológicas. Cubre una línea temática amplia y muy representada en la revista, por lo que hay muchos documentos relevantes y el reto está en ordenarlos bien.",
+      "criterion": "Relevante = el artículo aborda alguna etapa del descubrimiento de fármacos: diseño de moléculas, cribado virtual, acoplamiento, predicción de afinidad, optimización de leads o reposicionamiento.",
+      "relevant": [
+        "s42256-025-00982-3",
+        "s42256-025-00987-y",
+        "s42256-025-00991-2",
+        "s42256-025-00993-0",
+        "s42256-025-00997-w",
+        "s42256-025-01030-w",
+        "s42256-025-01077-9",
+        "s42256-025-01082-y",
+        "s42256-025-01091-x",
+        "s42256-025-01095-7",
+        "s42256-025-01124-5",
+        "s42256-025-01151-2",
+        "s42256-025-01154-z",
+        "s42256-025-01160-1"
+      ]
+    },
+    {
+      "qid": "Q4",
+      "query": "E(3)-equivariant interatomic potentials for atomistic simulation",
+      "kind": "Consulta específica",
+      "rationale": "Terminología técnica de una subárea muy concreta (potenciales interatómicos aprendidos para simulación de materiales). Sólo un puñado de artículos del corpus la abordan.",
+      "criterion": "Relevante = el artículo construye o evalúa potenciales interatómicos / campos de fuerza aprendidos, o simulación atomística de materiales.",
+      "relevant": [
+        "s42256-024-00956-x",
+        "s42256-025-01009-7",
+        "s42256-025-01055-1",
+        "s42256-025-01125-4"
+      ]
+    },
+    {
+      "qid": "Q5",
+      "query": "software that writes and understands human text",
+      "kind": "Consulta en la que los métodos producen resultados poco relevantes",
+      "rationale": "Describe modelos de lenguaje en términos completamente coloquiales. La palabra 'text' actúa como trampa léxica: en este corpus aparece sobre todo en artículos de biología computacional que usan texto como MODALIDAD auxiliar (diseño de proteínas guiado por texto, anotaciones textuales, supervisión texto–imagen), no en los artículos que realmente estudian modelos de lenguaje.",
+      "criterion": "Relevante = el artículo estudia modelos de lenguaje en su capacidad lingüística o cognitiva (conocimiento, comportamiento, escalamiento, representaciones). Se EXCLUYEN los que sólo aplican un LLM como herramienta a otro dominio (química, célula única).",
+      "relevant": [
+        "s42256-024-00963-y",
+        "s42256-024-00975-8",
+        "s42256-024-00976-7",
+        "s42256-025-00986-z",
+        "s42256-025-01033-7",
+        "s42256-025-01049-z",
+        "s42256-025-01072-0",
+        "s42256-025-01113-8",
+        "s42256-025-01115-6",
+        "s42256-025-01137-0"
+      ]
+    }
+  ]
+}

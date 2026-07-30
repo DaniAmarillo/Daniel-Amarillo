@@ -533,7 +533,6 @@ _NAV_ICONS_JS = """
     const SVG_DATABASE = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23bd00ff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><ellipse cx='12' cy='5' rx='9' ry='3'/><path d='M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5'/><path d='M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6'/></svg>";
     const SVG_REFRESH = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23bd00ff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><polyline points='23 4 23 10 17 10'/><polyline points='1 20 1 14 7 14'/><path d='M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15'/></svg>";
     const SVG_INFO = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23bd00ff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><line x1='12' y1='16' x2='12' y2='12'/><line x1='12' y1='8' x2='12.01' y2='8'/></svg>";
-    const SVG_SEARCH = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23bd00ff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='8'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>";
 
     function getSvgForHref(href) {
         // href es absoluto: http://localhost:8501/indicators
@@ -548,7 +547,6 @@ _NAV_ICONS_JS = """
         if (path.endsWith('/explore')) return SVG_DATABASE;
         if (path.endsWith('/update_db')) return SVG_REFRESH;
         if (path.endsWith('/about')) return SVG_INFO;
-        if (path.endsWith('/search')) return SVG_SEARCH;
         return null;
     }
 
