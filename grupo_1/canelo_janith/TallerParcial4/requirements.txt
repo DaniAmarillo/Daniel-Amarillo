@@ -1,0 +1,14 @@
+# Dependencias para que la app CORRA en Streamlit Cloud (dashboard + buscador).
+# El scraping con Selenium se instala aparte (requirements-scraper.txt) porque
+# solo funciona en local; sqlite3 es parte de la librería estándar de Python.
+
+# ── Taller 2: dashboard ──
+streamlit>=1.40
+pandas>=2.0
+plotly>=5.20
+
+# ── Taller 4: recuperación de información ──
+scikit-learn>=1.4      # TfidfVectorizer, CountVectorizer, TruncatedSVD
+scipy>=1.11            # matrices dispersas CSR
+numpy>=1.26
+joblib>=1.3            # serialización del índice precomputado
