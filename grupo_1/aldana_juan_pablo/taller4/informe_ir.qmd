@@ -1,0 +1,269 @@
+---
+title: "Taller 4 — Recuperación de Información sobre Annual Reviews of Economics"
+author: "Juan Pablo Aldana Henao"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    theme: flatly
+execute:
+  warning: false
+  message: false
+---
+
+```{r setup}
+library(dplyr); library(tidyr); library(stringr); library(purrr)
+library(DBI); library(RSQLite); library(tibble)
+library(Matrix); library(tidytext); library(SnowballC); library(stringi); library(irlba)
+library(knitr); library(ggplot2)
+
+# El documento se renderiza desde la raíz del proyecto (donde están
+# global.R, funciones/ y annual_reviews_2025.db).
+source("global.R")   # trae conectar_db(), leer_papers() y fuente funciones/*.R
+```
+
+Este reporte explica cómo quedó armado el sistema de Recuperación de
+Información (IR) que se agregó al Taller 2. La idea es que todo lo que se
+muestra aquí sea justamente lo que hace la app Shiny por debajo — no hay
+atajos ni cálculos "para el reporte" que luego no correspondan al código
+real en `funciones/`.
+
+## 1. Cómo se armó el corpus
+
+```{r corpus}
+con <- conectar_db("annual_reviews_2025.db")
+res_corpus <- construir_corpus(con)
+dbDisconnect(con)
+
+corpus <- res_corpus$corpus
+kable(as.data.frame(res_corpus$stats), caption = "Estadísticas del corpus")
+```
+
+Se incluye cualquier documento que tenga `titulo`. Cuando falta `resumen` o
+`keywords` no se inventa nada: esos campos simplemente no aportan texto al
+documento (el detalle está en `funciones/corpus.R`).
+
+```{r corpus-preview}
+corpus %>% select(doc_id, titulo, fecha_publicacion, categoria) %>%
+  kable(caption = "Vista previa del corpus construido")
+```
+
+## 2. Preprocesamiento de texto
+
+El pipeline vive en `funciones/preprocessing.R` y hace, en este orden:
+normaliza caracteres (Latin-ASCII), pasa todo a minúsculas, tokeniza por
+palabras, quita stopwords en **inglés** (aunque la interfaz de la app esté
+en español, el corpus real está en inglés), elimina tokens que son solo
+números, aplica stemming con SnowballC (inglés), y además genera bigramas
+sin dejar stopwords en los extremos. Cada una de estas decisiones tiene su
+justificación en el encabezado del archivo fuente.
+
+```{r preprocesamiento}
+doc_term <- preprocesar_corpus(corpus %>% select(doc_id, texto))
+
+cat("Filas documento-término (uni+bigrama):", nrow(doc_term), "\n")
+cat("Términos únicos en el vocabulario:", n_distinct(doc_term$term), "\n")
+
+doc_term %>% count(term, sort = TRUE) %>% head(15) %>%
+  kable(caption = "Términos más frecuentes tras preprocesamiento")
+```
+
+## 3. Representación vectorial: TF-IDF
+
+```{r tfidf}
+tfidf <- construir_matriz_tfidf(doc_term)
+kable(as.data.frame(tfidf$stats), caption = "Propiedades de la matriz TF-IDF (dispersa)")
+```
+
+La matriz se mantiene todo el tiempo como `Matrix::dgCMatrix` (dispersa);
+en ningún punto de la construcción del índice se convierte a matriz densa.
+
+## 4. Reducción de dimensionalidad (LSA / SVD truncada)
+
+```{r lsa}
+lsa <- construir_lsa(tfidf$dtm)
+kable(as.data.frame(lsa$stats), caption = "Propiedades del modelo LSA (SVD truncada, irlba)")
+```
+
+Para elegir `k` se usa el menor número de componentes tal que la varianza
+acumulada (norma de Frobenius) explicada llegue a 80%, con un tope de
+`k_max = 15` y también acotado por `min(n_docs, n_términos) - 1`. Con un
+corpus de apenas `r nrow(tfidf$dtm)` documentos, pocas componentes ya
+alcanzan a explicar casi toda la varianza — es una limitación esperable
+cuando el corpus es chico, y se deja explícita acá en vez de subir `k`
+artificialmente solo para que el resultado se vea "más robusto".
+
+La consulta se proyecta al mismo espacio reducido con
+$q \cdot V \cdot \Sigma^{-1}$, que es justo la transformación inversa que
+se usa para obtener $U$ a partir de la matriz original
+($A = U \Sigma V^T \Rightarrow A V \Sigma^{-1} = U$). Esto asegura que
+documentos y consulta queden en el mismo sistema de coordenadas antes de
+calcular la similitud coseno (la justificación matemática completa está en
+`funciones/lsa.R`).
+
+## 5. Recuperación y ranking
+
+La similitud se calcula como coseno: entre el vector de la consulta y cada
+documento, ya sea sobre TF-IDF (matriz dispersa original) o sobre LSA
+(coordenadas reducidas, $U$). El ranking ordena de mayor a menor score,
+descarta documentos con score ≤ 0, y para desempatar usa `doc_id`
+ascendente — así el resultado siempre es reproducible. Al final se agrega
+una columna `posicion` (1, 2, 3, ...) sobre los resultados que realmente se
+van a mostrar (todo esto en `funciones/ranking.R`).
+
+El enunciado (sección 2.2) pide un conjunto mínimo de campos en el
+resultado. Cada uno se verificó contra el código para no terminar
+describiendo aquí algo que la app en realidad no muestra:
+
+| Campo exigido                      | Columna en el ranking | Se agrega en |
+|-------------------------------------|------------------------|--------------|
+| Posición en el ranking              | `posicion`             | `ranking.R::rankear()` (después de `slice_head`, refleja el orden mostrado) |
+| Título                              | `titulo`                | `cache.R::meta` |
+| Autores                             | `autores`               | `cache.R::meta` |
+| Fecha de publicación                | `fecha_publicacion`     | `cache.R::meta` |
+| Tema o categoría                    | `categoria`              | `cache.R::meta` |
+| DOI o enlace                        | `doi`, `url`             | `cache.R::meta` (se muestra el DOI si existe; si no, la URL) |
+| Puntaje de relevancia               | `score`                  | `retrieval.R::buscar_tfidf()` / `buscar_lsa()` |
+| Resumen / fragmento                 | `resumen`                | `cache.R::meta` |
+
+`autores` y `doi`/`url` no estaban en `meta` en una versión anterior del
+proyecto (solo se seleccionaban `titulo, resumen, categoria,
+fecha_publicacion`). Se agregaron en `cache.R` porque la tabla `papers` sí
+los tiene disponibles (el esquema completo está documentado en
+`funciones/corpus.R`). Para que este cambio no rompiera cachés viejos en
+silencio, el `.rds` ahora lleva un número de versión de esquema
+(`VERSION_ESQUEMA_CACHE_IR`): si el caché guardado es de antes de este
+cambio, se reconstruye solo (más detalle en la Sección 6).
+
+```{r ranking-demo}
+cache_ir_demo <- list(tfidf = tfidf, lsa = lsa, meta = corpus %>%
+  select(doc_id, titulo, resumen, categoria, fecha_publicacion,
+         autores, doi, url))
+
+ejemplo <- buscar_tfidf("labor markets in developing countries", cache_ir_demo, top_n = 5)
+ejemplo %>%
+  select(posicion, titulo, autores, doi, fecha_publicacion, score) %>%
+  kable(caption = "Ejemplo: TF-IDF, consulta 'labor markets in developing countries' (campos mínimos del enunciado)")
+```
+
+## 6. Optimización y caché
+
+Los objetos `tfidf` y `lsa` se calculan **una sola vez** y quedan guardados
+en `cache/ir_cache.rds` (`funciones/cache.R`). La app Shiny (`global.R`)
+solo llama a `obtener_cache_ir()` cuando arranca la sesión de R, y ahí carga
+el `.rds` si existe; nunca vuelve a construir la matriz TF-IDF ni el modelo
+LSA mientras el usuario está buscando.
+
+El objeto en caché guarda también un entero `version_esquema`
+(`VERSION_ESQUEMA_CACHE_IR` en `cache.R`). Cuando `cargar_cache_ir()` lee el
+`.rds`, compara esa versión contra la que espera el código actual; si no
+coinciden (por ejemplo, si el `.rds` es de antes de agregar
+`autores`/`doi`/`url` a `meta`), lo descarta y reconstruye el índice desde
+cero. Así se evita que un caché desactualizado termine sirviendo, sin que
+nadie se dé cuenta, una tabla de resultados incompleta.
+
+### 6.1 Cómo se integra en la app Shiny
+
+El módulo de búsqueda vive en la pestaña `tab_ir` de `ui.R`/`server.R` (y
+tiene su espejo autocontenido en `app.R`, pensado como alternativa de
+despliegue en un solo archivo):
+
+- `ui.R`: un `textInput("ir_query", ...)`, un `selectInput("ir_metodo", ...)`
+  para elegir entre las dos estrategias (`tfidf`, `lsa`), y un
+  `numericInput("ir_topn", ...)` para el número de resultados.
+- `server.R`: `eventReactive(input$btn_buscar_ir, ...)` llama a
+  `buscar_tfidf()` o `buscar_lsa()` según `input$ir_metodo`, siempre usando
+  el `CACHE_IR` que `global.R` ya precomputó al iniciar la sesión (dentro de
+  esta reactividad nunca se reconstruye el índice).
+- La tabla `output$tabla_ir_resultados` muestra exactamente los campos
+  mínimos que pide el enunciado: `#` (posición), Título, Autores,
+  Categoría, Año, Similitud, y una columna DOI/Enlace que se renderiza como
+  hipervínculo HTML (`escape = FALSE` en `DT::datatable()`). Si el artículo
+  no tiene DOI se usa la `url` como respaldo, y si tampoco hay `url` la
+  celda queda vacía en vez de inventarse un enlace.
+- Al seleccionar una fila (`selection = "single"`),
+  `ir_resumen_seleccionado` muestra en un panel aparte la posición, autores,
+  categoría/año, DOI (o `url`, o "No disponible") y el resumen completo del
+  artículo.
+
+## 7. Evaluación
+
+Se definieron cinco consultas a mano, pensadas contra el contenido real de
+`annual_reviews_2025.db` (la justificación de cada juicio de relevancia está
+en `funciones/evaluation.R`): una consulta exacta, una con sinónimos, una
+general, una específica, y una última pensada para exhibir dónde falla o
+acierta parcialmente un método frente al otro. `evaluar_todas()` reutiliza
+el mismo `cache_ir_demo` de la Sección 5 (con `meta` ya alineado al esquema
+real de `cache.R`), así que las métricas de acá corresponden exactamente al
+ranking que vería un usuario de la app con estas mismas consultas.
+
+```{r evaluacion}
+eval_tbl <- evaluar_todas(cache_ir_demo, k = 5)
+eval_tbl %>%
+  select(consulta_id, tipo, metodo, precision_at_k, mrr, recall_at_k, ndcg_at_k) %>%
+  kable(digits = 3, caption = "Métricas por consulta y estrategia (k = 5)")
+```
+
+```{r evaluacion-resumen}
+eval_tbl %>%
+  group_by(metodo) %>%
+  summarise(across(c(precision_at_k, mrr, recall_at_k, ndcg_at_k), mean),
+            .groups = "drop") %>%
+  kable(digits = 3, caption = "Promedio de métricas por estrategia (todas las consultas)")
+```
+
+```{r evaluacion-plot}
+ggplot(eval_tbl, aes(x = consulta_id, y = precision_at_k, fill = metodo)) +
+  geom_col(position = "dodge") +
+  labs(title = "Precision@5 por consulta y estrategia",
+       x = NULL, y = "Precision@5", fill = "Método") +
+  theme_minimal()
+```
+
+### Qué dicen los errores
+
+- **q1 (exacta)** y **q4 (específica)**: acá se espera que TF-IDF puro
+  funcione bien, porque hay una coincidencia léxica casi literal con el
+  título del artículo relevante. Es exactamente el tipo de caso para el que
+  TF-IDF fue pensado.
+- **q2 (sinónimos)**: esta consulta se armó a propósito sin usar las
+  palabras literales del título relevante ("labor markets" / "developing
+  countries"). Es el escenario donde LSA debería tener ventaja, al operar
+  en un espacio semántico reducido en vez de depender de coincidencia
+  exacta de vocabulario como TF-IDF.
+- **q3 (general)**: una consulta amplia, con varios documentos que podrían
+  ser relevantes. Sirve para ver cómo reparte el score cada método cuando
+  no hay un documento claramente dominante.
+- **q5 (fallo parcial)**: el corpus no tiene artículos sobre IA o deep
+  learning en sentido estricto — el único documento con categoría "Machine
+  Learning" en realidad trata de modelos macroeconómicos de cambio
+  climático. Se incluyó a propósito porque **ambos** métodos pueden fallar
+  acá: TF-IDF por falta total de overlap léxico, y LSA porque con apenas
+  `r nrow(tfidf$dtm)` documentos el espacio semántico reducido es demasiado
+  chico para generalizar bien. Es más una limitación del corpus que del
+  método.
+
+### ¿Cuál estrategia funciona mejor?
+
+Mirando las métricas promedio de la tabla anterior (que se calculan al
+renderizar el documento, no se fijaron de antemano): la estrategia con
+mayor `precision_at_k`/`mrr` promedio debería ser mejor para consultas que
+dependen de coincidencia léxica exacta (TF-IDF), mientras que si LSA saca
+ventaja en algún lado, tendría que verse sobre todo en la consulta con
+sinónimos (q2). Ahora, con un corpus tan chico (n = `r nrow(tfidf$dtm)`), no
+parece razonable convertir lo que se ve acá en una conclusión general sobre
+TF-IDF vs. LSA para corpus más grandes — es una limitación real y se deja
+dicha en vez de sobre-interpretar resultados con tan pocos datos.
+
+## 8. Limitaciones generales
+
+- El corpus es chico (n = `r nrow(tfidf$dtm)`, un solo año, 2025), lo que
+  limita qué tan robusta puede ser cualquier evaluación de ranking hecha
+  sobre él.
+- La tabla `papers` no tiene columna de "palabras clave"; el corpus se
+  construyó solo con título + resumen (esto ya se explica en la Sección 1).
+- Los juicios de relevancia de la Sección 7 los definió el autor, no
+  anotadores independientes — es una limitación bastante común en
+  evaluaciones de IR a esta escala.
