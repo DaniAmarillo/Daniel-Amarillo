@@ -1,0 +1,315 @@
+---
+title: "Taller 3 — Minería de Datos"
+subtitle: "Hipertensión Arterial (CID I10-I15)"
+author: "Oscar Pava"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    theme: cosmo
+lang: es
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+library(duckdb)
+library(DBI)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(scales)
+library(randomForest)
+library(pROC)
+library(PRROC)
+library(caret)
+
+ruta_datos <- "db_2026.csv"
+cid_min <- "I10"
+cid_max <- "I15"
+nombre_enf <- "Hipertensión Arterial"
+
+set.seed(2026)
+```
+
+
+
+# 1. Carga de datos
+
+
+
+```{r}
+con <- dbConnect(duckdb())
+
+dbExecute(con, sprintf("
+  CREATE VIEW base AS
+  SELECT
+    CHAVE_FUNCIONAL, DT_UTILIZACAO, CID, UTI, INTERNADO, PORTE_ANESTESICO,
+    DESC_ESPECIALIDADE, TIPO_UNIDADE_PREST_HOSPITALAR, UF_CNES_PREST_HOSPITALAR,
+    DT_NASCIMENTO_BENEFICIARIO, TIPO_BENEFICIARIO, SEXO_BENEFICIARIO, CETIPO,
+    CD_PROCEDIMENTO, DESCRICAO_PROCEDIMENTO, VALOR_UTILIZACAO
+  FROM read_csv_auto('%s', ALL_VARCHAR=TRUE)
+", ruta_datos))
+
+dbGetQuery(con, "SELECT COUNT(*) AS n_filas FROM base")
+```
+
+
+
+# 2. Calidad de datos
+
+
+
+```{r}
+dbGetQuery(con, "
+  SELECT CHAVE_FUNCIONAL, COUNT(DISTINCT SEXO_BENEFICIARIO) AS n_sexos
+  FROM base
+  WHERE SEXO_BENEFICIARIO IS NOT NULL
+  GROUP BY CHAVE_FUNCIONAL
+  HAVING COUNT(DISTINCT SEXO_BENEFICIARIO) > 1
+") -> inconsist_sexo
+
+nrow(inconsist_sexo)
+
+dbGetQuery(con, "
+  SELECT
+    SUM(CASE WHEN CHAVE_FUNCIONAL IS NULL THEN 1 ELSE 0 END) AS na_chave,
+    SUM(CASE WHEN DT_UTILIZACAO IS NULL THEN 1 ELSE 0 END) AS na_fecha,
+    SUM(CASE WHEN CID IS NULL OR CID = '' THEN 1 ELSE 0 END) AS na_cid,
+    SUM(CASE WHEN VALOR_UTILIZACAO IS NULL THEN 1 ELSE 0 END) AS na_valor,
+    SUM(CASE WHEN SEXO_BENEFICIARIO IS NULL THEN 1 ELSE 0 END) AS na_sexo,
+    SUM(CASE WHEN DT_NASCIMENTO_BENEFICIARIO IS NULL THEN 1 ELSE 0 END) AS na_nacim
+  FROM base
+")
+
+dbExecute(con, "
+  CREATE VIEW base_limpia AS
+  SELECT * FROM base
+  WHERE CHAVE_FUNCIONAL IS NOT NULL AND DT_UTILIZACAO IS NOT NULL
+")
+```
+
+
+
+# 3. Variable objetivo
+
+
+
+```{r}
+target <- dbGetQuery(con, sprintf("
+  SELECT CHAVE_FUNCIONAL,
+    MAX(CASE WHEN SUBSTR(CID,1,3) BETWEEN '%s' AND '%s' THEN 1 ELSE 0 END) AS objetivo
+  FROM base_limpia
+  GROUP BY CHAVE_FUNCIONAL
+", cid_min, cid_max))
+
+table(target$objetivo)
+prop.table(table(target$objetivo))
+```
+
+
+
+# 4. Variables a nivel de beneficiario
+
+
+
+```{r}
+feats <- dbGetQuery(con, "
+  SELECT
+    b.CHAVE_FUNCIONAL,
+    MIN(b.DT_NASCIMENTO_BENEFICIARIO) AS fecha_nacimiento,
+    MIN(b.TIPO_BENEFICIARIO) AS tipo_beneficiario,
+    MIN(b.SEXO_BENEFICIARIO) AS sexo,
+    COUNT(DISTINCT b.DT_UTILIZACAO) AS n_consultas,
+    COUNT(*) AS n_procedimientos,
+    SUM(CASE WHEN b.UTI IN ('S','Sim','1','SI') THEN 1 ELSE 0 END) AS n_uti,
+    SUM(CASE WHEN b.INTERNADO IN ('S','Sim','1','SI') THEN 1 ELSE 0 END) AS n_internaciones,
+    COUNT(DISTINCT b.DESC_ESPECIALIDADE) AS n_especialidades_distintas,
+    SUM(CAST(b.VALOR_UTILIZACAO AS DOUBLE)) AS costo_total,
+    AVG(CAST(b.VALOR_UTILIZACAO AS DOUBLE)) AS costo_promedio,
+    MAX(CAST(b.VALOR_UTILIZACAO AS DOUBLE)) AS costo_max
+  FROM base_limpia b
+  GROUP BY b.CHAVE_FUNCIONAL
+")
+
+datos <- feats %>%
+  mutate(
+    fecha_nacimiento = as.Date(fecha_nacimiento),
+    edad = as.numeric(difftime(Sys.Date(), fecha_nacimiento, units = "days")) / 365.25,
+    edad = case_when(edad < 0 | edad > 110 ~ NA_real_, TRUE ~ edad)
+  ) %>%
+  inner_join(target, by = "CHAVE_FUNCIONAL") %>%
+  mutate(objetivo = factor(objetivo, levels = c(0, 1), labels = c("No", "Si")))
+
+str(datos)
+```
+
+
+
+# 5. Análisis descriptivo
+
+
+
+```{r}
+nrow(datos)
+percent(mean(datos$objetivo == "Si"), accuracy = 0.1)
+summary(datos %>% select(edad, n_consultas, n_procedimientos, costo_total, costo_promedio))
+```
+
+```{r}
+ggplot(datos, aes(x = objetivo, fill = objetivo)) +
+  geom_bar() +
+  labs(x = nombre_enf, y = "Beneficiarios") +
+  theme_minimal() + theme(legend.position = "none")
+```
+
+```{r}
+ggplot(datos %>% filter(!is.na(edad), !is.na(sexo)), aes(x = objetivo, y = edad, fill = objetivo)) +
+  geom_boxplot() +
+  facet_wrap(~sexo) +
+  theme_minimal() + theme(legend.position = "none")
+```
+
+```{r}
+ggplot(datos, aes(x = objetivo, y = costo_total, fill = objetivo)) +
+  geom_boxplot() +
+  scale_y_log10(labels = label_number()) +
+  theme_minimal() + theme(legend.position = "none")
+```
+
+```{r}
+q <- quantile(datos$costo_total, c(0.25, 0.75), na.rm = TRUE)
+lim_sup <- q[2] + 1.5 * diff(q)
+sum(datos$costo_total > lim_sup, na.rm = TRUE)
+```
+
+
+
+# 6. Modelamiento
+
+
+
+```{r}
+datos_modelo <- datos %>%
+  select(objetivo, edad, sexo, tipo_beneficiario, n_consultas, n_procedimientos,
+         n_uti, n_internaciones, n_especialidades_distintas, costo_total, costo_promedio) %>%
+  drop_na() %>%
+  mutate(sexo = factor(sexo), tipo_beneficiario = factor(tipo_beneficiario))
+
+idx_train <- createDataPartition(datos_modelo$objetivo, p = 0.75, list = FALSE)
+train <- datos_modelo[idx_train, ]
+test <- datos_modelo[-idx_train, ]
+
+modelo_log <- glm(objetivo ~ ., data = train, family = binomial())
+summary(modelo_log)
+
+modelo_rf <- randomForest(objetivo ~ ., data = train, ntree = 500, importance = TRUE)
+modelo_rf
+```
+
+
+
+# 7. Evaluación
+
+
+
+```{r}
+prob_log <- predict(modelo_log, newdata = test, type = "response")
+clase_log <- factor(ifelse(prob_log > 0.5, "Si", "No"), levels = c("No", "Si"))
+
+prob_rf <- predict(modelo_rf, newdata = test, type = "prob")[, "Si"]
+clase_rf <- predict(modelo_rf, newdata = test, type = "response")
+
+calcular_metricas <- function(clase_real, clase_pred, prob_pred, nombre_modelo) {
+  cm <- confusionMatrix(clase_pred, clase_real, positive = "Si")
+  roc_obj <- roc(clase_real, prob_pred, levels = c("No", "Si"), quiet = TRUE)
+  pr_obj <- pr.curve(
+    scores.class0 = prob_pred[clase_real == "Si"],
+    scores.class1 = prob_pred[clase_real == "No"],
+    curve = TRUE
+  )
+  tibble::tibble(
+    modelo = nombre_modelo,
+    accuracy = cm$overall["Accuracy"],
+    f1 = cm$byClass["F1"],
+    sensibilidad = cm$byClass["Sensitivity"],
+    especificidad = cm$byClass["Specificity"],
+    roc_auc = as.numeric(auc(roc_obj)),
+    pr_auc = pr_obj$auc.integral
+  )
+}
+
+metricas <- bind_rows(
+  calcular_metricas(test$objetivo, clase_log, prob_log, "Logística"),
+  calcular_metricas(test$objetivo, clase_rf, prob_rf, "Random Forest")
+)
+metricas
+```
+
+```{r}
+roc_log <- roc(test$objetivo, prob_log, levels = c("No", "Si"), quiet = TRUE)
+roc_rf <- roc(test$objetivo, prob_rf, levels = c("No", "Si"), quiet = TRUE)
+
+plot(roc_log, col = "steelblue", main = "Curvas ROC")
+plot(roc_rf, col = "darkorange", add = TRUE)
+legend("bottomright", legend = c("Logística", "Random Forest"), col = c("steelblue", "darkorange"), lwd = 2)
+```
+
+```{r}
+pr_log <- pr.curve(scores.class0 = prob_log[test$objetivo == "Si"], scores.class1 = prob_log[test$objetivo == "No"], curve = TRUE)
+pr_rf <- pr.curve(scores.class0 = prob_rf[test$objetivo == "Si"], scores.class1 = prob_rf[test$objetivo == "No"], curve = TRUE)
+
+plot(pr_log, color = "steelblue", main = "Curvas Precision-Recall")
+plot(pr_rf, color = "darkorange", add = TRUE)
+```
+
+```{r}
+confusionMatrix(clase_rf, test$objetivo, positive = "Si")
+```
+
+
+
+# 8. Interpretación
+
+
+
+```{r}
+varImpPlot(modelo_rf, main = "Importancia de variables")
+```
+
+```{r}
+coefs <- summary(modelo_log)$coefficients
+coefs[order(-abs(coefs[, "Estimate"])), ]
+```
+
+
+
+# 9. Estimación de costos
+
+
+
+```{r}
+costo_data <- datos %>%
+  filter(objetivo == "Si") %>%
+  select(costo_total, edad, sexo, n_internaciones, n_uti, n_consultas, tipo_beneficiario) %>%
+  drop_na()
+
+modelo_costo <- lm(costo_total ~ edad + sexo + n_internaciones + n_uti + n_consultas + tipo_beneficiario, data = costo_data)
+summary(modelo_costo)
+
+dollar(mean(costo_data$costo_total))
+dollar(sd(costo_data$costo_total))
+```
+
+
+
+# 10. Conclusiones
+
+
+
+```{r}
+dbDisconnect(con, shutdown = TRUE)
+```
+
