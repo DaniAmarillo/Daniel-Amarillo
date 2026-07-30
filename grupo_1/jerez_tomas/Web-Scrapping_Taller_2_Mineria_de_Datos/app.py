@@ -26,6 +26,7 @@ pages = {
         st.Page("pages_app/indicators.py", title="Indicadores", icon="📊"),
         st.Page("pages_app/visualizations.py", title="Visualizaciones", icon="📈"),
         st.Page("pages_app/explore.py", title="Explorar artículos", icon="🗂️"),
+        st.Page("pages_app/search.py", title="Buscador", icon="🔎"),
     ],
     "ACCIONES": [
         st.Page("pages_app/update_db.py", title="Actualizar BD", icon="🔄"),
