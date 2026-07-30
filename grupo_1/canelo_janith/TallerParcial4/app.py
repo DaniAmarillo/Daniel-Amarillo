@@ -236,7 +236,7 @@ st.markdown(
     f"""
     <div class="latex-header">
         <div class="latex-title">Análisis de {journal}</div>
-        <div class="latex-sub">NOMBRE DEL AUTOR</div>
+        <div class="latex-sub">Johan Farith Canelo Gonzalez</div>
         <div class="latex-sub">Dashboard del proceso KDD y buscador de artículos &mdash; Talleres&nbsp;2 y&nbsp;4, Minería de Datos (2016325)</div>
         <div class="latex-meta">Adquisición &middot; Almacenamiento &middot; Consulta &middot; Visualización &middot; Recuperación de información</div>
     </div>
