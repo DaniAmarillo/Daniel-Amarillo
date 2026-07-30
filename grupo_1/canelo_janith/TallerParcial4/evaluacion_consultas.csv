@@ -1,0 +1,25 @@
+consulta,tipo,estrategia,P@5,MRR,nDCG@5,Recall@10,ms
+C1,Términos literales del corpus,bm25,0.6,1.0,0.6843515475204855,0.8571428571428571,1.2
+C1,Términos literales del corpus,lsa,0.6,1.0,0.6843515475204855,0.8571428571428571,1.08
+C1,Términos literales del corpus,tfidf,0.6,1.0,0.6992148198508501,0.8571428571428571,0.69
+C1,Términos literales del corpus,hibrido,0.6,1.0,0.6843515475204855,1.0,1.12
+C2,Términos relacionados / sinónimos,bm25,0.4,0.25,0.27727342735504823,0.5,0.42
+C2,Términos relacionados / sinónimos,lsa,0.6,1.0,0.6548086577531307,0.6666666666666666,0.66
+C2,Términos relacionados / sinónimos,tfidf,0.6,0.3333333333333333,0.4468535299918563,0.5,0.57
+C2,Términos relacionados / sinónimos,hibrido,0.4,0.3333333333333333,0.3156484524795145,0.8333333333333334,1.03
+C3,Consulta general,bm25,1.0,1.0,1.0,0.9090909090909091,0.38
+C3,Consulta general,lsa,0.8,1.0,0.7860137352654724,0.8181818181818182,0.64
+C3,Consulta general,tfidf,1.0,1.0,1.0,0.9090909090909091,0.52
+C3,Consulta general,hibrido,1.0,1.0,1.0,0.9090909090909091,0.96
+C4,Consulta específica,bm25,0.4,1.0,0.5531464700081437,1.0,0.36
+C4,Consulta específica,lsa,0.6,1.0,0.6992148198508501,1.0,0.59
+C4,Consulta específica,tfidf,0.4,1.0,0.5531464700081437,1.0,0.83
+C4,Consulta específica,hibrido,0.6,1.0,0.6992148198508501,1.0,1.06
+C5,Consulta donde se esperan resultados poco relevantes,bm25,0.0,0.16666666666666666,0.0,0.16666666666666666,0.35
+C5,Consulta donde se esperan resultados poco relevantes,lsa,0.0,0.1111111111111111,0.0,0.16666666666666666,0.7
+C5,Consulta donde se esperan resultados poco relevantes,tfidf,0.0,0.16666666666666666,0.0,0.16666666666666666,0.55
+C5,Consulta donde se esperan resultados poco relevantes,hibrido,0.0,0.16666666666666666,0.0,0.16666666666666666,0.94
+C6,Consulta en lenguaje natural (estilo enunciado),bm25,0.2,0.25,0.14606834984270645,0.25,0.32
+C6,Consulta en lenguaje natural (estilo enunciado),lsa,0.4,0.5,0.38356636737133565,0.5,0.67
+C6,Consulta en lenguaje natural (estilo enunciado),tfidf,0.2,0.25,0.14606834984270645,0.125,0.52
+C6,Consulta en lenguaje natural (estilo enunciado),hibrido,0.4,0.5,0.34519134224686937,0.5,0.93
