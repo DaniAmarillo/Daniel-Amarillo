@@ -1,0 +1,11 @@
+"query_id","query_type","query","strategy","relevantes_top5","precision_at_5"
+"Q1_directa","terminos directos","white box cryptography differential computation attack","LSA/SVD + coseno",1,0.2
+"Q1_directa","terminos directos","white box cryptography differential computation attack","TF-IDF + coseno",4,0.8
+"Q2_sinonimos","sinonimos o terminos relacionados","language models text generation semantic embeddings","LSA/SVD + coseno",5,1
+"Q2_sinonimos","sinonimos o terminos relacionados","language models text generation semantic embeddings","TF-IDF + coseno",5,1
+"Q3_general","general","entropy statistical physics complex systems","LSA/SVD + coseno",5,1
+"Q3_general","general","entropy statistical physics complex systems","TF-IDF + coseno",5,1
+"Q4_especifica","especifica","conditional gaussian nonlinear systems data assimilation uncertainty","LSA/SVD + coseno",1,0.2
+"Q4_especifica","especifica","conditional gaussian nonlinear systems data assimilation uncertainty","TF-IDF + coseno",2,0.4
+"Q5_dificil","caso poco relevante","marine ecology biodiversity conservation","LSA/SVD + coseno",1,0.2
+"Q5_dificil","caso poco relevante","marine ecology biodiversity conservation","TF-IDF + coseno",1,0.2

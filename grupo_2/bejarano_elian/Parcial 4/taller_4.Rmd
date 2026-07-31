@@ -1,0 +1,560 @@
+---
+title: "Taller 4 - Sistema de busqueda y recuperacion de articulos cientificos"
+author: "Elian Steven Bejarano"
+date: "2026-07-30"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(DBI)
+library(RSQLite)
+library(dplyr)
+library(stringr)
+source("search_helpers.R")
+```
+
+# Objetivo del Taller 4
+
+El Taller 4 solicita ampliar la aplicacion construida en el Taller 2, sin reemplazarla, mediante un modulo de busqueda y recuperacion de articulos cientificos. La nueva funcionalidad debe permitir que un usuario escriba una consulta en lenguaje natural y reciba una lista de articulos ordenados por relevancia.
+
+Este documento describe de forma reproducible como se paso desde los textos almacenados en SQLite hasta:
+
+- la construccion del corpus;
+- el procesamiento del texto;
+- la representacion vectorial;
+- la reduccion dimensional;
+- el calculo de similitud;
+- el ranking de resultados;
+- la comparacion de estrategias;
+- la evaluacion con consultas reales;
+- la integracion en la aplicacion Shiny del Taller 2.
+
+La solucion implementa dos estrategias:
+
+| Estrategia | Tipo de recuperacion | Representacion | Reduccion dimensional | Similitud |
+|---|---|---|---|---|
+| TF-IDF + coseno | Lexica | Matriz documento-termino ponderada por TF-IDF | No | Coseno |
+| LSA/SVD + coseno | Lexica-latente | TF-IDF proyectado a espacio semantico latente | Si, SVD truncado | Coseno |
+
+No se usaron APIs externas, modelos pagos ni embeddings descargados desde servicios externos. La decision se tomo para mantener reproducibilidad, bajo consumo de memoria y compatibilidad con shinyapps.io.
+
+# Relacion con el Taller 2
+
+El Taller 2 construyo un dashboard en Shiny conectado a una base SQLite de articulos de la revista **Entropy (MDPI)**. Ese dashboard ya permitia:
+
+- consultar la tabla `papers`;
+- filtrar por fechas, tematica, titulo, autor y DOI;
+- visualizar indicadores descriptivos;
+- graficar distribuciones y tendencias;
+- actualizar la base mediante web scraping.
+
+El Taller 4 conserva esas funcionalidades y agrega un componente de mineria de texto. El nuevo modulo no es un filtro SQL ni una busqueda exacta con `LIKE`; el ranking se obtiene a partir de representaciones numericas de los textos.
+
+# Conexion a SQLite y carga de datos
+
+```{r load-data}
+db_path <- "entropy_2025.sqlite"
+con <- dbConnect(SQLite(), db_path)
+papers <- dbGetQuery(con, "SELECT * FROM papers")
+dbDisconnect(con)
+
+glimpse(papers)
+```
+
+La base contiene una tabla principal llamada `papers`. Cada fila representa un articulo de la revista Entropy.
+
+```{r corpus-summary}
+summary_corpus <- data.frame(
+  articulos = nrow(papers),
+  sin_titulo = sum(is.na(papers$title) | papers$title == ""),
+  sin_resumen = sum(is.na(papers$abstract) | papers$abstract == ""),
+  sin_doi = sum(is.na(papers$doi) | papers$doi == ""),
+  sin_autores = sum(is.na(papers$authors_raw) | papers$authors_raw == ""),
+  sin_tema = sum(is.na(papers$topic_label) | papers$topic_label == "")
+)
+
+summary_corpus
+```
+
+# Construccion del corpus
+
+## Unidad documental
+
+La unidad documental es el articulo cientifico. Cada documento se representa con los campos textuales disponibles en la tabla `papers`.
+
+## Campos utilizados
+
+Para construir el texto de cada articulo se usaron:
+
+- `title`: titulo del articulo;
+- `abstract`: resumen del articulo y palabras clave cuando aparecen dentro del mismo campo;
+- `topic_label`: categoria tematica asignada en el Taller 2.
+
+El corpus se construyo asi:
+
+```text
+corpus = title + title + abstract + topic_label
+```
+
+El titulo se repite una vez adicional porque suele resumir el aporte principal del articulo y es muy importante para busquedas cientificas. Esta ponderacion manual es sencilla, interpretable y evita introducir un modelo adicional.
+
+## Campos no utilizados directamente
+
+No se incluyeron directamente `citations`, `downloads`, `views` ni `n_references` en la representacion textual porque el Taller 4 exige que el ranking principal se base en representacion numerica del texto, no en popularidad o fecha. Esas variables se mantienen como informacion complementaria dentro del dashboard.
+
+Tampoco se incluyeron autores como parte del texto de ranking principal. La razon es que los nombres propios pueden dominar la similitud cuando una consulta menciona un apellido, desviando el objetivo del buscador hacia busqueda bibliografica por autor en lugar de recuperacion por contenido cientifico.
+
+## Tratamiento de valores faltantes
+
+Los valores faltantes se trataron como cadenas vacias. No se inventaron resumenes, palabras clave ni titulos. Esta decision cumple la aclaracion del taller: no se permite reemplazar texto faltante con contenido generado o inventado.
+
+Los documentos que, luego del procesamiento, no conservaran ningun token util se excluyen del indice. En esta base, el indice final conserva:
+
+```{r index-documents}
+idx <- load_or_build_search_index(db_path, "search_index.rds")
+idx$meta$n_docs
+```
+
+# Procesamiento del texto
+
+El procesamiento se implementa en `search_helpers.R`, especialmente en las funciones `normalize_text_ir()` y `tokenize_ir()`.
+
+```{r token-example}
+ejemplo <- papers$abstract[1]
+head(tokenize_ir(ejemplo), 40)
+```
+
+## Normalizacion
+
+Se aplicaron las siguientes transformaciones:
+
+- conversion a minusculas;
+- transliteracion a ASCII mediante `iconv`;
+- eliminacion de URLs y expresiones tipo DOI dentro del texto;
+- reemplazo de puntuacion y caracteres especiales por espacios;
+- compactacion de espacios multiples;
+- eliminacion de tokens numericos puros.
+
+## Justificacion
+
+La normalizacion reduce variantes superficiales. Por ejemplo, `Entropy`, `entropy` y `entropy.` deben tratarse como el mismo termino. Tambien evita que signos de puntuacion creen tokens artificiales.
+
+La transliteracion a ASCII se uso por razones practicas: la base combina textos cientificos en ingles con algunos caracteres especiales, y el despliegue en Windows/R puede presentar problemas de codificacion. Esta normalizacion hace mas estable la tokenizacion.
+
+## Stopwords
+
+Se eliminaron stopwords frecuentes en ingles y espanol. La mayoria de articulos de Entropy esta en ingles, pero el usuario puede escribir consultas en espanol o con terminos mixtos. Por eso se incluyo una lista corta en ambos idiomas.
+
+Ejemplos de terminos eliminados:
+
+```{r stopwords-sample}
+head(ir_stopwords, 30)
+```
+
+## Stemming y lematizacion
+
+No se aplicaron stemming ni lematizacion. La decision se justifica por tres razones:
+
+1. El corpus es tecnico y contiene siglas, nombres de metodos, variables y expresiones cientificas.
+2. Una raiz mal construida puede dañar terminos como `bayesian`, `entropy`, `diffusion`, `transformer` o `gaussian`.
+3. La mejora esperada no compensa la perdida de interpretabilidad ni el aumento de dependencias.
+
+## N-gramas
+
+La version implementada trabaja con unigramas. Se considero incluir bigramas, pero se descartaron en esta entrega porque:
+
+- aumentan rapidamente la dimension del vocabulario;
+- pueden elevar el consumo de memoria;
+- el corpus ya contiene titulos y resumenes bastante descriptivos;
+- la estrategia LSA ayuda parcialmente a recuperar relaciones entre terminos.
+
+Como mejora futura, se podrian incorporar bigramas seleccionados para expresiones como `machine learning`, `large language`, `white box` o `data assimilation`.
+
+# Representacion vectorial
+
+## Matriz documento-termino
+
+Despues de tokenizar, se construye una matriz documento-termino:
+
+- cada fila representa un articulo;
+- cada columna representa un termino del vocabulario;
+- cada celda contiene la frecuencia del termino en el documento.
+
+El vocabulario se limita con los siguientes criterios:
+
+| Criterio | Valor | Justificacion |
+|---|---:|---|
+| Frecuencia documental minima | 2 documentos | Elimina terminos demasiado raros o errores de extraccion. |
+| Frecuencia documental maxima | 85% de documentos | Elimina terminos demasiado generales. |
+| Tamano maximo del vocabulario | 1800 terminos | Controla memoria y tiempo de respuesta. |
+
+```{r index-meta}
+data.frame(
+  documentos = idx$meta$n_docs,
+  dimension_original = idx$meta$original_dim,
+  dimension_reducida = idx$meta$reduced_dim,
+  min_df = idx$meta$min_df,
+  max_df_share = idx$meta$max_df_share,
+  max_terms = idx$meta$max_terms
+)
+```
+
+## TF-IDF
+
+La ponderacion TF-IDF combina dos ideas:
+
+- **TF**: que tan importante es un termino dentro de un documento;
+- **IDF**: que tan informativo es un termino dentro de todo el corpus.
+
+En esta implementacion:
+
+```text
+TF = frecuencia del termino / total de terminos del documento
+IDF = log((1 + N) / (1 + df)) + 1
+TF-IDF = TF * IDF
+```
+
+Donde `N` es el numero de documentos y `df` es el numero de documentos donde aparece el termino.
+
+## Ventajas de TF-IDF
+
+- Es interpretable.
+- Funciona bien cuando la consulta comparte terminos con los articulos.
+- No requiere entrenamiento pesado.
+- Es apropiado para corpus medianos.
+- Puede ejecutarse sin APIs externas.
+
+## Limitaciones de TF-IDF
+
+- No entiende sinonimos si no comparten vocabulario.
+- Pierde el orden de las palabras.
+- Trata cada termino como dimension independiente.
+- Puede fallar con consultas muy generales o ambiguas.
+
+# Tipo de recuperacion
+
+## Estrategia 1: recuperacion lexica
+
+La estrategia **TF-IDF + coseno** es una recuperacion lexica porque compara coincidencias ponderadas de terminos entre la consulta y cada articulo.
+
+Un articulo se considera relevante cuando:
+
+- comparte terminos con la consulta;
+- esos terminos son importantes en el articulo;
+- esos terminos no son excesivamente comunes en todo el corpus.
+
+Ejemplo: para la consulta `white box cryptography differential computation attack`, TF-IDF favorece articulos donde aparecen directamente terminos como `white`, `box`, `cryptography`, `differential`, `computation` y `attack`.
+
+## Estrategia 2: recuperacion lexica-latente
+
+La estrategia **LSA/SVD + coseno** parte de la misma matriz TF-IDF, pero proyecta documentos y consultas a un espacio reducido. Por eso se considera una recuperacion lexica-latente:
+
+- sigue naciendo de una matriz de terminos;
+- pero compara documentos en componentes latentes que resumen patrones de coocurrencia.
+
+LSA puede acercar documentos que no tienen exactamente las mismas palabras, pero que comparten estructura semantica dentro del corpus. Por ejemplo, articulos sobre lenguaje, texto, embeddings y modelos pueden quedar cercanos en el espacio reducido.
+
+## Por que no se uso recuperacion puramente semantica con embeddings
+
+El taller permite embeddings, pero no los exige. Se decidio no usarlos en esta version por:
+
+- reproducibilidad: no depender de descargas externas ni APIs;
+- despliegue: shinyapps.io puede tener restricciones de memoria y tiempo;
+- evaluacion: TF-IDF y LSA estan directamente conectados con las clases 20 a 24;
+- interpretabilidad: es mas facil explicar por que un articulo aparece en el ranking.
+
+La aplicacion podria ampliarse con embeddings en el futuro, pero la solucion actual cumple el requisito de dos estrategias y reduccion dimensional.
+
+# Reduccion dimensional
+
+## Metodo seleccionado
+
+Se uso **SVD truncado**, tambien conocido en recuperacion de informacion como **Latent Semantic Analysis (LSA)**.
+
+Este metodo es apropiado porque:
+
+- trabaja naturalmente sobre matrices documento-termino;
+- resume una matriz de alta dimension en un numero menor de componentes;
+- captura patrones de coocurrencia entre terminos;
+- esta alineado con las clases de reduccion dimensional y NLP;
+- evita entrenar redes neuronales o modelos pesados.
+
+## Dimension original y reducida
+
+```{r dimensions}
+data.frame(
+  dimension_original = idx$meta$original_dim,
+  dimension_reducida = idx$meta$reduced_dim,
+  reduccion_porcentual = round(100 * (1 - idx$meta$reduced_dim / idx$meta$original_dim), 2)
+)
+```
+
+La representacion pasa de `r idx$meta$original_dim` dimensiones a `r idx$meta$reduced_dim` dimensiones. Esto equivale a una reduccion aproximada del `r round(100 * (1 - idx$meta$reduced_dim / idx$meta$original_dim), 2)`%.
+
+## Criterio para escoger 80 componentes
+
+Se eligieron 80 componentes por equilibrio entre:
+
+- conservar estructura latente suficiente;
+- reducir ruido de terminos raros;
+- mantener tiempos de respuesta bajos;
+- evitar alto consumo de memoria;
+- facilitar despliegue en un entorno con maximo 16 GB de RAM.
+
+No se eligio una dimension demasiado baja, como 2 o 5, porque eso seria util para visualizacion pero no necesariamente para ranking. Tampoco se eligio una dimension cercana a la original porque perderia el sentido de reducir dimensionalidad.
+
+## Proyeccion de la consulta
+
+El taller exige que la consulta se proyecte al mismo espacio reducido de los articulos. En esta solucion, la consulta primero se vectoriza como TF-IDF y luego se transforma con los componentes de la SVD:
+
+```text
+q_lsa = q_tfidf * V * D^{-1}
+```
+
+Donde:
+
+- `q_tfidf` es el vector TF-IDF de la consulta;
+- `V` contiene los vectores singulares derechos;
+- `D` contiene los valores singulares seleccionados;
+- `q_lsa` es la consulta en el espacio reducido.
+
+Despues se normaliza el vector y se calcula similitud coseno contra los documentos en el espacio LSA.
+
+## Informacion conservada y perdida
+
+LSA intenta conservar los patrones principales de coocurrencia entre terminos y documentos. Esto ayuda a agrupar articulos que hablan de temas parecidos aunque no usen exactamente las mismas palabras.
+
+Sin embargo, se pierde informacion fina:
+
+- terminos muy especificos pueden diluirse;
+- consultas exactas pueden obtener resultados mas generales;
+- componentes latentes no siempre son faciles de interpretar individualmente.
+
+Esta tension se observa en la evaluacion: TF-IDF suele ganar en consultas muy especificas, mientras que LSA puede ser competitivo en consultas tematicas amplias.
+
+# Mecanismo de ranking
+
+## Similitud coseno
+
+Se usa similitud coseno porque compara la orientacion de los vectores, no su magnitud absoluta. Esto es importante en texto porque documentos largos no deberian ser automaticamente mas relevantes solo por tener mas palabras.
+
+La similitud coseno se define como:
+
+```text
+coseno(q, d) = (q . d) / (||q|| * ||d||)
+```
+
+Donde:
+
+- `q` es el vector de la consulta;
+- `d` es el vector del documento;
+- un valor mas alto indica mayor similitud.
+
+## Ranking TF-IDF
+
+Para TF-IDF:
+
+1. se normaliza y tokeniza la consulta;
+2. se construye su vector TF-IDF con el vocabulario del corpus;
+3. se normaliza el vector;
+4. se calcula similitud coseno contra todos los documentos;
+5. se ordena de mayor a menor puntaje.
+
+## Ranking LSA
+
+Para LSA:
+
+1. se construye el vector TF-IDF de la consulta;
+2. se proyecta al espacio reducido con la SVD;
+3. se normaliza el vector proyectado;
+4. se calcula similitud coseno contra los documentos reducidos;
+5. se ordena de mayor a menor puntaje.
+
+## Manejo de empates
+
+El orden se obtiene con `order(scores, decreasing = TRUE)`. Si hubiera empates exactos, R mantiene un orden determinado por la posicion original resultante del vector de puntajes. En la practica, los empates son poco frecuentes porque los puntajes son continuos.
+
+## Comparabilidad de puntajes
+
+Los puntajes de TF-IDF y LSA no se interpretan como probabilidades y no deben compararse directamente entre estrategias. Un 0.80 en LSA no significa necesariamente mayor relevancia que un 0.60 en TF-IDF. Lo importante es el orden dentro de cada metodo.
+
+## Criterios secundarios
+
+No se usaron citas, descargas, vistas ni fecha como criterios secundarios de ordenamiento. Se prefirio mantener un ranking puramente textual para cumplir el objetivo central del Taller 4. Esas variables quedan disponibles en el dashboard para interpretar el impacto de los articulos recuperados.
+
+# Ejemplo de busqueda
+
+```{r search-example}
+consulta <- "generative artificial intelligence diagnosis disease"
+
+tfidf_top <- search_articles(consulta, idx, "tfidf", 5)
+lsa_top <- search_articles(consulta, idx, "lsa", 5)
+
+tfidf_top[, c("rank", "score", "title", "topic_label")]
+lsa_top[, c("rank", "score", "title", "topic_label")]
+```
+
+Este ejemplo muestra que ambas estrategias pueden recuperar articulos relacionados con inteligencia artificial generativa, pero no necesariamente en el mismo orden. Esto es esperable porque TF-IDF premia coincidencias directas, mientras que LSA compara en un espacio latente.
+
+# Evaluacion de resultados
+
+## Consultas definidas
+
+El taller solicita al menos cinco consultas relacionadas con el contenido real de la revista. Se definieron:
+
+```{r queries}
+evaluacion <- read.csv("consultas_evaluacion.csv", stringsAsFactors = FALSE)
+precision <- read.csv("precision_at_5.csv", stringsAsFactors = FALSE)
+
+evaluacion |>
+  distinct(query_id, query_type, query)
+```
+
+Las consultas cubren:
+
+- terminos exactos presentes en articulos;
+- terminos relacionados o sinonimos;
+- una consulta general;
+- una consulta especifica;
+- una consulta dificil donde se espera baja precision.
+
+## Criterio de relevancia
+
+La columna `is_relevant` en `consultas_evaluacion.csv` se marco manualmente con:
+
+- `1`: el articulo recuperado trata de forma clara el tema de la consulta;
+- `0`: el articulo solo comparte terminos superficiales o pertenece a otro dominio.
+
+La marcacion manual es necesaria porque no existe un conjunto de relevancia oficial para esta base. El criterio se basa en titulo, categoria, DOI y fragmento del resumen.
+
+## Precision@5
+
+Precision@5 se calcula asi:
+
+```text
+Precision@5 = articulos relevantes entre los primeros 5 / 5
+```
+
+```{r precision}
+precision
+```
+
+## Comparacion global
+
+```{r aggregate}
+precision |>
+  group_by(strategy) |>
+  summarise(
+    media_precision_at_5 = mean(precision_at_5),
+    consultas = n(),
+    .groups = "drop"
+  )
+```
+
+## Interpretacion por tipo de consulta
+
+En la consulta directa sobre criptografia de caja blanca, TF-IDF obtiene mejor Precision@5 porque los terminos de la consulta aparecen de forma explicita en los documentos relevantes. LSA reduce la dimension y acerca articulos sobre computacion o grafos que comparten contexto matematico, pero no necesariamente tratan criptografia.
+
+En la consulta sobre modelos de lenguaje, texto y embeddings, ambas estrategias logran buenos resultados. Esto indica que el corpus contiene suficientes articulos relacionados con texto, semantica y modelos de lenguaje para que tanto la coincidencia lexica como la estructura latente funcionen.
+
+En la consulta general sobre entropia, fisica estadistica y sistemas complejos, ambas estrategias recuperan articulos pertinentes. Esto ocurre porque Entropy es una revista con fuerte presencia de esos temas, por lo que la consulta coincide con el nucleo tematico del corpus.
+
+En la consulta especifica sobre sistemas gaussianos condicionales, TF-IDF ubica mejor el articulo exacto porque conserva terminos muy distintivos. LSA trae resultados sobre dinamica no lineal y sistemas complejos que son cercanos, pero mas amplios.
+
+En la consulta dificil sobre ecologia marina y conservacion, ambos metodos tienen baja precision. Esto es razonable porque el tema no es central en la revista seleccionada. El resultado sirve para mostrar una limitacion del sistema: si la consulta esta lejos del dominio del corpus, el ranking puede encontrar coincidencias parciales pero poco satisfactorias.
+
+# Analisis de errores
+
+Un caso de error aparece en la consulta `marine ecology biodiversity conservation`. LSA ubica articulos de ecuaciones, movilidad coloidal o superconductividad antes de un articulo mas cercano a conservacion. Esto ocurre porque, al reducir la matriz TF-IDF, algunos terminos generales como `conservation` pueden compartir espacio con conceptos matematicos o fisicos donde la palabra se usa con otro significado, por ejemplo conservacion de masa o conservacion de energia.
+
+Este error muestra que:
+
+- la relevancia depende del dominio del corpus;
+- una palabra puede tener significados distintos segun el area cientifica;
+- LSA captura asociaciones globales, pero no desambigua completamente el sentido;
+- TF-IDF puede ser mas transparente cuando se requieren coincidencias exactas.
+
+# Consideraciones computacionales
+
+La solucion fue pensada para ejecutarse en un computador con maximo 16 GB de RAM.
+
+Decisiones para controlar recursos:
+
+- limitar el vocabulario a 1800 terminos;
+- excluir terminos demasiado raros o demasiado frecuentes;
+- cachear el indice en `search_index.rds`;
+- evitar reconstruir la matriz en cada busqueda;
+- evitar modelos neuronales grandes;
+- evitar APIs pagas;
+- usar SVD truncado con 80 componentes.
+
+El indice se construye una vez con:
+
+```r
+source("build_search_index.R")
+```
+
+La aplicacion Shiny carga el objeto cacheado. Si la base SQLite cambia y queda mas reciente que el indice, el indice se reconstruye automaticamente.
+
+# Integracion en la aplicacion Shiny
+
+El modulo se integro en `app.R` dentro del dashboard existente. La interfaz incluye:
+
+- campo de texto para consulta en lenguaje natural;
+- selector de estrategia;
+- selector de numero de resultados;
+- boton de busqueda;
+- tarjetas con metadatos del indice;
+- grafico de puntajes;
+- tabla interactiva de resultados.
+
+La tabla muestra:
+
+- metodo;
+- posicion en el ranking;
+- puntaje de similitud;
+- titulo;
+- autores;
+- fecha;
+- tematica;
+- DOI;
+- fragmento del resumen.
+
+La integracion conserva todos los elementos del Taller 2: filtros, KPIs, graficos, tablas, expansion de resumen y web scraping.
+
+# Reproducibilidad
+
+Para reproducir el proceso completo:
+
+```r
+source("build_search_index.R")
+source("evaluate_search.R")
+source("score_precision.R")
+rmarkdown::render("taller_4.Rmd", encoding = "UTF-8")
+```
+
+Archivos principales:
+
+| Archivo | Funcion |
+|---|---|
+| `app.R` | Aplicacion Shiny ampliada. |
+| `entropy_2025.sqlite` | Base de datos SQLite. |
+| `search_helpers.R` | Funciones de procesamiento, vectorizacion y ranking. |
+| `build_search_index.R` | Construye el indice de busqueda. |
+| `search_index.rds` | Indice cacheado para Shiny. |
+| `evaluate_search.R` | Ejecuta las consultas de evaluacion. |
+| `score_precision.R` | Calcula Precision@5. |
+| `consultas_evaluacion.csv` | Resultados top 5 y relevancia manual. |
+| `precision_at_5.csv` | Resumen de Precision@5. |
+
+# Conclusiones
+
+El Taller 4 amplia el dashboard del Taller 2 con un sistema real de recuperacion de informacion. La estrategia TF-IDF ofrece una base lexica interpretable y robusta para consultas con terminos exactos. La estrategia LSA/SVD incorpora reduccion dimensional y permite comparar rankings en un espacio latente.
+
+La evaluacion muestra que no existe una estrategia universalmente mejor. TF-IDF es mas preciso en consultas especificas con vocabulario claro, mientras que LSA puede ser util en consultas amplias o semanticamente relacionadas. La combinacion de ambas dentro de la aplicacion permite al usuario explorar diferencias de ranking y entender mejor el contenido de la revista Entropy.

@@ -1,0 +1,43 @@
+Cargando paquete requerido: shiny
+Aviso: package 'shiny' was built under R version 4.4.2
+Aviso: package 'DBI' was built under R version 4.4.2
+Aviso: package 'RSQLite' was built under R version 4.4.2
+Aviso: package 'dplyr' was built under R version 4.4.3
+
+Adjuntando el paquete: 'dplyr'
+
+The following objects are masked from 'package:stats':
+
+    filter, lag
+
+The following objects are masked from 'package:base':
+
+    intersect, setdiff, setequal, union
+
+Aviso: package 'highcharter' was built under R version 4.4.3
+Registered S3 method overwritten by 'quantmod':
+  method            from
+  as.zoo.data.frame zoo 
+Highcharts (www.highcharts.com) is a Highsoft software product which is
+not free for commercial and Governmental use
+Aviso: package 'DT' was built under R version 4.4.2
+
+Adjuntando el paquete: 'DT'
+
+The following objects are masked from 'package:shiny':
+
+    dataTableOutput, renderDataTable
+
+Aviso: package 'httr2' was built under R version 4.4.3
+Aviso: package 'rvest' was built under R version 4.4.3
+Aviso: package 'jsonlite' was built under R version 4.4.3
+
+Adjuntando el paquete: 'jsonlite'
+
+The following object is masked from 'package:shiny':
+
+    validate
+
+Aviso: package 'tidyr' was built under R version 4.4.2
+
+Listening on http://127.0.0.1:4624
