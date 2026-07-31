@@ -7,7 +7,7 @@ Ampliación de la aplicación del Taller 2 (dashboard de *The Journal of Finance
 con un módulo de búsqueda que permite escribir una consulta en lenguaje natural y obtener
 artículos ordenados por relevancia.
 
-**Aplicación desplegada:** https://mineria-de-datos-baosxpevw5rc3inmltgf6t.streamlit.app/
+**Aplicación desplegada:** [https://mineria-de-datos-baosxpevw5rc3inmltgf6t.streamlit.app/](https://mineria-taller4-sanchez.streamlit.app/)
 
 
 ## Estructura de archivos
