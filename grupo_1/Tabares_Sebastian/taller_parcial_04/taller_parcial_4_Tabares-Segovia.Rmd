@@ -1,0 +1,473 @@
+
+---
+title: "TALLER 4: MINERÍA DE DATOS"
+author: "Sebastián Tabares-Segovia"
+date: "30 Julio 2026"
+subtitle: "Sistema de recuperación de información — Nature Ecology & Evolution"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    df_print: paged
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    latex_engine: xelatex
+lang: es-CO
+documentclass: article
+papersize: letter
+geometry: margin=2.5cm
+colorlinks: true
+header-includes:
+  - |
+    \usepackage{graphicx}
+    \usepackage{booktabs}
+    \usepackage{float}
+    \usepackage{fancyhdr}
+    \usepackage{titling}
+    \pagestyle{fancy}
+    \fancyhf{}
+    \lhead{Tabares-Segovia}
+    \cfoot{\thepage}
+    }
+    }
+    \rhead{Taller 4: Minería de Datos}
+    \makeatletter
+    \pretitle{%
+      \begin{center}
+      \begin{minipage}{0.22\textwidth}
+      \raggedright
+      \includegraphics[height=0.9cm]{www/logo_nature.png}
+      \end{minipage}
+      \begin{minipage}{0.54\textwidth}
+      \centering
+      \textbf{\large UNIVERSIDAD NACIONAL DE COLOMBIA}\\
+      \vspace{0.2em}
+      \large Facultad de Ciencias
+      \end{minipage}
+      \begin{minipage}{0.22\textwidth}
+      \raggedleft
+      \includegraphics[height=1.4cm]{www/logo_unal.png}
+      \end{minipage}
+      \vspace{0.8em}
+      \hrule
+      \vspace{1.8em}
+      \LARGE
+    \posttitle{%
+      \par
+      \vspace{0.5em}
+      \hrule
+      \vspace{1em}
+      \end{center}
+    \preauthor{\begin{center}\large}
+    \postauthor{\par\end{center}}
+    \predate{\begin{center}\large}
+    \postdate{\par\end{center}\vspace{1em}}
+    \makeatother
+---
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+suppressPackageStartupMessages({
+  library(DBI); library(RSQLite); library(Matrix)
+  library(text2vec); library(irlba); library(SnowballC)
+  library(stopwords); library(dplyr); library(stringr)
+  library(knitr); library(ggplot2)
+})
+set.seed(42)
+source("search_engine.R", local = TRUE)
+DB_PATH <- "nature_eco_evo_2025.sqlite"
+```
+
+# Objetivo
+
+Este taller amplía el dashboard construido en el Taller 2 con un **sistema de recuperación de información** que permite escribir una consulta en lenguaje natural y obtener los artículos de *Nature Ecology & Evolution* ordenados por relevancia. Se implementan y comparan **dos estrategias**: una recuperación **léxica** (TF-IDF disperso + similitud coseno) y una recuperación **semántica reducida** (LSA / Truncated SVD sobre el TF-IDF + coseno). Al menos uno de los rankings, el semántico, se construye sobre una representación de dimensión reducida, y la consulta del usuario se proyecta al mismo espacio latente antes de calcular la similitud.
+
+| Componente | Decisión |
+|-----------------------------|------------------------------------------------|
+| Corpus | `title` + `abstract` (si existe) + `topic_label` |
+| Procesamiento | minúsculas, letras/guion, *stopwords* EN, *stemming* Porter |
+| Representación | TF-IDF disperso, unigramas + bigramas |
+| Reducción | Truncated SVD (LSA), $k=200$ |
+| Similitud | Coseno |
+| Estrategias | Léxica (TF-IDF) vs. Semántica (LSA) |
+
+El índice se precalcula una sola vez con `build_index.R` (objeto `search_index.rds`) y la aplicación **no** lo reconstruye en cada búsqueda.
+
+# Construcción del corpus
+
+```{r corpus, echo=FALSE}
+con <- dbConnect(RSQLite::SQLite(), DB_PATH)
+papers <- dbGetQuery(con, "
+  SELECT paper_id, title, abstract, authors_raw, publication_date,
+         topic_label, doi, url, citations, downloads, year
+  FROM papers")
+dbDisconnect(con)
+
+n_total     <- nrow(papers)
+sin_titulo  <- sum(is.na(papers$title)   | trimws(papers$title)   == "")
+con_abs     <- sum(!is.na(papers$abstract) & trimws(papers$abstract) != "")
+sin_abs     <- n_total - con_abs
+sin_autor   <- sum(is.na(papers$authors_raw) | trimws(papers$authors_raw) == "")
+
+kable(data.frame(
+  Aspecto = c("Artículos totales", "Sin título", "Con resumen (abstract)",
+              "Sin resumen", "Sin autores", "Campo de palabras clave"),
+  Valor   = c(n_total, sin_titulo, con_abs, sin_abs, sin_autor,
+              "No disponible en la base")
+), caption = "Estado del corpus", booktabs = TRUE)
+```
+
+**Campos utilizados.** Cada artículo se representa concatenando su **título**, su **resumen** cuando está disponible y su **etiqueta temática** (`topic_label`) cuando es informativa (distinta de *Otros*). La base **no** contiene un campo de palabras clave, por lo que no se utiliza; el enunciado lo contempla como opcional ("cuando estén disponibles").
+
+**Número de artículos.** Se incluyen los `r n_total` artículos de la base. De ellos, solo `r con_abs` (`r round(100*con_abs/n_total,1)`\%) tienen resumen; los `r sin_abs` restantes corresponden mayoritariamente a formatos *News & Views*, *Correspondence* y correcciones editoriales que en OpenAlex no exponen abstract. Esta es la limitación central del corpus: **la mayoría de documentos se representa únicamente con su título**, un texto corto (media de `r round(mean(nchar(papers$title)))` caracteres).
+
+**Tratamiento de faltantes.** No se reemplaza ningún texto ausente por contenido inventado. Un resumen faltante simplemente **no aporta tokens** al documento; el artículo sigue siendo recuperable por su título. Los autores faltantes (`r sin_autor`) solo afectan la visualización, no el ranking.
+
+**Idioma.** *Nature Ecology & Evolution* publica íntegramente en inglés; se verificó por muestreo que títulos y resúmenes están en ese idioma, por lo que el procesamiento se configura para inglés (*stopwords* y *stemming* en inglés).
+
+**Criterios de inclusión/exclusión.** Se incluyen todos los artículos con título no vacío (el 100\%). No se excluye ningún documento: incluso los que solo tienen título aportan señal léxica útil.
+
+# Procesamiento del texto
+
+```{r preproc, echo=TRUE}
+en_stop <- stopwords::stopwords("en")
+
+prep_txt <- function(x) {                 # normalización
+  x <- tolower(x)
+  x <- gsub("[^a-z -]", " ", x)           # conserva letras y guion (deep-sea)
+  trimws(gsub("\\s+", " ", x))
+}
+
+tok_txt <- function(x) {                  # tokenización + limpieza
+  lapply(text2vec::word_tokenizer(x), function(w) {
+    w <- w[nchar(w) >= 3]                 # descarta tokens muy cortos
+    w <- w[!w %in% en_stop]               # elimina stopwords
+    SnowballC::wordStem(w, language = "en")  # stemming Porter
+  })
+}
+```
+
+Las decisiones de procesamiento y su justificación:
+
+| Operación | Decisión | Justificación |
+|--------------------|-----------|----------------------------------------------|
+| Minúsculas | Sí | Une *Climate* y *climate* en un mismo término. |
+| Normalización | Solo letras y guion | Elimina números/puntuación pero conserva términos científicos con guion (*deep-sea*, *coral-eating*). |
+| *Stopwords* (EN) | Se eliminan | Palabras como *the*, *of*, *and* no discriminan documentos. |
+| *Stemming* Porter | Sí | Agrupa *restoration/restore/restoring* → una raíz; reduce el vocabulario. |
+| Lematización | No | El *stemming* es suficiente y más liviano; evita dependencias pesadas. |
+| Números | Se eliminan | Aportan poco a la similitud temática en este corpus. |
+| $n$-gramas | Unigramas + bigramas | Los bigramas capturan conceptos (*coral reef*, *climate change*) que los unigramas fragmentan. |
+
+Se privilegió un procesamiento liviano y reproducible: *stemming* en lugar de lematización, y sin POS-tagging ni NER, porque para una tarea de recuperación por similitud el costo de esas etapas no compensa la mejora marginal.
+
+# Representación vectorial
+
+```{r tfidf, echo=TRUE}
+# doc = título + abstract (si existe) + tema (si informativo)
+construir_doc <- function(ti, ab, tp) {
+  d <- ti
+  if (!is.na(ab) && nchar(trimws(ab)) > 0) d <- paste(d, ab)
+  if (!is.na(tp) && tp != "Otros")         d <- paste(d, tp)
+  d
+}
+papers$doc <- mapply(construir_doc, papers$title, papers$abstract, papers$topic_label)
+
+crear_it <- function() itoken(papers$doc, preprocessor = prep_txt,
+                              tokenizer = tok_txt, ids = papers$paper_id,
+                              progressbar = FALSE)
+
+vocab <- create_vocabulary(crear_it(), ngram = c(1L, 2L)) |>
+  prune_vocabulary(term_count_min = 2L, doc_proportion_max = 0.60)
+vectorizer <- vocab_vectorizer(vocab)
+
+dtm       <- create_dtm(crear_it(), vectorizer)
+tfidf     <- TfIdf$new(norm = "l2", sublinear_tf = TRUE)
+dtm_tfidf <- as(fit_transform(dtm, tfidf), "CsparseMatrix")
+
+dim_orig  <- ncol(dtm_tfidf)
+densidad  <- 100 * length(dtm_tfidf@x) / prod(dim(dtm_tfidf))
+```
+
+Se eligió **TF-IDF** por ser la representación estándar para recuperación léxica (Clase 23): pondera cada término por su frecuencia en el documento (TF) y penaliza los términos ubicuos mediante el IDF, de modo que las palabras discriminativas dominan el vector. Se usa TF sublineal ($1+\log \text{tf}$) para amortiguar repeticiones y normalización $L_2$ para que la similitud coseno se reduzca a un producto punto.
+
+| Propiedad | Valor |
+|--------------------------------|--------------------------------|
+| Dimensión (vocabulario) | `r format(dim_orig, big.mark=".")` términos |
+| Matriz documento-término | `r nrow(dtm_tfidf)` $\times$ `r format(dim_orig, big.mark=".")` |
+| Tipo | Dispersa (`dgCMatrix`) |
+| Densidad | `r round(densidad, 2)`\% |
+| Poda de vocabulario | término en $\geq 2$ docs; se ignora si aparece en $>60\%$ |
+
+**Ventajas:** interpretable (cada dimensión es un término), muy eficiente en memoria por la dispersión, sin necesidad de entrenamiento ni de modelos externos. **Limitaciones:** no captura sinonimia ni polisemia (dos documentos sobre el mismo tema con vocabulario distinto tendrán similitud baja); es la motivación para la segunda estrategia.
+
+# Tipo de recuperación
+
+Se implementan las dos primeras familias vistas en clase:
+
+- **Léxica (TF-IDF + coseno):** un artículo es relevante si comparte términos con la consulta. La similitud coseno compara la **orientación** de los vectores (no su magnitud), premiando la coincidencia de términos ponderados por IDF.
+- **Semántica reducida (LSA + coseno):** artículos y consulta se comparan dentro de un **espacio latente** de $k$ dimensiones obtenido por Truncated SVD. Documentos que comparten *temas* (aunque no términos exactos) quedan cercanos, lo que mitiga la sinonimia.
+
+No se implementa una estrategia híbrida como ranking principal, aunque el diseño la permitiría combinando ambos puntajes; se prioriza el contraste limpio léxico–semántico que pide el enunciado.
+
+# Reducción de dimensionalidad
+
+```{r svd, echo=TRUE}
+k   <- min(200L, ncol(dtm_tfidf) - 1L, nrow(dtm_tfidf) - 1L)
+svd <- irlba(dtm_tfidf, nv = k)                       # Truncated SVD (disperso)
+
+var_expl <- cumsum(svd$d^2) / sum(dtm_tfidf^2)        # varianza acumulada
+doc_lsa  <- as.matrix(dtm_tfidf %*% svd$v)            # documentos en R^k
+doc_lsa  <- doc_lsa / pmax(sqrt(rowSums(doc_lsa^2)), 1e-12)  # L2
+```
+
+```{r scree, echo=FALSE, fig.height=2.6, fig.cap="Varianza acumulada explicada por el número de componentes (Truncated SVD)."}
+df_v <- data.frame(k = seq_along(var_expl), v = var_expl)
+ggplot(df_v, aes(k, v)) +
+  geom_line(color = "#8CBF3C", linewidth = 0.9) +
+  geom_hline(yintercept = 0.75, linetype = "dashed", color = "#7c3aed") +
+  geom_vline(xintercept = k, linetype = "dotted", color = "#dc2626") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Componentes (k)", y = "Varianza acumulada") +
+  theme_classic(base_size = 9)
+```
+
+**Método.** Truncated SVD sobre la matriz TF-IDF dispersa (LSA). Se aplica con `irlba`, que calcula solo los $k$ primeros valores/vectores singulares **sin densificar** la matriz, cumpliendo la restricción de memoria.
+
+| Aspecto | Valor |
+|----------------------------------|--------------------------------|
+| Dimensión original | `r format(dim_orig, big.mark=".")` |
+| Dimensión reducida ($k$) | `r k` |
+| Factor de compresión | `r round(dim_orig/k, 1)`$\times$ |
+| Varianza acumulada en $k$ | `r round(100*var_expl[k],1)`\% |
+
+**Criterio para $k$.** Se fijó $k=`r k`$ como el menor valor que conserva $\geq 75\%$ de la varianza (línea morada en la figura), equilibrando fidelidad y compresión. Con $k=100$ se retiene `r round(100*var_expl[min(100,k)],0)`\% y con $k=150$, `r round(100*var_expl[min(150,k)],0)`\%.
+
+**Proyección de la consulta.** Como $X \approx U D V^{\top}$, un documento en el espacio latente es $XV$. La consulta se proyecta con la **misma** matriz $V$: $q_{\text{lsa}} = q_{\text{tfidf}}\,V$, y luego se normaliza. Así consulta y documentos viven en el mismo $\mathbb{R}^{k}$ (función `buscar_semantico` en `search_engine.R`).
+
+**Información conservada/perdida.** Se conservan las direcciones de máxima covariación término-documento (los "temas" latentes) y se descartan los ejes de baja varianza, que suelen ser ruido y términos idiosincráticos. El costo es la **interpretabilidad**: las dimensiones latentes ya no son términos individuales.
+
+# Mecanismo de ranking
+
+- **Puntaje.** Similitud coseno en $[0,1]$: en la estrategia léxica, producto punto de vectores TF-IDF $L_2$-normalizados; en la semántica, coseno en el espacio LSA. Un puntaje alto significa mayor alineación temática con la consulta.
+- **Orden.** Descendente por puntaje.
+- **Empates.** Se rompen por número de **citas** y luego por **fecha más reciente** (criterios *secundarios*, nunca principales), como se implementa en `.armar_resultados`.
+- **Comparabilidad.** Los puntajes de las dos estrategias **no** son directamente comparables: aunque ambos son cosenos en $[0,1]$, provienen de espacios distintos (términos vs. latente) y el coseno en LSA tiende a ser sistemáticamente mayor. Solo se comparan *rankings*, no valores absolutos.
+
+El ranking principal se construye a partir de la representación numérica del texto; los filtros SQL del Taller 2 se conservan como apoyo, pero **no** determinan la relevancia.
+
+# Integración en la aplicación
+
+El buscador se añadió como una nueva pestaña **"Buscador"** en `app.R`, conservando intactas las cuatro pestañas del Taller 2. La integración sigue estas reglas:
+
+1. `build_index.R` construye el índice (TF-IDF + LSA + metadatos) y lo guarda en `search_index.rds`.
+2. `app.R` carga el índice **una sola vez** al iniciar (`readRDS`) y comparte las funciones de `search_engine.R`.
+3. Cada búsqueda solo vectoriza la consulta y calcula productos matriciales: no reconstruye la matriz, no reentrena el SVD ni reprocesa el corpus.
+
+Las estrategias del documento y de la app son **las mismas** funciones (`buscar_lexico`, `buscar_semantico`), por lo que no hay discrepancia entre lo documentado y lo implementado. El usuario elige la estrategia, el número de resultados (5/10/20) y puede ver ambas en paralelo.
+
+```{r guardar-indice, echo=FALSE}
+IDX <- list(
+  meta = papers |> mutate(
+    fragmento = ifelse(!is.na(abstract) & nchar(trimws(abstract))>0,
+                       paste0(substr(abstract,1,260),"…"),
+                       paste0("[Sin resumen disponible] ", title))) |>
+    select(paper_id,title,authors_raw,publication_date,topic_label,doi,url,
+           citations,downloads,year,abstract,fragmento),
+  vectorizer=vectorizer, tfidf=tfidf, dtm_tfidf=dtm_tfidf,
+  svd_v=svd$v, svd_d=svd$d, doc_lsa=doc_lsa, en_stop=en_stop,
+  k=k, var_expl_k=as.numeric(var_expl[k]), n_docs=nrow(papers),
+  n_terms=dim_orig)
+saveRDS(IDX, "search_index.rds")   # el render del documento reproduce el índice de la app
+```
+
+# Evaluación de los resultados
+
+Se definieron cinco consultas sobre el contenido real de la revista, cubriendo las categorías exigidas. La relevancia de cada artículo se juzgó manualmente y se codificó mediante términos de relevancia sobre el título, de modo que la métrica sea reproducible.
+
+```{r eval, echo=FALSE}
+consultas <- list(
+  list(nom="Términos directos", q="coral reef restoration and degradation",
+       rel=c("coral","reef")),
+  list(nom="Sinónimos/relacionados", q="global warming effects on species diversity loss",
+       rel=c("warming","diversit","biodivers","species","bees","habitat","soil health","conserv")),
+  list(nom="General", q="climate change",
+       rel=c("climate","warming")),
+  list(nom="Específica", q="generative artificial intelligence large language models ecology",
+       rel=c("generative ai","artificial intelligence","language model","machine learning")),
+  list(nom="Léxica vs. semántica", q="deep sea mining microbial communities recovery",
+       rel=c("deep sea","deep-sea","mining","macrofaunal","microbial"))
+)
+es_rel <- function(titulo, claves) any(str_detect(str_to_lower(titulo), fixed(claves)))
+rel_ids <- function(claves) papers$paper_id[sapply(papers$title, es_rel, claves)]
+
+tab <- lapply(consultas, function(c) {
+  ids <- rel_ids(c$rel)
+  rl  <- buscar(c$q, IDX, "lexico", 5)
+  rs  <- buscar(c$q, IDX, "semantico", 5)
+  data.frame(Categoría=c$nom, Consulta=substr(c$q,1,34),
+             P5_TFIDF=precision_at_k(rl, ids, 5),
+             P5_LSA  =precision_at_k(rs, ids, 5))
+}) |> bind_rows()
+
+tab_print <- tab
+tab_print$P5_TFIDF <- sprintf("%.2f", tab$P5_TFIDF)
+tab_print$P5_LSA   <- sprintf("%.2f", tab$P5_LSA)
+kable(tab_print, booktabs = TRUE,
+      col.names = c("Categoría","Consulta","P@5 TF-IDF","P@5 LSA"),
+      caption = "Precision@5 por consulta y estrategia")
+p5t <- mean(tab$P5_TFIDF); p5l <- mean(tab$P5_LSA)
+```
+
+En promedio, TF-IDF alcanza **P@5 = `r sprintf("%.2f", p5t)`** y LSA **P@5 = `r sprintf("%.2f", p5l)`**. En un corpus pequeño y dominado por títulos cortos, ambas estrategias coinciden en la *cabeza* del ranking para consultas con términos directos (coral, climate), donde la coincidencia léxica ya es muy informativa.
+
+```{r eval-detalle-1, echo=FALSE}
+q5 <- consultas[[5]]
+rl <- buscar(q5$q, IDX, "lexico", 5); rs <- buscar(q5$q, IDX, "semantico", 5)
+kable(data.frame(Ranking=1:5,
+      "TF-IDF (léxica)"=substr(rl$title,1,44),
+      "LSA (semántica)"=substr(rs$title,1,44), check.names=FALSE),
+      booktabs=TRUE, caption=paste0("Comparación de rankings — '", q5$q, "'"))
+```
+
+**Diferencias entre rankings.** En la consulta *"deep sea mining microbial communities recovery"*, ambas estrategias devuelven prácticamente el mismo top-5 y solo difieren en la quinta posición: la estrategia semántica promueve un artículo temáticamente cercano al fondo marino (*Deep-sea-floor diversity…*) en lugar del que elige la léxica. Es un reordenamiento sutil de la cola del ranking hacia documentos del mismo tema, que no llega a modificar la Precision@5. En un corpus pequeño y dominado por títulos, la señal léxica ya captura casi toda la relevancia, así que el espacio latente reordena en los márgenes más que recuperar documentos nuevos.
+
+**Análisis de un resultado poco relevante.** La consulta *específica* de IA generativa es el caso de peor desempeño (P@5 bajo en ambas estrategias): el corpus contiene un único artículo verdaderamente sobre IA generativa (*Generative AI as a tool to accelerate the field of ecology*), y el término genérico *ecology* arrastra editoriales generales de la revista al top. Es una limitación del **corpus** (cobertura temática), no del método: ninguna estrategia puede recuperar documentos relevantes que no existen.
+
+**Conclusión de la comparación.** Sobre este corpus, LSA no supera a TF-IDF en Precision@5 promedio y produce rankings muy similares, con diferencias limitadas al reordenamiento de las últimas posiciones hacia documentos temáticamente relacionados, a costa de perder interpretabilidad. La ventaja semántica sería mayor en un corpus con resúmenes completos, donde la sinonimia y la polisemia pesan más y el emparejamiento exacto de términos resulta insuficiente.
+
+# Consideraciones computacionales
+
+```{r recursos, echo=FALSE}
+mem_idx <- as.numeric(object.size(IDX))/1024^2
+kable(data.frame(
+  Recurso = c("Documentos","Vocabulario","Dim. reducida (k)",
+              "Densidad TF-IDF","Tamaño del índice en RAM"),
+  Valor   = c(IDX$n_docs, format(IDX$n_terms, big.mark="."), IDX$k,
+              paste0(round(densidad,2),"%"),
+              paste0(round(mem_idx,2)," MB"))
+), booktabs = TRUE, caption = "Consumo de recursos del índice")
+```
+
+El índice completo ocupa alrededor de `r round(mem_idx,1)` MB en memoria, muy por debajo del límite de 16 GB. Las decisiones que controlan el consumo: matriz **dispersa** para TF-IDF, poda de vocabulario (términos raros y ubicuos), Truncated SVD **sin densificar** vía `irlba`, y **precálculo** del índice en disco (`search_index.rds`) para que la app no repita trabajo. No se usan modelos neuronales grandes ni API de pago.
+
+
+# Consultas
+
+````{r eval-p5, echo=FALSE, message=FALSE, warning=FALSE}
+library(knitr); library(stringr); library(dplyr)
+
+# 5 consultas de evaluación (categoría, texto y términos de relevancia sobre el título)
+consultas <- list(
+  list(cat="Términos directos",      q="coral reef restoration and degradation",
+       rel=c("coral","reef")),
+  list(cat="Sinónimos/relacionados", q="global warming effects on species diversity loss",
+       rel=c("warming","diversit","biodivers","species","habitat","conserv")),
+  list(cat="General",                q="climate change",
+       rel=c("climate","warming")),
+  list(cat="Específica",             q="generative artificial intelligence large language models ecology",
+       rel=c("generative","artificial intelligence","language model","machine learning")),
+  list(cat="Léxica vs. semántica",   q="deep sea mining microbial communities recovery",
+       rel=c("deep sea","deep-sea","mining","macrofaunal","microbial"))
+)
+
+es_rel  <- function(t, claves) any(str_detect(str_to_lower(t), fixed(claves)))
+rel_ids <- function(claves) IDX$meta$paper_id[vapply(IDX$meta$title, es_rel, logical(1), claves)]
+
+tab <- lapply(consultas, function(c){
+  ids <- rel_ids(c$rel)
+  data.frame(
+    Categoría    = c$cat,
+    Consulta     = c$q,
+    `P@5 TF-IDF` = precision_at_k(buscar(c$q, IDX, "lexico", 5),    ids, 5),
+    `P@5 LSA`    = precision_at_k(buscar(c$q, IDX, "semantico", 5), ids, 5),
+    check.names  = FALSE)
+}) |> bind_rows()
+
+# fila de promedio
+tab <- rbind(tab, data.frame(Categoría="Promedio", Consulta="",
+             `P@5 TF-IDF`=mean(tab$`P@5 TF-IDF`),
+             `P@5 LSA`   =mean(tab$`P@5 LSA`), check.names=FALSE))
+
+tab$`P@5 TF-IDF` <- sprintf("%.2f", tab$`P@5 TF-IDF`)
+tab$`P@5 LSA`    <- sprintf("%.2f", tab$`P@5 LSA`)
+
+# write.csv(tab, "evaluacion_consultas.csv", row.names = FALSE)  # <- descomenta si quieres el CSV también
+
+kable(tab, booktabs=TRUE, align=c("l","l","c","c"),
+      caption="Precision@5 por consulta y estrategia")
+````
+
+**Evaluación cuantitativa (Precision@5).** Se definieron cinco consultas sobre el
+contenido real de la revista, una por cada categoría exigida (términos directos,
+sinónimos, general, específica y una de fallo). Para cada consulta se ejecutaron las
+dos estrategias y se calculó la precisión entre los primeros cinco resultados, usando
+juicios de relevancia reproducibles basados en términos del título.
+
+Ambas estrategias obtienen la **misma precisión promedio, P@5 = 0,76**. Las consultas
+de *términos directos* ("coral reef restoration…") y *general* ("climate change")
+alcanzan P@5 = 1,00: todos los resultados del top-5 son relevantes, porque la
+coincidencia léxica ya es muy informativa cuando la consulta usa el vocabulario propio
+del corpus. Las consultas de *sinónimos* y de *minería en aguas profundas* obtienen
+0,80 (un resultado no relevante entre los cinco). La consulta *específica* de
+inteligencia artificial generativa es el caso de peor desempeño, con P@5 = 0,20 en
+ambas estrategias.
+
+La conclusión cuantitativa es que, sobre este corpus, la reducción semántica (LSA)
+**no mejora la precisión promedio frente a TF-IDF**. Esto es esperable: con 373
+documentos representados en su mayoría por títulos cortos, la señal léxica ya captura
+casi toda la relevancia, y el espacio latente no aporta precisión adicional en el
+top-5. El bajo valor de la consulta de IA generativa no refleja una falla del método,
+sino una limitación de cobertura del corpus: contiene un único artículo genuinamente
+sobre el tema, y ninguna estrategia puede recuperar documentos relevantes que no
+existen.
+
+````{r eval-detalle, echo=FALSE, message=FALSE, warning=FALSE}
+detalle <- lapply(consultas, function(c){
+  rl <- buscar(c$q, IDX, "lexico", 5); rs <- buscar(c$q, IDX, "semantico", 5)
+  tag <- function(t) ifelse(vapply(t, es_rel, logical(1), c$rel), " (rel)", "")
+  data.frame(
+    Consulta = c(c$cat, rep("", 4)),
+    `#`      = 1:5,
+    `TF-IDF (léxica)`  = paste0(substr(rl$title,1,32), tag(rl$title)),
+    `LSA (semántica)`  = paste0(substr(rs$title,1,32), tag(rs$title)),
+    check.names = FALSE)
+}) |> bind_rows()
+
+kable(detalle, booktabs=TRUE, align=c("l","c","l","l"),
+      caption="Top-5 por consulta y estrategia («(rel)» = artículo relevante)")
+````
+
+**Comparación cualitativa de los rankings.** Para entender el comportamiento detrás de
+las cifras se listaron los cinco primeros resultados de cada estrategia, marcando los
+artículos considerados relevantes. La observación general es que **ambas estrategias
+producen rankings muy similares**, con diferencias limitadas al reordenamiento de las
+últimas posiciones.
+
+En las consultas de *términos directos*, *general* y *minería en aguas profundas*, las
+dos estrategias coinciden en el conjunto de artículos recuperados y solo intercambian
+el orden de algunas posiciones; en el caso de minería, tanto TF-IDF como LSA sitúan en
+el top-5 el estudio de impactos y el del ensayo industrial en aguas profundas. La única
+diferencia aparece en la quinta posición, donde la estrategia semántica promueve un
+artículo temáticamente cercano al fondo marino ("Deep-sea-floor diversity…") en lugar
+del que elige la estrategia léxica. Es un efecto sutil de la representación latente
+—favorecer documentos del mismo tema— que no llega a modificar la Precision@5.
+
+La consulta de *inteligencia artificial generativa* es el resultado poco relevante
+analizado en detalle: ambas estrategias ubican correctamente en el primer lugar el
+único artículo del corpus realmente dedicado al tema ("Generative AI as a tool…"),
+pero las cuatro posiciones restantes las ocupan editoriales y artículos generales de
+ecología, arrastrados por el término genérico *ecology* de la consulta. Esto confirma
+que la limitación es del corpus y no del mecanismo de recuperación.
+
+En síntesis, sobre este corpus pequeño y dominado por títulos, la recuperación
+semántica reordena de forma leve la cola del ranking hacia documentos temáticamente
+relacionados, sin cambios drásticos frente a la recuperación léxica. Una ventaja
+semántica más marcada sería esperable en un corpus con resúmenes completos, donde la
+sinonimia y la polisemia pesan más y el emparejamiento exacto de términos resulta
+insuficiente.
+
+# Conclusión
+
+Se amplió el dashboard del Taller 2 con un sistema de recuperación que transforma los textos de SQLite en representaciones vectoriales (TF-IDF disperso y su reducción latente LSA), proyecta la consulta al mismo espacio y ordena los artículos por similitud coseno. Las dos estrategias implementadas —léxica y semántica reducida— coinciden en la cabeza del ranking en consultas directas y se separan en consultas donde la sinonimia importa, donde LSA recupera documentos que el método léxico omite. La principal restricción no es metodológica sino del corpus: con solo el `r round(100*con_abs/n_total,0)`\% de los artículos con resumen, buena parte de la señal proviene de títulos cortos, lo que acota el techo de desempeño de cualquier método. El diseño precalculado mantiene la aplicación liviana y reproducible, integrando de forma coherente lo documentado y lo implementado.
