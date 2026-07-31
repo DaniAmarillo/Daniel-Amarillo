@@ -9,7 +9,12 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 from bs4 import BeautifulSoup
-import undetected_chromedriver as uc
+try:
+    import undetected_chromedriver as uc
+    SELENIUM_DISPONIBLE = True
+except Exception:
+    uc = None
+    SELENIUM_DISPONIBLE = False
 import atexit
 import buscador as bus
 # Configuración 
@@ -228,6 +233,8 @@ def obtener_detalle_crossref(doi: str) -> dict:
 @st.cache_resource
 def get_driver():
     """Inicializa undetected_chromedriver una sola vez por sesión."""
+    if not SELENIUM_DISPONIBLE:
+        return None
     options = uc.ChromeOptions()
     options.add_argument("--no-first-run")
     options.add_argument("--no-service-autorun")
