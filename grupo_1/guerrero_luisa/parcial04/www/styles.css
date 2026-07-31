@@ -1,0 +1,1419 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300;1,9..40,400&family=Space+Mono:wght@400;700&display=swap');
+
+/* =========================================================
+   TOKENS
+   ========================================================= */
+
+:root {
+  --bg:          #f4efe6;
+  --paper:       #ffffff;
+  --ink:         #0e0e0e;
+  --muted:       #6b6258;
+  --line:        #e0d5c5;
+  --accent:      #b57a3c;
+  --accent-2:    #2f80ed;
+  --dark:        #0e0e0e;
+  --radius-xl:   36px;
+  --radius-lg:   24px;
+  --radius-md:   16px;
+  --radius-pill: 999px;
+  --shadow-card: 0 8px 32px rgba(30,20,10,0.09);
+  --shadow-lift: 0 24px 64px rgba(30,20,10,0.15);
+  --font-serif:  'DM Serif Display', Georgia, serif;
+  --font-body:   'DM Sans', system-ui, sans-serif;
+  --font-mono:   'Space Mono', monospace;
+}
+
+/* =========================================================
+   BASE
+   ========================================================= */
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+.container-fluid { padding: 0 !important; }
+
+.app-wrapper {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 28px 28px 28px;
+  overflow: visible !important;
+}
+
+/* =========================================================
+   HERO  — full-bleed, tall, editorial
+   ========================================================= */
+
+.editorial-hero {
+  width: 100%;
+  min-height: 92vh;
+  background:
+    linear-gradient(
+      to bottom,
+      rgba(0,0,0,0.18) 0%,
+      rgba(0,0,0,0.12) 40%,
+      rgba(0,0,0,0.72) 85%,
+      rgba(0,0,0,0.88) 100%
+    ),
+    url("hero.jpg") center center / cover no-repeat;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 0 64px 72px 64px;
+  margin-bottom: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Subtle grain texture */
+.editorial-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  opacity: 0.45;
+}
+
+/* Golden horizontal rule above eyebrow */
+.editorial-hero::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.6;
+}
+
+.hero-content {
+  position: relative;
+  z-index: 2;
+  max-width: 1100px;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 3.5px;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 700;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.eyebrow::before {
+  content: "";
+  display: inline-block;
+  width: 32px;
+  height: 1px;
+  background: var(--accent);
+  opacity: 0.8;
+}
+
+.hero-title {
+  font-family: var(--font-serif);
+  font-size: clamp(52px, 7.5vw, 112px);
+  line-height: 0.92;
+  letter-spacing: -3px;
+  margin: 0 0 32px 0;
+  color: #ffffff;
+  max-width: 1000px;
+  text-shadow: 0 4px 32px rgba(0,0,0,0.4);
+}
+
+.hero-title em {
+  font-style: italic;
+  color: #f5ddb5;
+}
+
+.hero-divider {
+  width: 56px;
+  height: 2px;
+  background: var(--accent);
+  margin-bottom: 28px;
+  opacity: 0.9;
+}
+
+.hero-subtitle {
+  color: rgba(255,255,255,0.82);
+  font-family: var(--font-body);
+  font-size: clamp(15px, 1.4vw, 18px);
+  line-height: 1.75;
+  max-width: 680px;
+  font-weight: 300;
+  letter-spacing: 0.01em;
+  margin-bottom: 40px;
+}
+
+.topline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.pill {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: rgba(255,255,255,0.75);
+  border: 1px solid rgba(255,255,255,0.22);
+  border-radius: var(--radius-pill);
+  padding: 9px 18px;
+  background: rgba(255,255,255,0.07);
+  backdrop-filter: blur(10px);
+  transition: all 0.2s;
+}
+
+.pill:hover {
+  background: rgba(255,255,255,0.16);
+  color: #fff;
+  border-color: rgba(255,255,255,0.45);
+}
+
+/* =========================================================
+   NAV STRIP  — sticky, sits right below hero
+   ========================================================= */
+
+.nav-tabs {
+  border-bottom: 1px solid var(--line);
+  margin: 0 0 36px 0;
+  padding: 16px 0;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 80;
+  background: rgba(244,239,230,0.94);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.nav-tabs > li { margin-bottom: 0 !important; }
+
+.nav-tabs > li > a {
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius-pill) !important;
+  background: #ffffff !important;
+  color: var(--ink) !important;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 10px 22px !important;
+  transition: all 0.22s ease;
+  letter-spacing: -0.1px;
+}
+
+.nav-tabs > li > a:hover {
+  background: var(--ink) !important;
+  color: var(--bg) !important;
+  border-color: var(--ink) !important;
+  transform: translateY(-1px);
+}
+
+.nav-tabs > li.active > a,
+.nav-tabs > li.active > a:focus,
+.nav-tabs > li.active > a:hover {
+  background: var(--ink) !important;
+  color: var(--bg) !important;
+  border-color: var(--ink) !important;
+}
+
+.tab-content,
+.container-fluid {
+  overflow: visible !important;
+}
+
+/* =========================================================
+   SECTION TYPOGRAPHY
+   ========================================================= */
+
+.section-title {
+  font-family: var(--font-serif);
+  font-size: clamp(30px, 3.5vw, 48px);
+  line-height: 1;
+  margin: 48px 0 16px 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+  letter-spacing: -1.5px;
+}
+
+.section-note {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.78;
+  max-width: 860px;
+  margin-bottom: 28px;
+  font-weight: 400;
+}
+
+/* =========================================================
+   INTRO STRIP  — sits between hero and first section
+   ========================================================= */
+
+.intro-strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  margin: 36px 0 0 0;
+  background: var(--paper);
+}
+
+.intro-strip-left {
+  padding: 40px 44px;
+  border-right: 1px solid var(--line);
+}
+
+.intro-strip-right {
+  padding: 40px 44px;
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.intro-strip-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  opacity: 0.5;
+  margin-bottom: 12px;
+}
+
+.intro-strip-text {
+  font-family: var(--font-serif);
+  font-size: clamp(20px, 2.2vw, 28px);
+  line-height: 1.25;
+  letter-spacing: -0.8px;
+}
+
+/* =========================================================
+   FILTROS
+   ========================================================= */
+
+.filter-card {
+  background: linear-gradient(135deg, #0e0e0e 0%, #1e1610 100%);
+  color: var(--bg);
+  border-radius: var(--radius-xl);
+  padding: 32px 36px;
+  box-shadow: 0 20px 56px rgba(0,0,0,0.22);
+  margin-bottom: 28px;
+  position: relative;
+  z-index: 20;
+  overflow: visible !important;
+}
+
+/* Accent corner glow */
+.filter-card::before {
+  content: "";
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(181,122,60,0.18), transparent 70%);
+  pointer-events: none;
+}
+
+.filter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.filter-actions-top {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 6px;
+}
+
+.filter-title {
+  font-family: var(--font-serif);
+  font-size: clamp(26px, 2.8vw, 36px);
+  margin: 0 0 6px 0;
+  letter-spacing: -1px;
+  color: #ffffff;
+}
+
+.filter-subtitle {
+  color: rgba(244,239,230,0.55);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.filter-card label {
+  color: rgba(244,239,230,0.55);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.filter-card .form-control {
+  border-radius: var(--radius-pill) !important;
+  border: 1px solid rgba(255,255,255,0.18) !important;
+  background: rgba(255,255,255,0.09) !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+  height: 42px;
+  font-size: 14px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.filter-card .form-control:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(181,122,60,0.22) !important;
+}
+
+.filter-card .form-control::placeholder {
+  color: rgba(255,255,255,0.38);
+}
+
+.input-daterange .input-group-addon {
+  background: transparent !important;
+  border: none !important;
+  color: rgba(244,239,230,0.5) !important;
+  font-size: 12px !important;
+  font-weight: 700;
+  padding: 0 8px !important;
+}
+
+/* =========================================================
+   SELECTIZE — AUTHOR SELECTOR (DEFINITIVE FIX)
+   ========================================================= */
+
+/* Container: never clip */
+.filter-card .selectize-control {
+  position: relative !important;
+  z-index: 200 !important;
+  overflow: visible !important;
+}
+
+/* The visible "input box" */
+.filter-card .selectize-input,
+.filter-card .selectize-control.single .selectize-input {
+  display: flex !important;
+  align-items: center !important;
+  min-height: 42px !important;
+  height: 42px !important;
+  max-height: 42px !important;
+  padding: 0 42px 0 16px !important;
+  border-radius: var(--radius-pill) !important;
+  border: 1px solid rgba(255,255,255,0.18) !important;
+  background: rgba(255,255,255,0.09) !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+  /* CRITICAL: no overflow hidden so items don't stack */
+  overflow: visible !important;
+  white-space: nowrap !important;
+  flex-wrap: nowrap !important;
+}
+
+.filter-card .selectize-input.focus,
+.filter-card .selectize-control.single .selectize-input.focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(181,122,60,0.22) !important;
+}
+
+/* The selected item text */
+.filter-card .selectize-input .item,
+.filter-card .selectize-control.single .selectize-input .item {
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  font-size: 14px !important;
+  line-height: 42px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  max-width: calc(100% - 32px) !important;
+  display: block !important;
+  /* Ensure item never wraps or overlaps */
+  position: static !important;
+  float: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+/* The typing input inside selectize */
+.filter-card .selectize-input input,
+.filter-card .selectize-control.single .selectize-input input {
+  color: #ffffff !important;
+  font-size: 14px !important;
+  position: absolute !important;
+  left: 16px !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  width: calc(100% - 48px) !important;
+  height: 100% !important;
+  line-height: 42px !important;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+  padding: 0 !important;
+}
+
+.filter-card .selectize-input input::placeholder,
+.filter-card .selectize-control.single .selectize-input input::placeholder {
+  color: rgba(255,255,255,0.38) !important;
+}
+
+/* Dropdown arrow */
+.filter-card .selectize-control.single .selectize-input::after {
+  content: "" !important;
+  position: absolute !important;
+  right: 16px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  border-style: solid !important;
+  border-width: 5px 4px 0 4px !important;
+  border-color: rgba(255,255,255,0.6) transparent transparent transparent !important;
+  pointer-events: none !important;
+}
+
+/* The dropdown panel — portal-rendered on body */
+.selectize-dropdown,
+.selectize-dropdown.single {
+  position: absolute !important;
+  z-index: 999999 !important;
+  background: #ffffff !important;
+  color: #111111 !important;
+  border-radius: var(--radius-lg) !important;
+  border: 1px solid var(--line) !important;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.25) !important;
+  overflow: hidden !important;
+  margin-top: 6px !important;
+}
+
+.selectize-dropdown-content {
+  background: #ffffff !important;
+  max-height: 420px !important;
+  overflow-y: auto !important;
+}
+
+.selectize-dropdown .option {
+  background: #ffffff !important;
+  color: #111111 !important;
+  padding: 11px 16px !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  border-bottom: 1px solid #f1eadf !important;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.selectize-dropdown .option.active,
+.selectize-dropdown .option:hover {
+  background: #0e0e0e !important;
+  color: #f4efe6 !important;
+}
+
+/* =========================================================
+   BUTTONS
+   ========================================================= */
+
+.btn-editorial,
+.btn-default,
+.btn-primary {
+  font-family: var(--font-body) !important;
+  border-radius: var(--radius-pill) !important;
+  border: none !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  padding: 11px 24px !important;
+  letter-spacing: 0.1px;
+  transition: all 0.22s cubic-bezier(.25,.8,.25,1);
+  cursor: pointer;
+}
+
+.btn-filter-main {
+  background: #ffffff !important;
+  color: #0e0e0e !important;
+}
+
+.btn-filter-main:hover,
+.btn-filter-main:focus {
+  background: #f4efe6 !important;
+  color: #0e0e0e !important;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(255,255,255,0.2);
+}
+
+.btn-filter-secondary {
+  background: var(--accent) !important;
+  color: #ffffff !important;
+}
+
+.btn-filter-secondary:hover,
+.btn-filter-secondary:focus {
+  background: #8c5a27 !important;
+  color: #ffffff !important;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(181,122,60,0.32);
+}
+
+/* =========================================================
+   CARDS
+   ========================================================= */
+
+.panel-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  padding: 28px 32px;
+  box-shadow: var(--shadow-card);
+  margin-bottom: 24px;
+  overflow: hidden;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.panel-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lift);
+}
+
+.panel-card h3 {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  letter-spacing: -0.6px;
+  margin-top: 0;
+  line-height: 1.15;
+}
+
+/* =========================================================
+   METRICS
+   ========================================================= */
+
+.metric-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  padding: 26px 28px;
+  min-height: 160px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  margin-bottom: 22px;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.metric-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lift);
+}
+
+/* Decorative circle */
+.metric-card::after {
+  content: "";
+  position: absolute;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  right: -38px;
+  bottom: -38px;
+  background: rgba(181,122,60,0.10);
+  pointer-events: none;
+}
+
+.metric-label {
+  font-family: var(--font-mono);
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.metric-value {
+  font-family: var(--font-serif);
+  font-size: clamp(36px, 3.5vw, 52px);
+  line-height: 1;
+  margin-top: 10px;
+  letter-spacing: -1.5px;
+  color: var(--ink);
+}
+
+.metric-foot {
+  font-family: var(--font-body);
+  color: var(--accent);
+  font-size: 12px;
+  margin-top: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+/* =========================================================
+   HIGHLIGHTS
+   ========================================================= */
+
+.article-highlight {
+  background: linear-gradient(135deg, #0e0e0e 0%, #1e1610 100%);
+  color: var(--bg);
+  border-radius: var(--radius-xl);
+  padding: 30px 32px;
+  min-height: 170px;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.2);
+  margin-bottom: 22px;
+  overflow: hidden;
+  position: relative;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.article-highlight:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 28px 64px rgba(0,0,0,0.28);
+}
+
+.article-highlight::after {
+  content: "";
+  position: absolute;
+  right: -60px;
+  bottom: -60px;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(181,122,60,0.18), transparent 65%);
+  pointer-events: none;
+}
+
+.article-highlight .metric-label {
+  color: rgba(244,239,230,0.45);
+}
+
+.article-highlight-title {
+  font-family: var(--font-serif);
+  font-size: clamp(18px, 2vw, 26px);
+  line-height: 1.2;
+  margin: 14px 0 10px 0;
+  letter-spacing: -0.5px;
+  color: #ffffff;
+}
+
+.article-highlight-meta {
+  color: rgba(244,239,230,0.55);
+  font-size: 12px;
+  line-height: 1.6;
+  font-family: var(--font-mono);
+  letter-spacing: 0.5px;
+}
+
+/* =========================================================
+   HIGHCHARTER
+   ========================================================= */
+
+.highcharts-container {
+  font-family: var(--font-body) !important;
+}
+
+.highcharts-title {
+  font-family: var(--font-serif) !important;
+  font-size: 18px !important;
+  letter-spacing: -0.4px !important;
+}
+
+/* =========================================================
+   DATATABLE
+   ========================================================= */
+
+.dataTables_wrapper {
+  font-family: var(--font-body);
+}
+
+.dataTables_filter input,
+.dataTables_length select {
+  border-radius: var(--radius-pill) !important;
+  border: 1px solid var(--line) !important;
+  padding: 7px 14px !important;
+  font-size: 13px !important;
+}
+
+table.dataTable {
+  border-collapse: collapse !important;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+table.dataTable thead th {
+  background: var(--ink) !important;
+  color: var(--bg) !important;
+  border-bottom: none !important;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 14px 12px !important;
+}
+
+table.dataTable tbody td {
+  border-color: #ede5d8 !important;
+  vertical-align: top;
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+table.dataTable tbody tr:hover {
+  background: #faf4ea !important;
+}
+
+/* =========================================================
+   LOG / verbatim
+   ========================================================= */
+
+pre {
+  background: #0e0e0e !important;
+  color: #f4efe6 !important;
+  border-radius: var(--radius-lg) !important;
+  border: none !important;
+  padding: 20px 22px !important;
+  font-family: var(--font-mono) !important;
+  font-size: 12px;
+  line-height: 1.6;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+/* =========================================================
+   FOOTER
+   ========================================================= */
+
+.footer-note {
+  font-family: var(--font-mono);
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 40px 0 16px 0;
+  border-top: 1px solid var(--line);
+  margin-top: 24px;
+  opacity: 0.6;
+}
+
+/* =========================================================
+   ENSURE no overflow cuts dropdowns
+   ========================================================= */
+
+.app-wrapper,
+.filter-card,
+.tab-content,
+.container-fluid,
+.row,
+.col-sm-3,
+.col-sm-6,
+.col-sm-9,
+.col-sm-12 {
+  overflow: visible !important;
+}
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 992px) {
+  .editorial-hero { min-height: 70vh; padding: 0 36px 52px 36px; }
+  .intro-strip { grid-template-columns: 1fr; }
+  .intro-strip-left { border-right: none; border-bottom: 1px solid var(--line); }
+  .nav-tabs { position: relative; }
+  .filter-header { display: block; }
+  .filter-actions-top { justify-content: flex-start; margin-bottom: 14px; }
+}
+
+@media (max-width: 768px) {
+  .app-wrapper { padding: 0 16px 16px 16px; }
+  .editorial-hero { min-height: 55vh; padding: 0 24px 40px 24px; }
+  .hero-title { font-size: 44px; letter-spacing: -1.5px; }
+  .hero-subtitle { font-size: 15px; }
+  .section-title { font-size: 32px; }
+  .nav-tabs > li > a { padding: 9px 14px !important; font-size: 12px; }
+  .metric-value { font-size: 38px; }
+  .filter-card { padding: 22px 20px; }
+}
+
+/* =========================================================
+   Corrección: evitar que los desplegables tapen la navegación
+   ========================================================= */
+
+/* Da espacio debajo del bloque de filtros para que el menú desplegable no caiga sobre las pestañas */
+.filter-card {
+  margin-bottom: 140px !important;
+}
+
+/* Los dropdown quedan visibles, pero con altura controlada */
+.selectize-dropdown,
+.selectize-dropdown.single {
+  max-height: 230px !important;
+  z-index: 999999 !important;
+}
+
+.selectize-dropdown-content {
+  max-height: 230px !important;
+  overflow-y: auto !important;
+}
+
+/* La navegación queda debajo del espacio del filtro, sin meterse visualmente con el desplegable */
+.nav-tabs {
+  margin-top: 0 !important;
+}
+
+/* Ajuste para que el desplegable de tema y autor se vea como una lista limpia */
+.selectize-dropdown .option {
+  min-height: 42px !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+
+/* =========================================================
+   STYLE TEST 01 — Awwwards / Navy Yard editorial
+   ========================================================= */
+
+:root {
+  --bg: #f3eee6;
+  --paper: #ffffff;
+  --ink: #111111;
+  --muted: #5f5a53;
+  --line: #d8cec0;
+  --accent: #d71920;
+  --accent-dark: #9f1118;
+}
+
+/* Fondo más editorial */
+body {
+  background: var(--bg) !important;
+}
+
+/* Hero más fuerte y gráfico */
+.editorial-hero {
+  min-height: 88vh !important;
+  border-radius: 0 0 42px 42px !important;
+  background:
+    linear-gradient(
+      to bottom,
+      rgba(0,0,0,0.05) 0%,
+      rgba(0,0,0,0.30) 55%,
+      rgba(0,0,0,0.86) 100%
+    ),
+    url("hero.jpg") center center / cover no-repeat !important;
+}
+
+/* Título gigante tipo site of the day */
+.hero-title {
+  font-family: var(--font-body) !important;
+  font-size: clamp(62px, 11vw, 150px) !important;
+  line-height: 0.82 !important;
+  font-weight: 900 !important;
+  letter-spacing: -7px !important;
+  text-transform: uppercase !important;
+  max-width: 1200px !important;
+}
+
+/* Subtítulo más sobrio */
+.hero-subtitle {
+  font-size: 18px !important;
+  max-width: 760px !important;
+  color: rgba(255,255,255,0.88) !important;
+}
+
+/* Eyebrow rojo */
+.eyebrow {
+  color: var(--accent) !important;
+}
+
+.eyebrow::before {
+  background: var(--accent) !important;
+}
+
+/* Pills más tipo web awards */
+.pill {
+  border-radius: 12px !important;
+  background: rgba(255,255,255,0.12) !important;
+  border-color: rgba(255,255,255,0.24) !important;
+}
+
+.pill:hover {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+/* Navegación más compacta y flotante */
+.nav-tabs {
+  justify-content: center !important;
+  border-bottom: none !important;
+  background: rgba(243,238,230,0.86) !important;
+  padding: 18px 0 !important;
+}
+
+.nav-tabs > li > a {
+  border-radius: 16px !important;
+  padding: 12px 24px !important;
+  font-weight: 800 !important;
+  border: 1px solid var(--line) !important;
+}
+
+.nav-tabs > li.active > a,
+.nav-tabs > li.active > a:hover,
+.nav-tabs > li.active > a:focus {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #ffffff !important;
+}
+
+/* Títulos de sección más grandes */
+.section-title {
+  font-family: var(--font-body) !important;
+  font-size: clamp(48px, 7vw, 96px) !important;
+  line-height: 0.9 !important;
+  font-weight: 900 !important;
+  letter-spacing: -5px !important;
+  text-transform: uppercase !important;
+  border-bottom: 2px solid var(--ink) !important;
+}
+
+/* Cards más limpias tipo galería */
+.panel-card,
+.metric-card {
+  border-radius: 28px !important;
+  border: 1px solid var(--line) !important;
+  box-shadow: none !important;
+}
+
+.panel-card:hover,
+.metric-card:hover {
+  transform: translateY(-8px) !important;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.14) !important;
+}
+
+/* Tarjetas oscuras más dramáticas */
+.article-highlight,
+.filter-card {
+  background: #111111 !important;
+  border-radius: 34px !important;
+}
+
+/* Botones con acento rojo */
+.btn-filter-secondary,
+.btn-primary {
+  background: var(--accent) !important;
+}
+
+.btn-filter-secondary:hover,
+.btn-primary:hover {
+  background: var(--accent-dark) !important;
+}
+
+/* Números grandes estilo editorial */
+.metric-value {
+  font-family: var(--font-body) !important;
+  font-weight: 900 !important;
+  letter-spacing: -3px !important;
+}
+
+/* Tablas más modernas */
+table.dataTable thead th {
+  background: var(--accent) !important;
+  color: #ffffff !important;
+}
+
+/* =========================================================
+   STYLE TEST 03 — Urban editorial
+   Blanco + negro + gris frío + rojo limpio
+   ========================================================= */
+
+:root {
+  --bg: #f2f2f0;
+  --paper: #ffffff;
+  --ink: #0a0a0a;
+  --muted: #606060;
+  --line: #d9d9d6;
+  --accent: #e10600;
+  --accent-dark: #a80000;
+}
+
+/* Fondo general más frío, menos crema */
+body {
+  background: #f2f2f0 !important;
+  color: #0a0a0a !important;
+}
+
+/* Hero con contraste urbano, sin tono beige/rosado */
+.editorial-hero {
+  background:
+    linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.02) 0%,
+      rgba(0,0,0,0.18) 35%,
+      rgba(0,0,0,0.72) 78%,
+      rgba(0,0,0,0.94) 100%
+    ),
+    url("hero.jpg") center center / cover no-repeat !important;
+  filter: grayscale(0.18) contrast(1.08);
+}
+
+/* Título completamente blanco, sin dorados ni rosados */
+.hero-title,
+.hero-title em,
+.hero-title strong {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  text-shadow: 0 8px 36px rgba(0,0,0,0.72) !important;
+}
+
+/* Encabezado pequeño rojo puro */
+.eyebrow {
+  color: #e10600 !important;
+  text-shadow: none !important;
+}
+
+.eyebrow::before {
+  background: #e10600 !important;
+}
+
+/* Línea decorativa roja */
+.hero-divider {
+  background: #e10600 !important;
+}
+
+/* Subtítulo blanco/gris claro */
+.hero-subtitle {
+  color: rgba(255,255,255,0.86) !important;
+  text-shadow: 0 4px 22px rgba(0,0,0,0.65) !important;
+}
+
+/* Pills urbanas */
+.pill {
+  background: rgba(0,0,0,0.34) !important;
+  border-color: rgba(255,255,255,0.26) !important;
+  color: #ffffff !important;
+  backdrop-filter: blur(10px);
+}
+
+.pill:hover {
+  background: #e10600 !important;
+  border-color: #e10600 !important;
+  color: #ffffff !important;
+}
+
+/* Navegación */
+.nav-tabs {
+  background: rgba(242,242,240,0.94) !important;
+}
+
+.nav-tabs > li > a {
+  background: #ffffff !important;
+  color: #0a0a0a !important;
+  border-color: #d9d9d6 !important;
+}
+
+.nav-tabs > li > a:hover {
+  background: #0a0a0a !important;
+  border-color: #0a0a0a !important;
+  color: #ffffff !important;
+}
+
+.nav-tabs > li.active > a,
+.nav-tabs > li.active > a:hover,
+.nav-tabs > li.active > a:focus {
+  background: #0a0a0a !important;
+  border-color: #0a0a0a !important;
+  color: #ffffff !important;
+}
+
+/* Títulos grandes en negro fuerte */
+.section-title {
+  color: #0a0a0a !important;
+  border-bottom: 2px solid #0a0a0a !important;
+}
+
+/* Textos secundarios */
+.section-note,
+.metric-label,
+.footer-note {
+  color: #606060 !important;
+}
+
+/* Filtros y tarjetas oscuras: negro real con gris */
+.filter-card,
+.article-highlight {
+  background:
+    linear-gradient(135deg, #050505 0%, #171717 100%) !important;
+  color: #ffffff !important;
+}
+
+/* Botones */
+.btn-filter-main {
+  background: #ffffff !important;
+  color: #0a0a0a !important;
+}
+
+.btn-filter-main:hover {
+  background: #e6e6e3 !important;
+  color: #0a0a0a !important;
+}
+
+.btn-filter-secondary,
+.btn-primary {
+  background: #e10600 !important;
+  color: #ffffff !important;
+}
+
+.btn-filter-secondary:hover,
+.btn-primary:hover {
+  background: #a80000 !important;
+  color: #ffffff !important;
+}
+
+/* Cards claras */
+.panel-card,
+.metric-card {
+  background: #ffffff !important;
+  border-color: #d9d9d6 !important;
+}
+
+/* Números y acentos */
+.metric-value {
+  color: #0a0a0a !important;
+}
+
+.metric-foot {
+  color: #e10600 !important;
+}
+
+.metric-card::after {
+  background: rgba(225,6,0,0.08) !important;
+}
+
+/* Tabla */
+table.dataTable thead th {
+  background: #0a0a0a !important;
+  color: #ffffff !important;
+}
+
+table.dataTable tbody tr:hover {
+  background: #f5f5f3 !important;
+}
+
+/* Selectores */
+.selectize-dropdown .option.active,
+.selectize-dropdown .option:hover {
+  background: #0a0a0a !important;
+  color: #ffffff !important;
+}
+
+/* Línea final del hero en rojo */
+.editorial-hero::after {
+  background: linear-gradient(90deg, transparent, #e10600, transparent) !important;
+}
+
+/* =========================================================
+   Botones de filtros — paleta urbana final
+   ========================================================= */
+
+.btn-filter-main,
+.btn-filter-main:focus {
+  background: #ffffff !important;
+  color: #0a0a0a !important;
+  border: 1px solid #ffffff !important;
+  box-shadow: none !important;
+}
+
+.btn-filter-main:hover {
+  background: #e6e6e3 !important;
+  color: #0a0a0a !important;
+  border: 1px solid #e6e6e3 !important;
+}
+
+.btn-filter-secondary,
+.btn-filter-secondary:focus {
+  background: #e10600 !important;
+  color: #ffffff !important;
+  border: 1px solid #e10600 !important;
+  box-shadow: none !important;
+}
+
+.btn-filter-secondary:hover {
+  background: #a80000 !important;
+  color: #ffffff !important;
+  border: 1px solid #a80000 !important;
+}
+
+/* =========================================================
+   Banner principal grande
+   ========================================================= */
+
+.image-banner-card {
+  width: 100%;
+  margin: 34px 0 38px 0;
+  border-radius: 28px;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #d9d9d6;
+  box-shadow: 0 18px 45px rgba(0,0,0,0.10);
+}
+
+.image-banner-card img {
+  width: 100%;
+  height: 520px;
+  object-fit: cover;
+  display: block;
+  filter: grayscale(0.05) contrast(1.05);
+}
+
+.image-banner-body {
+  padding: 24px 30px;
+}
+
+.image-banner-body h3 {
+  font-size: 28px;
+  font-weight: 900;
+  text-transform: uppercase;
+  margin: 0 0 10px 0;
+  color: #0a0a0a;
+}
+
+.image-banner-body p {
+  color: #606060;
+  line-height: 1.7;
+  margin: 0;
+}
+
+/* =========================================================
+   Metodología
+   ========================================================= */
+
+.methodology-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+  margin: 32px 0 34px 0;
+}
+
+.method-card {
+  background: #ffffff;
+  border: 1px solid #d9d9d6;
+  border-radius: 28px;
+  padding: 24px 24px 26px 24px;
+  min-height: 245px;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.28s ease, box-shadow 0.28s ease, border-color 0.28s ease;
+}
+
+.method-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 22px 50px rgba(0,0,0,0.11);
+  border-color: #0a0a0a;
+}
+
+.method-card::after {
+  content: "";
+  position: absolute;
+  width: 110px;
+  height: 110px;
+  right: -42px;
+  bottom: -42px;
+  border-radius: 50%;
+  background: rgba(225,6,0,0.08);
+}
+
+.method-number {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 2px;
+  font-weight: 700;
+  color: #e10600;
+  margin-bottom: 22px;
+}
+
+.method-card h3 {
+  font-family: var(--font-body);
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -1px;
+  text-transform: uppercase;
+  color: #0a0a0a;
+  margin: 0 0 14px 0;
+}
+
+.method-card p {
+  color: #606060;
+  font-size: 14px;
+  line-height: 1.65;
+  margin: 0;
+  position: relative;
+  z-index: 2;
+}
+
+.methodology-summary {
+  background: linear-gradient(135deg, #050505 0%, #171717 100%);
+  color: #ffffff;
+  border-radius: 32px;
+  padding: 34px 38px;
+  margin: 20px 0 36px 0;
+  box-shadow: 0 20px 55px rgba(0,0,0,0.18);
+}
+
+.methodology-summary h3 {
+  font-family: var(--font-body);
+  font-size: 34px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: -1.5px;
+  margin: 0 0 14px 0;
+}
+
+.methodology-summary p {
+  color: rgba(255,255,255,0.74);
+  font-size: 15px;
+  line-height: 1.75;
+  max-width: 980px;
+  margin: 0;
+}
+
+/* Responsive metodología */
+@media (max-width: 1200px) {
+  .methodology-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .methodology-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .method-card {
+    min-height: auto;
+  }
+}

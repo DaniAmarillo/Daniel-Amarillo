@@ -1,0 +1,11 @@
+"estrategia","indicador","valor"
+"TF-IDF","Número de ejecuciones",20
+"TF-IDF","Tiempo mínimo en segundos",0.0299999999988358
+"TF-IDF","Tiempo promedio en segundos",0.0614999999994325
+"TF-IDF","Mediana en segundos",0.0599999999994907
+"TF-IDF","Tiempo máximo en segundos",0.0800000000017462
+"LSA","Número de ejecuciones",20
+"LSA","Tiempo mínimo en segundos",0.0399999999972351
+"LSA","Tiempo promedio en segundos",0.0605000000003201
+"LSA","Mediana en segundos",0.0600000000013097
+"LSA","Tiempo máximo en segundos",0.0800000000017462

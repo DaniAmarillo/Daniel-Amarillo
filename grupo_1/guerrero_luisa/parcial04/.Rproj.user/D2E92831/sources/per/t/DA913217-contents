@@ -1,0 +1,896 @@
+# =========================================================
+# BDCC Research Dashboard
+# Taller 2 - Minería de Datos
+# Shiny + SQLite + HTML + CSS + Highcharter
+# =========================================================
+
+library(shiny)
+library(DBI)
+library(RSQLite)
+library(dplyr)
+library(DT)
+library(highcharter)
+library(lubridate)
+library(stringr)
+library(purrr)
+
+# ---------------------------------------------------------
+# Conexión a SQLite
+# ---------------------------------------------------------
+
+db_path <- "bdcc_2025.sqlite"
+
+if (!file.exists(db_path)) {
+  stop("No se encontró la base de datos bdcc_2025.sqlite en la carpeta del proyecto.")
+}
+
+cargar_papers <- function() {
+  con <- dbConnect(SQLite(), db_path)
+  datos <- dbReadTable(con, "papers")
+  dbDisconnect(con)
+  
+  datos %>%
+    mutate(
+      publication_date = as.Date(publication_date),
+      year = as.numeric(year),
+      n_authors = as.numeric(n_authors),
+      citations = as.numeric(citations),
+      downloads = as.numeric(downloads),
+      n_references = as.numeric(n_references),
+      topic_label = ifelse(is.na(topic_label) | topic_label == "", "Sin categoría", topic_label),
+      authors_raw = ifelse(is.na(authors_raw), "", authors_raw),
+      doi = ifelse(is.na(doi), "", doi),
+      abstract = ifelse(is.na(abstract), "", abstract),
+      title = ifelse(is.na(title), "", title)
+    )
+}
+
+papers_base <- cargar_papers()
+
+# ---------------------------------------------------------
+# Autores disponibles y paleta
+# ---------------------------------------------------------
+
+autores_disponibles <- papers_base$authors_raw %>%
+  str_split(";") %>%
+  unlist() %>%
+  str_trim() %>%
+  discard(~ .x == "" | is.na(.x)) %>%
+  unique() %>%
+  sort()
+
+paleta_bdcc <- c(
+  "#111111",
+  "#B07A3F",
+  "#2F80ED",
+  "#27AE60",
+  "#8E44AD",
+  "#F2994A",
+  "#EB5757",
+  "#56CCF2"
+)
+
+# ---------------------------------------------------------
+# UI
+# ---------------------------------------------------------
+
+ui <- fluidPage(
+  
+  tags$head(
+    tags$link(rel = "stylesheet", type = "text/css", href = "styles.css")
+  ),
+  
+  div(
+    class = "app-wrapper",
+    
+    div(
+      class = "editorial-hero",
+      div(
+        class = "hero-content",
+        div(class = "eyebrow", "MINERÍA DE DATOS · TALLER 2"),
+        h1(class = "hero-title", "BDCC Research Dashboard"),
+        p(
+          class = "hero-subtitle",
+          "Dashboard editorial para consultar, visualizar y actualizar artículos científicos 
+          de la revista Big Data and Cognitive Computing almacenados en una base de datos SQLite."
+        ),
+        div(
+          class = "topline",
+          span(class = "pill", "SQLite"),
+          span(class = "pill", "Shiny"),
+          span(class = "pill", "Web Scraping"),
+          span(class = "pill", "KDD"),
+          span(class = "pill", "Highcharter")
+        )
+      )
+    ),
+    
+    h2(class = "section-title", "Exploración científica interactiva"),
+    p(
+      class = "section-note",
+      "Esta aplicación permite explorar artículos académicos relacionados con Machine Learning, 
+      IA Generativa, Estadística y otras áreas, a partir de una base de datos construida mediante 
+      web scraping en el Taller 1. La interfaz integra filtros, indicadores, visualizaciones 
+      interactivas y una tabla dinámica para apoyar el análisis de la información."
+    ),
+    
+    # -----------------------------------------------------
+    # Filtros globales
+    # -----------------------------------------------------
+    
+    div(
+      class = "filter-card",
+      
+      div(
+        class = "filter-header",
+        div(
+          h3(class = "filter-title", "Filtros globales"),
+          p(
+            class = "filter-subtitle",
+            "Seleccione los criterios de búsqueda y luego presione Aplicar filtros."
+          )
+        ),
+        div(
+          class = "filter-actions-top",
+          actionButton(
+            inputId = "aplicar_filtros",
+            label = "Aplicar filtros",
+            class = "btn-editorial btn-filter-main"
+          ),
+          actionButton(
+            inputId = "limpiar",
+            label = "Limpiar filtros",
+            class = "btn-editorial btn-filter-secondary"
+          )
+        )
+      ),
+      
+      fluidRow(
+        column(
+          width = 3,
+          dateRangeInput(
+            inputId = "fecha",
+            label = "Rango de fechas",
+            start = min(papers_base$publication_date, na.rm = TRUE),
+            end = max(papers_base$publication_date, na.rm = TRUE),
+            min = min(papers_base$publication_date, na.rm = TRUE),
+            max = max(papers_base$publication_date, na.rm = TRUE),
+            language = "es",
+            separator = " → "
+          )
+        ),
+        
+        column(
+          width = 3,
+          selectInput(
+            inputId = "tema",
+            label = "Tema o categoría",
+            choices = c("Todos", sort(unique(papers_base$topic_label))),
+            selected = "Todos"
+          )
+        ),
+        
+        column(
+          width = 3,
+          selectizeInput(
+            inputId = "autor",
+            label = "Autor",
+            choices = c("Todos", autores_disponibles),
+            selected = "Todos",
+            multiple = FALSE,
+            options = list(
+              placeholder = "Seleccione un autor...",
+              maxOptions = 20
+            )
+          )
+        ),
+        
+        column(
+          width = 3,
+          textInput(
+            inputId = "doi",
+            label = "DOI",
+            placeholder = "Buscar por DOI..."
+          )
+        )
+      ),
+      
+      fluidRow(
+        column(
+          width = 12,
+          textInput(
+            inputId = "palabra",
+            label = "Título o palabra clave",
+            placeholder = "Ej: machine learning, deep learning, statistics..."
+          )
+        )
+      )
+    ),
+    
+    # -----------------------------------------------------
+    # Navegación por secciones
+    # -----------------------------------------------------
+    
+    tabsetPanel(
+      id = "secciones",
+      type = "tabs",
+      
+      tabPanel(
+        title = "Inicio",
+        
+        h2(class = "section-title", "Resumen del proyecto"),
+        
+        fluidRow(
+          column(
+            width = 8,
+            div(
+              class = "panel-card",
+              h3("Dashboard orientado al proceso KDD"),
+              p(
+                "El objetivo de esta aplicación es consultar, visualizar y actualizar una base de datos SQLite 
+                construida en el Taller 1 mediante web scraping. El dashboard permite transformar los datos 
+                recolectados en información analítica útil para explorar publicaciones científicas de la revista 
+                Big Data and Cognitive Computing."
+              ),
+              p(
+                "La aplicación integra filtros dinámicos, indicadores descriptivos, visualizaciones interactivas, 
+                una tabla de consulta y una sección destinada a la actualización automática mediante scraping."
+              )
+            )
+          ),
+          
+          column(
+            width = 4,
+            div(
+              class = "article-highlight",
+              div(class = "metric-label", "Base de datos"),
+              div(class = "article-highlight-title", "SQLite · BDCC 2025"),
+              div(
+                class = "article-highlight-meta",
+                "Fuente principal: tabla papers. También se conserva una tabla de referencias asociadas."
+              )
+            )
+          )
+        ),
+        
+        fluidRow(
+          column(
+            width = 3,
+            div(
+              class = "metric-card",
+              div(class = "metric-label", "Total base original"),
+              div(class = "metric-value", nrow(papers_base)),
+              div(class = "metric-foot", "Artículos almacenados")
+            )
+          ),
+          
+          column(
+            width = 3,
+            div(
+              class = "metric-card",
+              div(class = "metric-label", "Categorías"),
+              div(class = "metric-value", length(unique(papers_base$topic_label))),
+              div(class = "metric-foot", "Clasificación temática")
+            )
+          ),
+          
+          column(
+            width = 3,
+            div(
+              class = "metric-card",
+              div(class = "metric-label", "Año inicial"),
+              div(class = "metric-value", min(papers_base$year, na.rm = TRUE)),
+              div(class = "metric-foot", "Según la base SQLite")
+            )
+          ),
+          
+          column(
+            width = 3,
+            div(
+              class = "metric-card",
+              div(class = "metric-label", "Año final"),
+              div(class = "metric-value", max(papers_base$year, na.rm = TRUE)),
+              div(class = "metric-foot", "Según la base SQLite")
+            )
+          )
+        )
+      ),
+      
+      tabPanel(
+        title = "Indicadores",
+        
+        h2(class = "section-title", "Indicadores descriptivos"),
+        p(
+          class = "section-note",
+          "Los indicadores se recalculan después de presionar el botón Aplicar filtros."
+        ),
+        
+        fluidRow(
+          column(
+            width = 3,
+            div(
+              class = "metric-card",
+              div(class = "metric-label", "Total de artículos"),
+              div(class = "metric-value", textOutput("total_articulos")),
+              div(class = "metric-foot", "Registros filtrados")
+            )
+          ),
+          
+          column(
+            width = 3,
+            div(
+              class = "metric-card",
+              div(class = "metric-label", "Promedio autores"),
+              div(class = "metric-value", textOutput("prom_autores")),
+              div(class = "metric-foot", "Autores por artículo")
+            )
+          ),
+          
+          column(
+            width = 3,
+            div(
+              class = "metric-card",
+              div(class = "metric-label", "Promedio citas"),
+              div(class = "metric-value", textOutput("prom_citas")),
+              div(class = "metric-foot", "Impacto promedio")
+            )
+          ),
+          
+          column(
+            width = 3,
+            div(
+              class = "metric-card",
+              div(class = "metric-label", "Promedio referencias"),
+              div(class = "metric-value", textOutput("prom_referencias")),
+              div(class = "metric-foot", "Referencias por paper")
+            )
+          )
+        ),
+        
+        fluidRow(
+          column(
+            width = 6,
+            div(
+              class = "article-highlight",
+              div(class = "metric-label", "Artículo más citado"),
+              div(class = "article-highlight-title", textOutput("articulo_mas_citado")),
+              div(class = "article-highlight-meta", textOutput("meta_mas_citado"))
+            )
+          ),
+          
+          column(
+            width = 6,
+            div(
+              class = "article-highlight",
+              div(class = "metric-label", "Categoría con más artículos"),
+              div(class = "article-highlight-title", textOutput("categoria_mayor")),
+              div(class = "article-highlight-meta", textOutput("meta_categoria_mayor"))
+            )
+          )
+        )
+      ),
+      
+      tabPanel(
+        title = "Visualizaciones",
+        
+        h2(class = "section-title", "Visualizaciones interactivas"),
+        p(
+          class = "section-note",
+          "Las gráficas permiten observar la distribución temática de los artículos, 
+          la evolución temporal de las publicaciones y el comportamiento de las citas."
+        ),
+        
+        fluidRow(
+          column(
+            width = 6,
+            div(
+              class = "panel-card",
+              highchartOutput("grafico_temas", height = "390px")
+            )
+          ),
+          
+          column(
+            width = 6,
+            div(
+              class = "panel-card",
+              highchartOutput("grafico_tiempo", height = "390px")
+            )
+          )
+        ),
+        
+        fluidRow(
+          column(
+            width = 12,
+            div(
+              class = "panel-card",
+              highchartOutput("grafico_citas", height = "380px")
+            )
+          )
+        )
+      ),
+      
+      tabPanel(
+        title = "Tabla de artículos",
+        
+        h2(class = "section-title", "Archivo dinámico de artículos"),
+        p(
+          class = "section-note",
+          "La tabla presenta los artículos filtrados e incluye título, autores, fecha de publicación, 
+          categoría temática, DOI, citas y número de referencias."
+        ),
+        
+        div(
+          class = "panel-card",
+          DTOutput("tabla_articulos")
+        )
+      ),
+      
+      tabPanel(
+        title = "Actualización SQLite",
+        
+        h2(class = "section-title", "Actualización mediante scraping"),
+        p(
+          class = "section-note",
+          "Esta sección está destinada a consultar artículos recientes, comparar los DOI encontrados 
+          con los ya almacenados y actualizar automáticamente la base SQLite cuando existan nuevos registros."
+        ),
+        
+        fluidRow(
+          column(
+            width = 4,
+            div(
+              class = "filter-card",
+              h3(class = "filter-title", "Control de actualización"),
+              p(
+                class = "filter-subtitle",
+                "Ejecute la búsqueda de nuevos artículos o revise los últimos registros almacenados."
+              ),
+              
+              selectInput(
+                inputId = "anio_scraping",
+                label = "Año a consultar",
+                choices = c(2026, 2025),
+                selected = 2026
+              ),
+              
+              actionButton(
+                inputId = "actualizar",
+                label = "Buscar nuevos artículos",
+                class = "btn-editorial btn-filter-main"
+              ),
+              
+              br(),
+              br(),
+              
+              actionButton(
+                inputId = "verificar_ultimos",
+                label = "Verificar últimos 5",
+                class = "btn-editorial btn-filter-secondary"
+              )
+            )
+          ),
+          
+          column(
+            width = 8,
+            div(
+              class = "panel-card",
+              h3("Resultado del proceso"),
+              verbatimTextOutput("estado_actualizacion"),
+              br(),
+              DTOutput("tabla_actualizacion")
+            )
+          )
+        )
+      )
+    ),
+    
+    div(
+      class = "footer-note",
+      "BDCC Research Dashboard · Taller 2 · Minería de Datos"
+    )
+  )
+)
+
+# ---------------------------------------------------------
+# SERVER
+# ---------------------------------------------------------
+
+server <- function(input, output, session) {
+  
+  datos_reactivos <- reactiveVal(papers_base)
+  resultados_actualizacion <- reactiveVal(data.frame())
+  
+  filtros_aplicados <- reactiveVal(list(
+    fecha = c(
+      min(papers_base$publication_date, na.rm = TRUE),
+      max(papers_base$publication_date, na.rm = TRUE)
+    ),
+    tema = "Todos",
+    autor = "Todos",
+    doi = "",
+    palabra = ""
+  ))
+  
+  observeEvent(input$aplicar_filtros, {
+    filtros_aplicados(list(
+      fecha = input$fecha,
+      tema = input$tema,
+      autor = input$autor,
+      doi = input$doi,
+      palabra = input$palabra
+    ))
+  })
+  
+  observeEvent(input$limpiar, {
+    
+    fecha_inicio <- min(datos_reactivos()$publication_date, na.rm = TRUE)
+    fecha_fin <- max(datos_reactivos()$publication_date, na.rm = TRUE)
+    
+    updateDateRangeInput(
+      session,
+      "fecha",
+      start = fecha_inicio,
+      end = fecha_fin
+    )
+    
+    updateSelectInput(session, "tema", selected = "Todos")
+    updateSelectizeInput(session, "autor", selected = "Todos")
+    updateTextInput(session, "doi", value = "")
+    updateTextInput(session, "palabra", value = "")
+    
+    filtros_aplicados(list(
+      fecha = c(fecha_inicio, fecha_fin),
+      tema = "Todos",
+      autor = "Todos",
+      doi = "",
+      palabra = ""
+    ))
+  })
+  
+  papers_filtrados <- reactive({
+    
+    datos <- datos_reactivos()
+    filtros <- filtros_aplicados()
+    
+    if (!is.null(filtros$fecha)) {
+      datos <- datos %>%
+        filter(
+          publication_date >= filtros$fecha[1],
+          publication_date <= filtros$fecha[2]
+        )
+    }
+    
+    if (!is.null(filtros$tema) && filtros$tema != "Todos") {
+      datos <- datos %>%
+        filter(topic_label == filtros$tema)
+    }
+    
+    if (!is.null(filtros$autor) && filtros$autor != "Todos") {
+      datos <- datos %>%
+        filter(str_detect(str_to_lower(authors_raw), str_to_lower(filtros$autor)))
+    }
+    
+    if (!is.null(filtros$doi) && filtros$doi != "") {
+      datos <- datos %>%
+        filter(str_detect(str_to_lower(doi), str_to_lower(filtros$doi)))
+    }
+    
+    if (!is.null(filtros$palabra) && filtros$palabra != "") {
+      palabra <- str_to_lower(filtros$palabra)
+      
+      datos <- datos %>%
+        filter(
+          str_detect(str_to_lower(title), palabra) |
+            str_detect(str_to_lower(abstract), palabra)
+        )
+    }
+    
+    datos
+  })
+  
+  output$total_articulos <- renderText({
+    nrow(papers_filtrados())
+  })
+  
+  output$prom_autores <- renderText({
+    valor <- mean(papers_filtrados()$n_authors, na.rm = TRUE)
+    ifelse(is.nan(valor), "0", round(valor, 1))
+  })
+  
+  output$prom_citas <- renderText({
+    valor <- mean(papers_filtrados()$citations, na.rm = TRUE)
+    ifelse(is.nan(valor), "0", round(valor, 1))
+  })
+  
+  output$prom_referencias <- renderText({
+    valor <- mean(papers_filtrados()$n_references, na.rm = TRUE)
+    ifelse(is.nan(valor), "0", round(valor, 1))
+  })
+  
+  output$articulo_mas_citado <- renderText({
+    datos <- papers_filtrados()
+    
+    if (nrow(datos) == 0) {
+      return("No hay artículos con los filtros seleccionados")
+    }
+    
+    datos %>%
+      arrange(desc(citations)) %>%
+      slice(1) %>%
+      pull(title)
+  })
+  
+  output$meta_mas_citado <- renderText({
+    datos <- papers_filtrados()
+    
+    if (nrow(datos) == 0) {
+      return("")
+    }
+    
+    articulo <- datos %>%
+      arrange(desc(citations)) %>%
+      slice(1)
+    
+    paste0(
+      "Citas: ", articulo$citations,
+      " · Categoría: ", articulo$topic_label,
+      " · DOI: ", articulo$doi
+    )
+  })
+  
+  output$categoria_mayor <- renderText({
+    datos <- papers_filtrados()
+    
+    if (nrow(datos) == 0) {
+      return("No disponible")
+    }
+    
+    datos %>%
+      count(topic_label, name = "cantidad") %>%
+      arrange(desc(cantidad)) %>%
+      slice(1) %>%
+      pull(topic_label)
+  })
+  
+  output$meta_categoria_mayor <- renderText({
+    datos <- papers_filtrados()
+    
+    if (nrow(datos) == 0) {
+      return("")
+    }
+    
+    fila <- datos %>%
+      count(topic_label, name = "cantidad") %>%
+      arrange(desc(cantidad)) %>%
+      slice(1)
+    
+    paste0("Cantidad de artículos: ", fila$cantidad)
+  })
+  
+  output$grafico_temas <- renderHighchart({
+    
+    datos <- papers_filtrados() %>%
+      count(topic_label, name = "cantidad") %>%
+      arrange(desc(cantidad))
+    
+    if (nrow(datos) == 0) {
+      return(
+        highchart() %>%
+          hc_title(text = "Artículos por categoría temática") %>%
+          hc_subtitle(text = "No hay datos disponibles con los filtros seleccionados")
+      )
+    }
+    
+    hchart(
+      datos,
+      "column",
+      hcaes(x = topic_label, y = cantidad),
+      name = "Artículos"
+    ) %>%
+      hc_title(text = "Artículos por categoría temática") %>%
+      hc_subtitle(text = "Distribución de papers según clasificación temática") %>%
+      hc_xAxis(title = list(text = "Categoría")) %>%
+      hc_yAxis(title = list(text = "Número de artículos")) %>%
+      hc_tooltip(pointFormat = "<b>{point.y}</b> artículos") %>%
+      hc_colors(paleta_bdcc) %>%
+      hc_plotOptions(
+        column = list(
+          colorByPoint = TRUE,
+          borderRadius = 6
+        )
+      ) %>%
+      hc_add_theme(hc_theme_smpl())
+  })
+  
+  output$grafico_tiempo <- renderHighchart({
+    
+    datos <- papers_filtrados() %>%
+      mutate(mes = floor_date(publication_date, unit = "month")) %>%
+      count(mes, name = "cantidad") %>%
+      arrange(mes)
+    
+    if (nrow(datos) == 0) {
+      return(
+        highchart() %>%
+          hc_title(text = "Evolución temporal de publicaciones") %>%
+          hc_subtitle(text = "No hay datos disponibles con los filtros seleccionados")
+      )
+    }
+    
+    hchart(
+      datos,
+      "line",
+      hcaes(x = mes, y = cantidad),
+      name = "Publicaciones"
+    ) %>%
+      hc_title(text = "Evolución temporal de publicaciones") %>%
+      hc_subtitle(text = "Cantidad de artículos publicados por mes") %>%
+      hc_xAxis(title = list(text = "Fecha"), type = "datetime") %>%
+      hc_yAxis(title = list(text = "Número de artículos")) %>%
+      hc_tooltip(pointFormat = "<b>{point.y}</b> publicaciones") %>%
+      hc_colors(c("#2F80ED")) %>%
+      hc_plotOptions(
+        line = list(
+          lineWidth = 4,
+          marker = list(radius = 5)
+        )
+      ) %>%
+      hc_add_theme(hc_theme_smpl())
+  })
+  
+  output$grafico_citas <- renderHighchart({
+    
+    datos <- papers_filtrados() %>%
+      filter(!is.na(citations))
+    
+    if (nrow(datos) == 0) {
+      return(
+        highchart() %>%
+          hc_title(text = "Distribución de citas") %>%
+          hc_subtitle(text = "No hay datos disponibles con los filtros seleccionados")
+      )
+    }
+    
+    hchart(
+      datos$citations,
+      breaks = 12,
+      name = "Citas"
+    ) %>%
+      hc_title(text = "Distribución de citas") %>%
+      hc_subtitle(text = "Frecuencia de artículos según número de citas") %>%
+      hc_xAxis(title = list(text = "Número de citas")) %>%
+      hc_yAxis(title = list(text = "Frecuencia")) %>%
+      hc_colors(c("#27AE60")) %>%
+      hc_plotOptions(
+        column = list(
+          borderRadius = 5
+        )
+      ) %>%
+      hc_add_theme(hc_theme_smpl())
+  })
+  
+  output$tabla_articulos <- renderDT({
+    
+    datos <- papers_filtrados() %>%
+      select(
+        title,
+        authors_raw,
+        publication_date,
+        topic_label,
+        doi,
+        citations,
+        n_references
+      ) %>%
+      rename(
+        "Título" = title,
+        "Autores" = authors_raw,
+        "Fecha" = publication_date,
+        "Tema" = topic_label,
+        "DOI" = doi,
+        "Citas" = citations,
+        "Referencias" = n_references
+      )
+    
+    datatable(
+      datos,
+      rownames = FALSE,
+      filter = "top",
+      options = list(
+        pageLength = 10,
+        scrollX = TRUE,
+        autoWidth = TRUE,
+        language = list(
+          url = "//cdn.datatables.net/plug-ins/1.10.11/i18n/Spanish.json"
+        )
+      )
+    )
+  })
+  
+  observeEvent(input$actualizar, {
+    
+    anio <- input$anio_scraping
+    
+    mensaje <- paste0(
+      "Iniciando búsqueda de artículos para el año ", anio, "...\n",
+      "Conexión a la revista BDCC: pendiente de integrar.\n",
+      "Comparación de DOI contra SQLite: pendiente de integrar.\n",
+      "Actualización automática de la tabla papers: pendiente de integrar.\n\n",
+      "Esta sección ya está lista visualmente. En el siguiente paso se conectará con el scraping real."
+    )
+    
+    output$estado_actualizacion <- renderText({
+      mensaje
+    })
+    
+    resultados_actualizacion(
+      data.frame(
+        Estado = "Prueba",
+        Accion = "Zona de actualización preparada",
+        Detalle = paste("Año seleccionado:", anio),
+        stringsAsFactors = FALSE
+      )
+    )
+  })
+  
+  observeEvent(input$verificar_ultimos, {
+    
+    ultimos <- datos_reactivos() %>%
+      arrange(desc(publication_date)) %>%
+      slice(1:5) %>%
+      select(
+        title,
+        doi,
+        publication_date,
+        topic_label,
+        citations,
+        n_references
+      ) %>%
+      rename(
+        Titulo = title,
+        DOI = doi,
+        Fecha = publication_date,
+        Tema = topic_label,
+        Citas = citations,
+        Referencias = n_references
+      )
+    
+    resultados_actualizacion(ultimos)
+    
+    output$estado_actualizacion <- renderText({
+      paste0(
+        "Verificación local completada.\n",
+        "Se consultaron los últimos 5 artículos almacenados actualmente en SQLite.\n",
+        "En el siguiente paso, esta opción se conectará al scraping para validar actualizaciones reales."
+      )
+    })
+  })
+  
+  output$estado_actualizacion <- renderText({
+    "Presione 'Buscar nuevos artículos' o 'Verificar últimos 5' para iniciar el proceso."
+  })
+  
+  output$tabla_actualizacion <- renderDT({
+    
+    datos <- resultados_actualizacion()
+    
+    if (nrow(datos) == 0) {
+      datos <- data.frame(
+        Mensaje = "Aún no se ha ejecutado ningún proceso de actualización."
+      )
+    }
+    
+    datatable(
+      datos,
+      rownames = FALSE,
+      options = list(
+        pageLength = 5,
+        scrollX = TRUE,
+        language = list(
+          url = "//cdn.datatables.net/plug-ins/1.10.11/i18n/Spanish.json"
+        )
+      )
+    )
+  })
+}
+
+shinyApp(ui = ui, server = server)

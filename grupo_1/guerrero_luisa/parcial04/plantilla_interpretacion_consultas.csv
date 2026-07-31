@@ -1,0 +1,6 @@
+"consulta","tipo_consulta","mejor_estrategia","justificacion","resultado_incorrecto_tfidf","resultado_incorrecto_lsa","comentario_general"
+"generative artificial intelligence and large language models","Términos directos","","","","",""
+"machine learning for disease diagnosis","Consulta específica","","","","",""
+"social media sentiment analysis","Términos relacionados","","","","",""
+"cybersecurity intrusion detection","Consulta específica con posible resultado incorrecto","","","","",""
+"statistical methods for prediction","Consulta general con resultados poco precisos","","","","",""

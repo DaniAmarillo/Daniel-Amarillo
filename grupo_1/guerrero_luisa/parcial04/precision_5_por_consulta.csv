@@ -1,0 +1,11 @@
+"consulta","estrategia","precision_5","relevantes_top5"
+"cybersecurity intrusion detection","LSA",0.8,4
+"cybersecurity intrusion detection","TF-IDF",0.8,4
+"generative artificial intelligence and large language models","LSA",1,5
+"generative artificial intelligence and large language models","TF-IDF",1,5
+"machine learning for disease diagnosis","LSA",1,5
+"machine learning for disease diagnosis","TF-IDF",1,5
+"social media sentiment analysis","LSA",1,5
+"social media sentiment analysis","TF-IDF",1,5
+"statistical methods for prediction","LSA",0.8,4
+"statistical methods for prediction","TF-IDF",0.8,4
