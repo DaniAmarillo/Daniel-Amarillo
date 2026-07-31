@@ -1,0 +1,6 @@
+"query_id","tipo","query_text","p5_tfidf","p5_lsa"
+"Q1","Términos directos (aparecen literalmente en los artículos)","deep learning segmentation biomedical imaging",0.4,0.4
+"Q2","Términos relacionados / sinónimos","algorithms that automatically identify illnesses from medical scans",0.2,0.4
+"Q3","Consulta general","artificial intelligence in healthcare",0.4,0.6
+"Q4","Consulta específica","XGBoost PM2.5 imputation sparse environmental monitoring networks",0.6,0.6
+"Q5","Consulta donde se espera bajo desempeño de algún método","recommendation systems for online shopping",0.4,0

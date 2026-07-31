@@ -1,0 +1,51 @@
+"query_id","estrategia","posicion","title","score","relevante"
+"Q1","TF-IDF + coseno (léxica)",1,"Patent value prediction in biomedical textiles: A method based on a fusion of machine learning models",0.5114,0
+"Q1","TF-IDF + coseno (léxica)",2,"Deep learning for deep learning performance: How much data is needed for segmentation in biomedical imaging?",0.4728,1
+"Q1","TF-IDF + coseno (léxica)",3,"Class-aware feature attention-based semantic segmentation on hyperspectral images",0.3392,0
+"Q1","TF-IDF + coseno (léxica)",4,"Deep learning–based region merging with adaptive threshold optimization for building segmentation in remote sensing images",0.2987,0
+"Q1","TF-IDF + coseno (léxica)",5,"Nuclei segmentation and classification from histopathology images using federated learning for end-edge platform",0.2981,1
+"Q1","LSA + coseno (semántica)",1,"Deep learning–based region merging with adaptive threshold optimization for building segmentation in remote sensing images",0.8557,0
+"Q1","LSA + coseno (semántica)",2,"Class-aware feature attention-based semantic segmentation on hyperspectral images",0.8506,0
+"Q1","LSA + coseno (semántica)",3,"A U-Net model for epidermal segmentation in optical coherence tomography images of actinic keratosis",0.8397,1
+"Q1","LSA + coseno (semántica)",4,"Method for building segmentation and extraction from high-resolution remote sensing images based on improved YOLOv5ds",0.8158,0
+"Q1","LSA + coseno (semántica)",5,"Nuclei segmentation and classification from histopathology images using federated learning for end-edge platform",0.8042,1
+"Q2","TF-IDF + coseno (léxica)",1,"Accuracy assessment of three-dimensional abutment tooth data construction using swept-source optical coherence tomography",0.206,0
+"Q2","TF-IDF + coseno (léxica)",2,"Development of a risk prediction model for sepsis-related delirium based on multiple machine learning approaches and an online calculator",0.1564,1
+"Q2","TF-IDF + coseno (léxica)",3,"Chinese medical named entity recognition utilizing entity association and gate context awareness",0.1391,0
+"Q2","TF-IDF + coseno (léxica)",4,"Predictors of health care utilization in patients with post-acute sequelae of COVID-19 (PASC)",0.1247,0
+"Q2","TF-IDF + coseno (léxica)",5,"Psychometric assessment of the Persian translated version of the “medical artificial intlligence readiness scale for medical students”",0.1244,0
+"Q2","LSA + coseno (semántica)",1,"Hyperparameter optimization ResNet by improved Beluga Whale Optimization",0.4875,0
+"Q2","LSA + coseno (semántica)",2,"Time series segmentation for recognition of epileptiform patterns recorded via microelectrode arrays in vitro",0.4826,0
+"Q2","LSA + coseno (semántica)",3,"An explainable and federated deep learning framework for skin cancer diagnosis",0.4693,1
+"Q2","LSA + coseno (semántica)",4,"Optimizing Kernel Extreme Learning Machine based on a Enhanced Adaptive Whale Optimization Algorithm for classification task",0.4403,0
+"Q2","LSA + coseno (semántica)",5,"A novel spectral transformation technique based on special functions for improved chest X-ray image classification",0.4401,1
+"Q3","TF-IDF + coseno (léxica)",1,"Professional identity and its relationships with AI readiness and interprofessional collaboration",0.3433,1
+"Q3","TF-IDF + coseno (léxica)",2,"AISIM: evaluating impacts of user interface elements of an AI assisting tool",0.2324,0
+"Q3","TF-IDF + coseno (léxica)",3,"Association of healthcare fragmentation with three-year survival among kidney transplant recipients in Colombia",0.2055,0
+"Q3","TF-IDF + coseno (léxica)",4,"Approaches for handling imbalanced data used in machine learning in the healthcare field: A case study on Chagas disease database prediction",0.1724,1
+"Q3","TF-IDF + coseno (léxica)",5,"Processes for creating an interprofessional mental health identity among pre-registration healthcare students: A scoping review protocol",0.1629,0
+"Q3","LSA + coseno (semántica)",1,"Professional identity and its relationships with AI readiness and interprofessional collaboration",0.7424,1
+"Q3","LSA + coseno (semántica)",2,"Psychometric assessment of the Persian translated version of the “medical artificial intlligence readiness scale for medical students”",0.5572,1
+"Q3","LSA + coseno (semántica)",3,"AISIM: evaluating impacts of user interface elements of an AI assisting tool",0.5352,0
+"Q3","LSA + coseno (semántica)",4,"Low-power artificial neuron networks with enhanced synaptic functionality using dual transistor and dual memristor",0.4699,0
+"Q3","LSA + coseno (semántica)",5,"Knowledge, attitudes and practices toward artificial intelligence among pediatricians in India: A cross-sectional web-based nationwide survey",0.389,1
+"Q4","TF-IDF + coseno (léxica)",1,"The impact of missing data rates and imputation methods on the assumption of unidimensionality",0.2852,1
+"Q4","TF-IDF + coseno (léxica)",2,"DynamicSeq2SeqXGB for PM<sub>2.5</sub> imputation in extremely sparse environmental monitoring networks",0.2624,1
+"Q4","TF-IDF + coseno (léxica)",3,"Transfer learning of neural operators for partial differential equations based on sparse network λ-FNO",0.2092,0
+"Q4","TF-IDF + coseno (léxica)",4,"Machine learning-based forecasting of air quality index under long-term environmental patterns: A comparative approach with XGBoost, LightGBM, and SVM",0.1756,1
+"Q4","TF-IDF + coseno (léxica)",5,"Unveiling diabetes onset: Optimized XGBoost with Bayesian optimization for enhanced prediction",0.1679,0
+"Q4","LSA + coseno (semántica)",1,"The impact of missing data rates and imputation methods on the assumption of unidimensionality",0.5883,1
+"Q4","LSA + coseno (semántica)",2,"DynamicSeq2SeqXGB for PM<sub>2.5</sub> imputation in extremely sparse environmental monitoring networks",0.5848,1
+"Q4","LSA + coseno (semántica)",3,"Flow and heat transfer of Poly Dispersed SiO<sub>2</sub> Nanoparticles in Aqueous Glycerol in a Horizontal pipe: Application of ensemble and evolutionary machine learning for model-prediction",0.3993,0
+"Q4","LSA + coseno (semántica)",4,"Filling gaps in PM2.5 time series: A broad evaluation from statistical to advanced neural network models",0.3738,1
+"Q4","LSA + coseno (semántica)",5,"Leveraging advanced graph neural networks for the enhanced classification of post anesthesia states to aid surgical procedures",0.373,0
+"Q5","TF-IDF + coseno (léxica)",1,"Point-of-interest recommender model using geo-tagged photos in accordance with imperialist Fuzzy C-means clustering",0.231,0
+"Q5","TF-IDF + coseno (léxica)",2,"Impact of online negative and positive reviews on app innovation",0.212,0
+"Q5","TF-IDF + coseno (léxica)",3,"Online sexual health survey implementation: Practical lessons from a comparative, mixed-methods analysis of 30 countries",0.1887,0
+"Q5","TF-IDF + coseno (léxica)",4,"CoHet4Rec: A recommendation for collaborative heterogeneous information networks",0.1829,1
+"Q5","TF-IDF + coseno (léxica)",5,"E-commerce recommender system design based on web information extraction and sentiment analysis",0.1821,1
+"Q5","LSA + coseno (semántica)",1,"Impact of online negative and positive reviews on app innovation",0.6119,0
+"Q5","LSA + coseno (semántica)",2,"Online sexual health survey implementation: Practical lessons from a comparative, mixed-methods analysis of 30 countries",0.5834,0
+"Q5","LSA + coseno (semántica)",3,"The magic of first impressions: Do facial displays on online platforms affect users’ offline conversion rate?",0.5719,0
+"Q5","LSA + coseno (semántica)",4,"Assessing construct reliability through open-ended survey response analysis",0.4986,0
+"Q5","LSA + coseno (semántica)",5,"Psychological consultation apps in Saudi Arabia: A study for experts’ evaluation and users’ points of view",0.4759,0

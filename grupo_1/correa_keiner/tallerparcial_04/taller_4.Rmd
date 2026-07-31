@@ -1,0 +1,467 @@
+---
+title: "Taller 4 — Buscador de artículos PLOS ONE"
+subtitle: "Minería de Datos (2016325) — Universidad Nacional de Colombia"
+author: "Keiner Felipe Correa Leguizamon"
+date: "`r format(Sys.Date(), '%d-%m-%Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(dplyr)
+library(Matrix)
+library(tibble)
+library(knitr)
+library(purrr)
+
+# Este documento asume que se ejecuta desde la raíz del proyecto Shiny,
+# es decir, la misma carpeta donde están global.R, ui.R, server.R,
+# revista_plosone.sqlite y la carpeta index/.
+INDEX_DIR <- "index"
+```
+
+# 1. Objetivo
+
+Este documento describe, de forma reproducible, el proceso de construcción del
+sistema de búsqueda y recuperación de información incorporado a la aplicación
+Shiny desarrollada en el Taller 2 (buscador de artículos de PLOS ONE). Cubre
+la construcción del corpus, el procesamiento de texto, la representación
+vectorial, la reducción de dimensionalidad, el mecanismo de ranking, la
+comparación entre estrategias y su evaluación cuantitativa.
+
+Las cuatro estrategias de recuperación implementadas y comparadas son:
+
+1. **TF-IDF + similitud coseno** (léxica)
+2. **BM25** (léxica, probabilística)
+3. **LSA / Truncated SVD + similitud coseno** (semántica, sobre representación reducida)
+4. **Híbrida** (combinación normalizada de TF-IDF y LSA)
+
+Todo el código que construye el índice vive en `build_search_index.R` y se
+ejecuta **una sola vez** (fuera de la app). Las funciones de búsqueda que usa
+la aplicación en tiempo real están en `retrieval_functions.R`, que solo carga
+los objetos precalculados (`.rds`) y proyecta la consulta — nunca reconstruye
+el corpus ni reentrena ningún modelo por cada búsqueda.
+
+# 2. Construcción del corpus
+
+```{r corpus-stats}
+stats <- readRDS(file.path(INDEX_DIR, "stats.rds"))
+
+tibble::tibble(
+  Métrica = c(
+    "Artículos totales en la base",
+    "Artículos sin abstract",
+    "Artículos sin título",
+    "Artículos incluidos en el corpus",
+    "Tamaño del vocabulario (dim. original TF-IDF)"
+  ),
+  Valor = c(
+    stats$n_total,
+    stats$n_sin_abstract,
+    stats$n_sin_titulo,
+    stats$n_incluidos,
+    stats$vocab_size
+  )
+) %>% knitr::kable()
+```
+
+**Campos utilizados para representar cada artículo:** título + resumen
+(`título + abstract`). Cuando el abstract no está disponible, el documento se
+representa únicamente con el título.
+
+**Tratamiento de valores faltantes:** los artículos sin título se excluyen
+por completo del corpus mientras que los artículos sin
+abstract se conservan, representados solo por su título.
+
+**Idioma del corpus:** los artículos provienen de la sección *Computer &
+Information Sciences* de PLOS ONE, publicados en inglés. Por eso el
+preprocesamiento de texto usa stopwords y stemming en inglés. El
+campo de búsqueda de la aplicación sí acepta consultas en español, que se
+traducen con un diccionario básico antes de vectorizarse.
+
+**Criterio de inclusión/exclusión:** se incluye todo artículo con título no
+vacío; no se aplicó ningún otro filtro temático adicional, ya que el corpus
+completo corresponde a la sección de PLOS ONE scrapeada en el Taller 1.
+
+# 3. Procesamiento del texto
+
+El pipeline de limpieza aplica, en este orden:
+
+1. Conversión a minúsculas.
+2. Eliminación de puntuación.
+3. Eliminación de números.
+4. Eliminación de *stopwords* en inglés (y también en español al
+   preprocesar consultas, por si queda algún residuo sin traducir).
+5. *Stemming* con el algoritmo de Porter (`SnowballC`, `language = "english"`).
+6. Eliminación de espacios en blanco redundantes.
+7. Filtro adicional sobre el vocabulario del corpus: se descartan términos de
+   menos de 3 caracteres y términos que aparecen en menos de 3 documentos
+   (`wordLengths = c(3, Inf)`, `bounds = list(global = c(3, Inf))`).
+
+**Justificación de lo que se usó:**
+
+- *Stemming*: normaliza variantes morfológicas
+  (`predict`, `predicting`, `prediction` → misma raíz) sin necesitar un
+  diccionario lingüístico adicional; es el estándar más simple y suficiente
+  para inglés técnico.
+- Filtro de frecuencia mínima (≥3 documentos): reduce ruido de errores de
+  scraping/OCR y de términos idiosincráticos que no generalizan, controlando
+  además el tamaño del vocabulario y el consumo de memoria.
+- Filtro de longitud mínima (≥3 caracteres): elimina restos de puntuación o
+  siglas de una/dos letras que sobreviven a la limpieza.
+
+
+
+# 4. Representación vectorial
+
+```{r vector-stats}
+tfidf_mat <- readRDS(file.path(INDEX_DIR, "tfidf_mat.rds"))
+lsa       <- readRDS(file.path(INDEX_DIR, "lsa_model.rds"))
+
+densidad <- round(100 * length(tfidf_mat@x) / (nrow(tfidf_mat) * ncol(tfidf_mat)), 4)
+
+tibble::tibble(
+  Representación = c("TF-IDF (dispersa)", "LSA / Truncated SVD (reducida)"),
+  Dimensión      = c(ncol(tfidf_mat), lsa$k),
+  `Documentos (filas)` = c(nrow(tfidf_mat), nrow(lsa$docs_lsa)),
+  `Tipo de matriz` = c(paste0("Dispersa (", densidad, "% no ceros)"), "Densa (k pequeño, es intencional)")
+) %>% knitr::kable()
+```
+
+- **TF-IDF**: se usa `tm::weightTfIdf(normalize = TRUE)` sobre la matriz
+  documento-término y se guarda como `dgCMatrix` (formato disperso de
+  `Matrix`), **nunca se densifica**. Es apropiada porque pondera términos
+  frecuentes en un documento pero raros en el corpus, lo que discrimina bien
+  vocabulario técnico específico de cada artículo.
+- **BM25**: usa la frecuencia cruda del término por documento (no TF-IDF), la
+  longitud de cada documento y la longitud promedio del corpus, con
+  `k1 = 1.5`, `b = 0.75` (valores estándar de la literatura). Es apropiada
+  porque satura la contribución de términos muy repetidos y normaliza por
+  longitud del documento, dos limitaciones que TF-IDF+coseno no maneja
+  explícitamente.
+- **LSA (Truncated SVD)**: reduce la matriz TF-IDF dispersa a `r lsa$k`
+  dimensiones densas, capturando co-ocurrencias latentes entre términos. Es
+  apropiada para encontrar artículos semánticamente relacionados aunque no
+  compartan exactamente el mismo vocabulario (sinónimos, paráfrasis).
+
+**Ventajas y limitaciones:** TF-IDF/BM25 son rápidas, interpretables y no
+requieren entrenamiento adicional, pero fallan ante sinonimia (si la consulta
+no usa las palabras exactas del artículo, no lo encuentra). LSA mitiga ese
+problema al operar en un espacio latente, a costa de perder interpretabilidad
+directa término-a-término y de un costo de cómputo inicial (SVD) mayor.
+
+# 5. Tipo de recuperación
+
+| Estrategia | Tipo | Cómo determina relevancia |
+|---|---|---|
+| TF-IDF + coseno | Léxica | Compara la orientación (ángulo) entre el vector TF-IDF de la consulta y el de cada documento; ignora la magnitud. |
+| BM25 | Léxica (probabilística) | Pondera coincidencia de términos por su rareza (IDF), su frecuencia en el documento (con saturación) y la longitud del documento respecto al promedio del corpus. |
+| LSA + coseno | Semántica | Proyecta consulta y documentos a un espacio latente de `r lsa$k` dimensiones (vía la matriz `V` de la SVD) y compara similitud coseno ahí, capturando relaciones entre términos que co-ocurren aunque no sean idénticos. |
+| Híbrida | Léxica + semántica | Normaliza (min-max, sobre el conjunto de resultados de esa consulta) la similitud TF-IDF y la similitud LSA a la escala [0,1] y las combina con un promedio ponderado (`alpha = 0.5`), ya que ambas señales viven en escalas distintas y no son comparables directamente sin normalizar. |
+
+Las consultas en español se traducen primero con un diccionario básico
+español→inglés (`es_en_dict.R`) antes de aplicar este mismo pipeline, dado que
+el corpus está en inglés.
+
+# 6. Reducción de dimensionalidad
+
+```{r lsa-detail}
+tibble::tibble(
+  Métrica = c(
+    "Dimensión original (vocabulario TF-IDF)",
+    "k máximo evaluado",
+    "k elegido (dimensión final)",
+    "Varianza acumulada explicada con k elegido"
+  ),
+  Valor = c(
+    stats$dim_tfidf[2],
+    stats$k_max,
+    stats$k_elegido,
+    paste0(round(stats$var_exp_k * 100, 1), "%")
+  )
+) %>% knitr::kable()
+```
+
+- **Método:** Truncated SVD (paquete `irlba`), aplicado directamente sobre la
+  matriz dispersa TF-IDF, sin densificarla — tal como recomienda el
+  enunciado.
+- **Criterio para elegir k:** el espectro de una matriz TF-IDF de texto tiene
+  "cola larga" (muchos componentes pequeños), así que exigir, por ejemplo,
+  90% de varianza explicada acercaría `k` al rango completo de la matriz,
+  anulando el propósito de reducir dimensionalidad. Por eso se usó un
+  criterio de **retorno marginal decreciente**: se fue aumentando `k` de 25
+  en 25 hasta el punto en que sumar 25 componentes adicionales aporta menos
+  de 1 punto porcentual extra de varianza explicada, con un tope adicional de
+  `k ≤ 150` por costo computacional y de memoria.
+- **Información que se intenta conservar:** las direcciones de mayor
+  covarianza entre términos (co-ocurrencia), que capturan relaciones
+  semánticas latentes entre palabras que tienden a aparecer juntas en los
+  mismos artículos.
+- **Proyección de la consulta:** la consulta se vectoriza primero como
+  TF-IDF en el vocabulario original y luego se proyecta al mismo espacio
+  reducido multiplicándola por la matriz `V` de la SVD
+  (`q_lsa <- q_tfidf %*% V`), exactamente la misma proyección usada para los
+  documentos (`docs_lsa = U %*% diag(D)`), lo que garantiza que consulta y
+  documentos queden en el mismo espacio comparable.
+
+**Efecto de la reducción sobre ranking, tiempo y memoria** (medido en esta
+misma sesión, con una consulta de ejemplo):
+
+```{r lsa-efecto, echo=TRUE}
+source("retrieval_functions.R")
+
+query_ejemplo <- "machine learning classification"
+
+t_tfidf <- system.time(res_tfidf <- buscar_tfidf(query_ejemplo, top_n = 10))
+t_lsa   <- system.time(res_lsa   <- buscar_lsa(query_ejemplo, top_n = 10))
+
+tibble::tibble(
+  Estrategia = c("TF-IDF (dim. original)", "LSA (dim. reducida)"),
+  `Tiempo de búsqueda (s)` = c(round(t_tfidf["elapsed"], 4), round(t_lsa["elapsed"], 4)),
+  `Tamaño en memoria del índice` = c(
+    format(object.size(tfidf_mat), units = "auto"),
+    format(object.size(lsa$docs_lsa), units = "auto")
+  )
+) %>% knitr::kable()
+```
+
+```{r lsa-ranking-diff, echo=TRUE}
+# Diferencia en el ranking: artículos que TF-IDF recupera pero LSA no (o
+# viceversa) para la misma consulta de ejemplo.
+solo_tfidf <- setdiff(res_tfidf$paper_id, res_lsa$paper_id)
+solo_lsa   <- setdiff(res_lsa$paper_id, res_tfidf$paper_id)
+
+cat("Artículos recuperados solo por TF-IDF:", length(solo_tfidf), "\n")
+cat("Artículos recuperados solo por LSA:   ", length(solo_lsa), "\n")
+```
+
+La representación reducida mediante LSA resulta más eficiente que la TF-IDF original, ya que disminuye el tiempo de búsqueda (de 0.21s a 0.11s) y ocupa ligeramente menos memoria. Sin embargo, la reducción dimensional introduce cambios en el ranking aproximadamente la mitad de los artículos recuperados difiere entre ambos métodos (7 exclusivos en cada uno), lo que indica que LSA captura relaciones semánticas distintas a las coincidencias léxicas exactas de TF-IDF.
+
+# 7. Mecanismo de ranking
+
+- **Cálculo del puntaje:** similitud coseno para TF-IDF e LSA
+  (`producto punto / (norma_doc · norma_query)`); fórmula probabilística BM25
+  para esa estrategia; combinación normalizada (min-max + promedio) para la
+  híbrida.
+- **Orden:** los artículos se ordenan de mayor a menor puntaje
+  (`order(sim, decreasing = TRUE)`); solo se conservan los que tienen puntaje
+  positivo.
+- **Puntaje alto significa:** mayor coincidencia (léxica o semántica, según
+  la estrategia) entre la consulta y el contenido (título + abstract) del
+  artículo.
+- **Manejo de empates:** `order()` en R es estable, así que en caso de
+  puntajes idénticos se conserva el orden original de aparición en el
+  índice (por `paper_id`); no se usa ningún criterio secundario adicional.
+- **Comparabilidad entre métodos:** los puntajes de TF-IDF, BM25 y LSA
+  no están en la misma escala y no deben compararse directamente entre
+  sí (por eso la estrategia híbrida normaliza a [0,1] antes de combinarlos).
+- **Citas/descargas como criterio:** no se usan como criterio de ranking en
+  ninguna estrategia — solo se muestran como metadato informativo en cada
+  tarjeta de resultado, tal como exige el enunciado (ordenar solo por
+  fecha/citas/descargas no es un ranking de recuperación de información
+  válido).
+
+# 8. Integración en la aplicación
+
+Los objetos precalculados (`meta.rds`, `tfidf_mat.rds`, `idf_vector.rds`,
+`lsa_model.rds`, `bm25_model.rds`, `stats.rds`) se generan una sola vez
+ejecutando `build_search_index.R` de forma independiente a la app. La
+aplicación Shiny los carga una única vez por proceso, al arrancar, desde
+`retrieval_functions.R` (que es `source()`-eado por `global.R`). Cada
+búsqueda del usuario (`server.R`, `observeEvent(input$btn_buscar, ...)`) solo:
+
+1. Preprocesa y traduce la consulta (operación barata sobre una sola cadena
+   de texto).
+2. La proyecta al espacio TF-IDF (y, si aplica, al espacio LSA) usando los
+   objetos ya cargados en memoria.
+3. Calcula la similitud contra la matriz de documentos ya calculada.
+
+En ningún punto se reconstruye el corpus, se recalculan pesos TF-IDF/BM25
+para el corpus completo, ni se reentrena la SVD. Desde `ui.R`, el usuario
+elige una estrategia (o "Comparar todas") en una lista desplegable; si falta
+algún archivo `.rds` opcional (por ejemplo `bm25_model.rds`), esa estrategia
+se deshabilita con un aviso explícito en vez de tumbar la aplicación.
+
+# 9. Evaluación de resultados
+
+Se definieron 5 consultas sobre el contenido real del corpus, cubriendo los
+tipos exigidos por el enunciado.
+
+```{r consultas_eval}
+queries <- tibble(
+  query_id = paste0("Q", 1:5),
+  tipo = c(
+    "Términos directos (aparecen literalmente en los artículos)",
+    "Términos relacionados / sinónimos",
+    "Consulta general",
+    "Consulta específica",
+    "Consulta donde se espera bajo desempeño de algún método"
+  ),
+  query_text = c(
+    "deep learning segmentation biomedical imaging",
+    "algorithms that automatically identify illnesses from medical scans",
+    "artificial intelligence in healthcare",
+    "XGBoost PM2.5 imputation sparse environmental monitoring networks",
+    "recommendation systems for online shopping"
+  )
+)
+knitr::kable(queries)
+```
+
+```{r ejecutar_consultas}
+for (i in seq_len(nrow(queries))) {
+  cat("\n===", queries$query_id[i], "-", queries$query_text[i], "===\n")
+  cat("--- TF-IDF ---\n")
+  print(buscar_tfidf(queries$query_text[i], 5) %>% select(posicion, title, score))
+  cat("--- LSA ---\n")
+  print(buscar_lsa(queries$query_text[i], 5) %>% select(posicion, title, score))
+}
+```
+
+## Precision@5 por consulta y estrategia
+
+Los juicios de relevancia (`relevante` = 1/0) se asignaron leyendo título y
+resumen de cada resultado, según el criterio de relevancia indicado para
+cada consulta:
+
+- **Q1:** el artículo debe tratarse de segmentación de imágenes
+  **biomédicas** mediante aprendizaje automático (no cualquier
+  segmentación de imágenes, ni cualquier tema "biomédico").
+- **Q2:** el artículo debe usar un algoritmo/modelo para identificar o
+  diagnosticar una enfermedad a partir de datos clínicos o de imagen.
+- **Q3:** el artículo debe involucrar IA/aprendizaje automático **en un
+  contexto de salud**.
+- **Q4:** el artículo debe tratarse de imputación/estimación de datos
+  faltantes en series o redes de monitoreo ambiental (PM2.5/calidad del
+  aire), o directamente de ese método (XGBoost) en ese dominio.
+- **Q5:** el artículo debe ser sobre sistemas de recomendación aplicados a
+  comercio electrónico / compras en línea.
+
+```{r precision}
+juicios <- list(
+  Q1 = list(tfidf = c(0,1,0,0,1), lsa = c(0,0,1,0,1)),
+  Q2 = list(tfidf = c(0,1,0,0,0), lsa = c(0,0,1,0,1)),
+  Q3 = list(tfidf = c(1,0,0,1,0), lsa = c(1,1,0,0,1)),
+  Q4 = list(tfidf = c(1,1,0,1,0), lsa = c(1,1,0,1,0)),
+  Q5 = list(tfidf = c(0,0,0,1,1), lsa = c(0,0,0,0,0))
+)
+
+resultados <- list()
+for (i in seq_len(nrow(queries))) {
+  qid <- queries$query_id[i]; qtx <- queries$query_text[i]
+  r_tfidf <- buscar_tfidf(qtx, 5) %>% mutate(relevante = juicios[[qid]]$tfidf, query_id = qid)
+  r_lsa   <- buscar_lsa(qtx, 5)   %>% mutate(relevante = juicios[[qid]]$lsa,   query_id = qid)
+  resultados[[paste0(qid, "_tfidf")]] <- r_tfidf
+  resultados[[paste0(qid, "_lsa")]]   <- r_lsa
+}
+detalle <- bind_rows(resultados) %>% select(query_id, estrategia, posicion, title, score, relevante)
+
+precision <- detalle %>%
+  group_by(query_id, estrategia) %>%
+  summarise(precision_at_5 = sum(relevante) / 5, .groups = "drop")
+
+resumen <- queries %>%
+  left_join(precision %>% filter(estrategia == "TF-IDF + coseno (léxica)") %>%
+              select(query_id, `Precision@5 TF-IDF` = precision_at_5), by = "query_id") %>%
+  left_join(precision %>% filter(estrategia == "LSA + coseno (semántica)") %>%
+              select(query_id, `Precision@5 LSA` = precision_at_5), by = "query_id")
+
+knitr::kable(resumen %>% select(-tipo), digits = 2)
+cat("\nPromedio Precision@5 TF-IDF:", mean(resumen$`Precision@5 TF-IDF`), "\n")
+cat("Promedio Precision@5 LSA:", mean(resumen$`Precision@5 LSA`), "\n")
+```
+
+## Análisis por consulta
+
+**Q1 (términos directos)** — Empate técnico (0.4 vs 0.4), pero con una
+diferencia cualitativa notable: TF-IDF ubica en la **posición 1** el
+artículo cuyo título coincide casi literalmente con la consulta ("Deep
+learning for deep learning performance: How much data is needed for
+segmentation in biomedical imaging?"). **LSA no lo incluye en el top-5**:
+al revisar el ranking completo, ese mismo artículo aparece en la posición
+**6**, con un puntaje (0.803) casi idéntico al de los puestos 3-5
+(0.80–0.85). Esto ilustra un costo real de la reducción dimensional: al
+comprimir a 150 componentes, la coincidencia léxica casi exacta se diluye
+entre otros documentos que comparten el tema general ("segmentación de
+imágenes con deep learning"), incluso si son de dominios distintos
+(edificios, imágenes hiperespectrales). Resultado incorrecto/poco relevante
+a analizar: el artículo de segmentación de **edificios** ("Deep
+learning-based region merging for building segmentation") aparece en el
+top-2 de LSA — el espacio latente agrupa "segmentación + deep learning"
+como concepto general, sin distinguir el dominio biomédico pedido en la
+consulta.
+
+**Q2 (sinónimos)** — LSA gana claramente (0.4 vs 0.2). La consulta evita
+deliberadamente palabras como *diagnosis*, *deep learning* o *imaging* que
+sí aparecen en los artículos relevantes. TF-IDF, al depender de
+coincidencia léxica, solo logra "engancharse" con un artículo por
+solapamiento parcial de términos. LSA, en cambio, recupera artículos sobre
+diagnóstico de cáncer de piel y clasificación de radiografías de tórax
+aunque no compartan las palabras exactas de la consulta — el comportamiento
+esperado de un método semántico.
+
+**Q3 (general)** — LSA vuelve a superar a TF-IDF (0.6 vs 0.4). Una consulta
+amplia como "artificial intelligence in healthcare" se beneficia de la
+mayor cobertura semántica de LSA, que agrupa documentos relacionados aunque
+usen formulaciones distintas (p. ej., *pediatricians' knowledge and
+attitudes toward AI* no repite literalmente "healthcare" con ese
+significado, pero LSA lo ubica igual).
+
+**Q4 (específica)** — Empate (0.6 vs 0.6). Con términos muy específicos y
+poco ambiguos (*XGBoost*, *PM2.5*, *imputation*), ambos métodos funcionan
+bien: hay pocos documentos candidatos y todos comparten vocabulario técnico
+explícito, así que la ventaja semántica de LSA no se necesita.
+
+**Q5 (bajo desempeño esperado)** — Aquí se observa la caída más marcada:
+LSA obtiene **Precision@5 = 0** frente a 0.4 de TF-IDF. El corpus tiene muy
+pocos artículos sobre sistemas de recomendación de comercio electrónico. Al
+proyectar la consulta al espacio semántico, el término más influyente
+resulta ser genérico ("online"), y LSA arrastra documentos sobre reseñas de
+apps, encuestas de salud sexual online y psicología — todos comparten
+"online" pero ninguno trata de recomendación. TF-IDF, en cambio, conserva
+al menos 2 artículos genuinamente relevantes gracias a la coincidencia
+léxica exacta de *recommend/recommender*. Esta consulta muestra el riesgo
+de LSA cuando el corpus tiene poca cobertura temática de lo consultado: el
+espacio latente "rellena" con vecinos poco relacionados.
+
+## Conclusión de la comparación
+
+En promedio, **ninguna estrategia domina de forma general** (0.40 vs 0.40).
+LSA tiende a ganar en consultas generales o con sinónimos (mayor *recall*
+semántico), mientras que TF-IDF es más confiable cuando la consulta usa
+vocabulario específico y exacto, o cuando el corpus tiene poca cobertura
+del tema (LSA puede "alucinar" similitud a partir de palabras genéricas).
+Esto justifica ofrecer ambas estrategias en la aplicación y dejar que el
+usuario elija, en vez de imponer una sola.
+
+# 10. Consideraciones computacionales
+
+```{r memoria}
+tibble::tibble(
+  Objeto = c("Matriz TF-IDF (dispersa)", "Matriz LSA (densa, k reducido)"),
+  Tamaño = c(format(object.size(tfidf_mat), units = "auto"),
+             format(object.size(lsa$docs_lsa), units = "auto"))
+) %>% knitr::kable()
+```
+
+- Todas las matrices de texto se mantienen en formato disperso (`dgCMatrix`);
+  la única matriz densa es `docs_lsa`, que es intencionalmente pequeña
+  (`r nrow(lsa$docs_lsa)` documentos × `r lsa$k` dimensiones).
+- El vocabulario se limitó eliminando términos con menos de 3 caracteres y
+  con frecuencia menor a 3 documentos (sección 3).
+- No se usaron embeddings preentrenados ni modelos neuronales de gran
+  tamaño; no se depende de ninguna API de pago.
+- Los objetos se calculan una sola vez y se cargan desde `.rds`
+  (`saveRDS`/`readRDS`), evitando reconstrucción en cada búsqueda.
+
+# 11. Conclusiones
+
+En este trabajo se implementaron y compararon diferentes estrategias de recuperación de información sobre un corpus real de artículos científicos, evidenciando que no existe un único método óptimo para todos los tipos de consulta. En particular, TF-IDF mostró un comportamiento más estable cuando la consulta contiene términos específicos y coincide léxicamente con los documentos, mientras que LSA logró mejores resultados en consultas generales o con sinónimos, al capturar relaciones semánticas entre términos. La estrategia híbrida se justifica como una alternativa prometedora al combinar ambas fuentes de información, equilibrando precisión léxica y capacidad semántica.
+
+Sin embargo, también se identificaron limitaciones importantes. La traducción básica de consultas de español a inglés puede introducir errores o pérdidas de significado, afectando la recuperación. Asimismo, métodos como LSA pueden degradar su desempeño cuando el corpus tiene poca cobertura del tema consultado, generando resultados poco relevantes debido a asociaciones semánticas débiles. Finalmente, consultas muy cortas o ambiguas siguen siendo un reto para todos los métodos implementados.
+
