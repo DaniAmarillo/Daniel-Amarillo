@@ -1,0 +1,5 @@
+"consulta","estrategia","posicion","paper_id","title","topic_label","puntaje","observacion"
+"cybersecurity intrusion detection","LSA",1,493,"Enhancing the Artificial Rabbit Optimizer Using Fuzzy Rule Interpolation","Machine Learning",0.603074,"El artículo se centra en optimización mediante lógica difusa y no aborda directamente la detección de intrusiones."
+"cybersecurity intrusion detection","TF-IDF",3,493,"Enhancing the Artificial Rabbit Optimizer Using Fuzzy Rule Interpolation","Machine Learning",0.215126,"El artículo trata optimización y lógica difusa, sin una relación explícita con la detección de intrusiones."
+"statistical methods for prediction","LSA",3,131,"Adversarial Perturbations for Defeating Cryptographic Algorithm Identification","Machine Learning",0.336025,"Se enfoca en perturbaciones adversariales para identificar algoritmos criptográficos, no en métodos estadísticos de predicción."
+"statistical methods for prediction","TF-IDF",1,131,"Adversarial Perturbations for Defeating Cryptographic Algorithm Identification","Machine Learning",0.127219,"No aborda de forma directa métodos estadísticos para predicción."

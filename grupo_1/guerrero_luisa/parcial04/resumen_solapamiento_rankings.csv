@@ -1,0 +1,6 @@
+"consulta","resultados_tfidf","resultados_lsa","articulos_compartidos","porcentaje_compartido","similitud_jaccard","mismas_posiciones"
+"generative artificial intelligence and large language models",5,5,5,100,1,5
+"machine learning for disease diagnosis",5,5,5,100,1,1
+"social media sentiment analysis",5,5,3,60,0.4286,1
+"cybersecurity intrusion detection",5,5,4,80,0.6667,0
+"statistical methods for prediction",5,5,2,40,0.25,1

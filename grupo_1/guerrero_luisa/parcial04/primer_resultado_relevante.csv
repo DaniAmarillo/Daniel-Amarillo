@@ -1,0 +1,11 @@
+"consulta","estrategia","primera_posicion_relevante","reciprocal_rank"
+"cybersecurity intrusion detection","LSA",2,0.5
+"generative artificial intelligence and large language models","LSA",1,1
+"machine learning for disease diagnosis","LSA",1,1
+"social media sentiment analysis","LSA",1,1
+"statistical methods for prediction","LSA",1,1
+"cybersecurity intrusion detection","TF-IDF",1,1
+"generative artificial intelligence and large language models","TF-IDF",1,1
+"machine learning for disease diagnosis","TF-IDF",1,1
+"social media sentiment analysis","TF-IDF",1,1
+"statistical methods for prediction","TF-IDF",2,0.5
