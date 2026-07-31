@@ -1,0 +1,1714 @@
+---
+title: "Taller 4 — Sistema de búsqueda y recuperación de artículos científicos"
+subtitle: "Minería de Datos (2016325) · Universidad Nacional de Colombia"
+author: "Owen Deybis Ortiz Velásquez"
+date: "`r format(Sys.Date(), '%d/%m/%Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+    toc_depth: 3
+    number_sections: true
+    theme: flatly
+    highlight: tango
+    df_print: kable
+    code_folding: show
+    self_contained: true
+# Alternativa PDF (requiere LaTeX):
+#   pdf_document: {toc: true, number_sections: true, latex_engine: xelatex}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, warning = FALSE, message = FALSE, purl = FALSE,
+  fig.align = "center", fig.width = 8, fig.height = 4.5, comment = "#>")
+options(scipen = 999, keep.source = TRUE)
+invisible(suppressWarnings(
+  for (lc in c("es_ES.UTF-8", "Spanish_Spain.1252", "es_ES", "Spanish"))
+    if (Sys.setlocale("LC_TIME", lc) != "") break))
+```
+
+# Objetivo y alcance
+
+Este documento construye, documenta y evalúa un sistema de **recuperación de
+información (IR)** sobre el corpus de artículos de *Scientific Reports*
+almacenado en `nature_srep_2025.db`, la base construida en el Taller 2. El
+usuario escribe una consulta en lenguaje natural y el sistema devuelve los
+artículos ordenados por relevancia.
+
+Se implementan **cuatro estrategias** que luego se comparan entre sí:
+
+| # | Estrategia | Tipo | Representación | ¿Usa reducción? |
+|---|---|---|---|---|
+| 1 | **BM25** (Okapi) | léxica | matriz dispersa de pesos precomputados | no |
+| 2 | **TF-IDF + coseno** | léxica | matriz dispersa TF-IDF | no |
+| 3 | **LSA (SVD truncada)** | semántica latente | matriz densa $n\times k$ | **sí** |
+| 4 | **Híbrida BM25 + LSA** | híbrida | fusión de rangos (RRF) | sí (parcial) |
+
+Las estrategias 3 y 4 operan sobre la representación reducida, con lo que se
+cumple el requisito de que al menos uno de los *rankings* del buscador se
+construya sobre ella.
+
+## Cómo usar este documento
+
+Este `.Rmd` es **autocontenido**: define todas las funciones, construye las
+representaciones, evalúa el sistema y, al final, **escribe en disco los archivos
+que la aplicación Shiny necesita**. No depende de ningún script externo.
+
+```
+Archivos requeridos ANTES de knitear:
+   taller_4.Rmd            este documento
+   nature_srep_2025.db     base SQLite del Taller 2 (misma carpeta)
+
+Archivos que GENERA al knitear:
+   R/funciones_buscador.R  funciones + módulo Shiny (los usa app.R)
+   modelos/indices.rds     vocabulario, idf, X_tfidf, W_bm25, V_k, D_k
+   modelos/metadatos.rds   campos de presentación
+   evaluacion/consultas.csv, pool_juicios.csv, resultados_metricas.csv
+```
+
+```r
+rmarkdown::render("taller_4.Rmd")   # genera todo lo anterior
+shiny::runApp("app.R")              # la app ya encuentra lo que necesita
+```
+
+**El código que se ejecuta aquí es exactamente el que ejecuta el buscador.** No
+hay una implementación para el informe y otra para la aplicación: la §9 exporta
+estas mismas funciones al archivo que la app carga con `source()`.
+
+```{r librerias}
+library(DBI); library(RSQLite); library(Matrix); library(irlba)
+library(shiny); library(knitr)
+
+DB_PATH <- "nature_srep_2025.db"
+stopifnot(file.exists(DB_PATH))
+```
+
+---
+
+# Construcción del corpus
+
+## Lectura de la base
+
+```{r fn-leer, purl=TRUE}
+#' Lee la tabla `papers` de la base SQLite del Taller 2.
+leer_corpus <- function(db_path) {
+  con <- DBI::dbConnect(RSQLite::SQLite(), db_path)
+  on.exit(DBI::dbDisconnect(con))
+  DBI::dbGetQuery(con, "
+    SELECT paper_id, title, publication_date, year, doi, url, abstract,
+           authors_raw, n_authors, citations, downloads, n_references,
+           topic_label
+    FROM papers")
+}
+```
+
+```{r leer-db}
+meta_cruda <- leer_corpus(DB_PATH)
+cat("Registros en la tabla papers:", nrow(meta_cruda), "\n")
+str(meta_cruda, max.level = 1, give.attr = FALSE)
+```
+
+## Campos utilizados para representar cada artículo
+
+- **`title`** — repetido **tres veces** dentro del texto del documento. El título
+  es una zona de alta densidad de señal: sus términos describen el tema central,
+  mientras que el resumen mezcla método, datos y discusión. Repetir el campo es
+  la forma más simple de implementar el *field weighting* de BM25F (Robertson,
+  Zaragoza y Taylor, 2004) sin modificar la maquinaria de ponderación:
+  multiplicar la frecuencia bruta equivale a asignarle peso al campo.
+- **`abstract`** — cuerpo principal del texto indexado.
+
+```{r fn-texto-doc, purl=TRUE}
+#' Texto indexable de cada documento: título (x peso_titulo) + resumen.
+texto_documento <- function(meta, peso_titulo = 3) {
+  tit <- ifelse(is.na(meta$title), "", meta$title)
+  res <- ifelse(is.na(meta$abstract), "", meta$abstract)
+  paste(vapply(seq_along(tit),
+               function(i) paste(rep(tit[i], peso_titulo), collapse = " "),
+               character(1)),
+        res)
+}
+```
+
+**Palabras clave: no están disponibles.** El esquema del Taller 2 **no tiene
+columna de *keywords***. *Scientific Reports* no las expone de forma estructurada
+en la página del artículo, así que no se extrajeron durante el *scraping*. El
+enunciado pide usarlas "cuando estén disponibles" y no lo están; no se inventa
+contenido para rellenar el campo.
+
+**El campo `topic_label` se excluye a propósito.** Es la categoría asignada por
+el clasificador por palabras clave del Taller 2. Se decidió **no incluirlo** en
+la representación vectorial por una razón metodológica: en la §10 se usa como
+apoyo para juzgar relevancia, y meterlo en el vector de entrada haría el
+experimento circular (el buscador acertaría porque se le entregó la respuesta).
+Se conserva solo como metadato de presentación y de evaluación.
+
+## Valores faltantes y criterios de inclusión
+
+```{r faltantes}
+vacio <- function(x) is.na(x) | !nzchar(trimws(x))
+
+tabla_falt <- data.frame(
+  Campo = c("title", "abstract", "keywords", "doi", "authors_raw", "topic_label"),
+  Faltantes = c(sum(vacio(meta_cruda$title)),
+                sum(vacio(meta_cruda$abstract)),
+                nrow(meta_cruda),                  # la columna no existe
+                sum(vacio(meta_cruda$doi)),
+                sum(vacio(meta_cruda$authors_raw)),
+                sum(vacio(meta_cruda$topic_label))))
+tabla_falt$`Porcentaje` <- round(100 * tabla_falt$Faltantes / nrow(meta_cruda), 2)
+kable(tabla_falt, caption = "Valores faltantes por campo")
+```
+
+| Situación | Decisión | Razón |
+|---|---|---|
+| Título **y** resumen vacíos | **excluir** el artículo | no hay texto que representar; su vector sería nulo, nunca se recuperaría y solo ocuparía memoria |
+| Solo el resumen vacío | **conservar** | el título repetido ×3 aporta señal suficiente |
+| Solo el título vacío | **conservar** | el resumen es el campo más extenso |
+| `citations` nulo | imputar `0` | únicamente actúa como criterio de desempate |
+| `doi` / `url` nulos | conservar | solo afectan al enlace en la presentación |
+
+En ningún caso se rellena texto faltante con contenido generado.
+
+```{r inclusion}
+con_texto <- !(vacio(meta_cruda$title) & vacio(meta_cruda$abstract))
+cat("Artículos en la base  :", nrow(meta_cruda),
+    "\nExcluidos (sin texto) :", sum(!con_texto),
+    "\nCorpus final          :", sum(con_texto), "\n")
+```
+
+---
+
+# Procesamiento del texto
+
+## Stopwords
+
+Lista Snowball de inglés más términos bibliográficos frecuentes en resúmenes
+académicos. La mini-lista en español existe **solo** para el chequeo de idioma de
+la sección 3.4.
+
+```{r fn-stopwords, purl=TRUE}
+STOPWORDS_EN <- c(
+  "a","about","above","after","again","against","all","am","an","and","any",
+  "are","as","at","be","because","been","before","being","below","between",
+  "both","but","by","can","cannot","could","did","do","does","doing","down",
+  "during","each","few","for","from","further","had","has","have","having",
+  "he","her","here","hers","herself","him","himself","his","how","i","if",
+  "in","into","is","it","its","itself","me","more","most","my","myself","no",
+  "nor","not","of","off","on","once","only","or","other","our","ours",
+  "ourselves","out","over","own","same","she","should","so","some","such",
+  "than","that","the","their","theirs","them","themselves","then","there",
+  "these","they","this","those","through","to","too","under","until","up",
+  "very","was","we","were","what","when","where","which","while","who",
+  "whom","why","with","would","you","your","yours","yourself","yourselves",
+  "will","shall","may","might","must",
+  # conectores académicos y ruido bibliográfico
+  "also","however","thus","therefore","moreover","furthermore","although",
+  "though","since","upon","within","without","among","amongst","via","per",
+  "et","al","ie","eg","etc","fig","figs","doi","https","http","www")
+
+# Solo para el chequeo de idioma del corpus (sección 3.4)
+STOPWORDS_ES_MIN <- c(
+  "el","la","los","las","de","del","en","que","y","un","una","por","con",
+  "para","se","su","es","al","lo","como","mas","sus","este","esta","entre",
+  "sobre","cuando","sin","tambien","fue","hasta","desde","dos","ser","han")
+```
+
+## Limpieza y tokenización
+
+```{r fn-limpieza, purl=TRUE}
+#' Normaliza texto: minúsculas, translitera a ASCII y conserva letras,
+#' dígitos y guiones internos (p. ej. "covid-19", "single-cell").
+limpiar_texto <- function(x) {
+  x <- ifelse(is.na(x), "", x)
+  x <- tolower(x)
+  x <- iconv(x, from = "UTF-8", to = "ASCII//TRANSLIT", sub = " ")
+  x <- gsub("[^a-z0-9-]+", " ", x)
+  x <- gsub("-{2,}", "-", x)                 # colapsa guiones repetidos
+  x <- gsub("(^| )-+", " ", x)               # guion al inicio de token
+  x <- gsub("-+( |$)", " ", x)               # guion al final de token
+  trimws(gsub(" +", " ", x))
+}
+
+#' Tokeniza. Descarta tokens de longitud < 2, tokens sin letras
+#' (números puros) y stopwords. Devuelve un vector de tokens por documento.
+tokenizar <- function(textos, stopwords = STOPWORDS_EN) {
+  lt <- strsplit(limpiar_texto(textos), " ", fixed = TRUE)
+  lapply(lt, function(tk) {
+    tk <- tk[nchar(tk) >= 2 & grepl("[a-z]", tk)]
+    tk[!(tk %in% stopwords)]
+  })
+}
+
+#' Agrega bigramas sobre la secuencia YA filtrada de stopwords, que es la
+#' práctica estándar cuando se eliminan antes de formar los n-gramas.
+agregar_bigramas <- function(lista_tokens) {
+  lapply(lista_tokens, function(tk) {
+    if (length(tk) < 2) return(tk)
+    c(tk, paste(tk[-length(tk)], tk[-1], sep = "_"))
+  })
+}
+```
+
+```{r ejemplo-proc}
+ejemplo <- meta_cruda$abstract[which(!vacio(meta_cruda$abstract))[1]]
+cat("ORIGINAL:\n", substr(ejemplo, 1, 210), "\n\n")
+cat("LIMPIO:\n",   substr(limpiar_texto(ejemplo), 1, 210), "\n\n")
+cat("TOKENS:\n");        print(head(tokenizar(ejemplo)[[1]], 20))
+cat("\nBIGRAMAS:\n");    print(tail(agregar_bigramas(tokenizar(ejemplo))[[1]], 8))
+```
+
+## Decisiones y su justificación
+
+| Operación | ¿Se aplica? | Justificación |
+|---|---|---|
+| Minúsculas | **sí** | `Learning` y `learning` deben ser el mismo término |
+| Normalización a ASCII | **sí** | unifica diacríticos en nombres y unidades (`Müller` → `Muller`) |
+| Puntuación | **sí**, se elimina | no aporta a un modelo de bolsa de palabras |
+| Números aislados | **sí**, se eliminan | `2024`, `95` sin contexto son ruido; los alfanuméricos (`covid-19`, `sars-cov-2`) sí se conservan |
+| Guion interno | **se conserva** | `single-cell`, `machine-learning` son términos científicos con significado propio |
+| Tokens de 1 carácter | se eliminan | residuo de la limpieza |
+| Stopwords | **sí**, se eliminan | ver abajo |
+| Stemming | **no** | ver abajo |
+| Lematización | **no** | ver abajo |
+| Bigramas | **sí** | ver abajo |
+
+**Stopwords — se eliminan.** Su $idf$ es cercano a cero, así que su efecto directo
+sobre el *ranking* es marginal; el problema real es otro. Primero, inflan el
+vocabulario. Segundo —y más importante— **contaminan los bigramas**: sin filtrar
+se generarían pares inútiles como `of_the` o `based_on`. Y en BM25 hay una tercera
+razón: las palabras funcionales alargan artificialmente $|d|$ y distorsionan la
+normalización por longitud del documento.
+
+**Stemming — no se aplica.** El *stemmer* de Porter es agresivo con vocabulario
+científico: además de `models` → `model`, produce `generative` → `gener` y
+colapsa `organism` con `organization` en `organ`, uniendo términos de campos
+distintos. En un corpus técnico y homogéneo como este la variación morfológica
+real es baja (`model`/`models`, `network`/`networks`), así que el beneficio no
+compensa la pérdida de precisión. Manning, Raghavan y Schütze (*Introduction to
+Information Retrieval*, 2008, §2.2.4) documentan que el efecto del *stemming*
+sobre la efectividad en inglés es pequeño y de signo variable según la colección.
+
+**Lematización — no se aplica.** Requiere un analizador morfológico externo
+(`udpipe`, `spacyr`) que añade cientos de MB de modelos y varios minutos de
+procesamiento, a cambio de una ganancia marginal sobre el punto anterior. Va en
+contra de la restricción de recursos del enunciado. La pérdida se compensa en
+parte porque corpus y consulta se procesan **con la misma función**, de modo que
+las formas plurales coinciden entre sí.
+
+**Bigramas — sí se construyen.** Es la decisión de mayor impacto en este corpus.
+*Machine learning*, *neural network*, *large language model* o *climate change*
+son unidades semánticas: en unigramas, un documento sobre `language` y otro sobre
+`models` puntúan igual que uno sobre `large language models`. El costo es un
+vocabulario más grande, que se controla con el filtro de frecuencia documental de
+la §4.1.
+
+## Idiomas presentes
+
+*Scientific Reports* publica exclusivamente en inglés, pero conviene verificarlo
+en lugar de suponerlo. Se estima el idioma por la tasa de coincidencia de los
+tokens contra listas de palabras funcionales — el criterio de `textcat`/`cld`
+reducido a su versión mínima, suficiente porque solo hay dos candidatos
+plausibles.
+
+```{r fn-idioma, purl=TRUE}
+#' Chequeo simple de idioma por tasa de aciertos contra stopwords EN vs ES.
+detectar_idioma <- function(textos) {
+  lt <- strsplit(limpiar_texto(textos), " ", fixed = TRUE)
+  vapply(lt, function(tk) {
+    if (!length(tk)) return(NA_character_)
+    en <- mean(tk %in% STOPWORDS_EN)
+    es <- mean(tk %in% STOPWORDS_ES_MIN)
+    if (en == 0 && es == 0) return("indeterminado")
+    if (en >= es) "en" else "es"
+  }, character(1))
+}
+```
+
+```{r idiomas}
+idioma <- detectar_idioma(paste(ifelse(is.na(meta_cruda$title), "", meta_cruda$title),
+                                ifelse(is.na(meta_cruda$abstract), "", meta_cruda$abstract)))
+kable(as.data.frame(table(Idioma = idioma, useNA = "ifany")),
+      caption = "Idioma estimado de los documentos")
+```
+
+**Consecuencia práctica:** el índice es monolingüe en inglés, de modo que una
+consulta escrita en español no encontrará nada. La aplicación detecta ese caso y
+lo informa explícitamente, en lugar de devolver una lista vacía sin explicación.
+
+---
+
+# Representación vectorial
+
+## Vocabulario y filtros de frecuencia
+
+Se aplican dos filtros clásicos sobre la frecuencia documental $df_t$ (número de
+documentos que contienen el término $t$):
+
+- $df_t \ge 3$ — descarta *hapax* y erratas, que solo añaden columnas casi
+  nulas. Con menos de 400 documentos el umbral baja automáticamente a 2 para no
+  vaciar el vocabulario.
+- $df_t \le 0{,}90\,N$ — descarta términos casi universales: su $idf$ es cercano
+  a cero, pero ocupan una columna densa en la matriz dispersa y en LSA dominan la
+  primera componente sin aportar poder discriminante.
+
+```{r fn-vocab, purl=TRUE}
+#' Vocabulario con filtros de frecuencia documental (min_df y max_df).
+construir_vocabulario <- function(lista_tokens, min_df_uni = 3,
+                                  min_df_bi = 3, max_df_prop = 0.90) {
+  n_docs  <- length(lista_tokens)
+  df_tab  <- table(unlist(lapply(lista_tokens, unique)))
+  df      <- as.integer(df_tab)
+  trm     <- names(df_tab)
+  es_bi   <- grepl("_", trm, fixed = TRUE)
+  min_req <- ifelse(es_bi, min_df_bi, min_df_uni)
+  keep    <- df >= min_req & df <= max_df_prop * n_docs
+  vocab   <- sort(trm[keep])
+  attr(vocab, "df") <- df[keep][order(trm[keep])]
+  vocab
+}
+
+#' Matriz dispersa de frecuencias TF (documentos x términos), clase dgCMatrix.
+matriz_frecuencias <- function(lista_tokens, vocab) {
+  n <- length(lista_tokens)
+  ids_doc  <- rep(seq_len(n), lengths(lista_tokens))
+  ids_term <- match(unlist(lista_tokens), vocab)
+  keep <- !is.na(ids_term)
+  M <- sparseMatrix(i = ids_doc[keep], j = ids_term[keep],
+                    x = 1, dims = c(n, length(vocab)),
+                    dimnames = list(NULL, as.character(vocab)))
+  as(M, "CsparseMatrix")   # las entradas duplicadas (i,j) quedan sumadas = tf
+}
+```
+
+## Ponderación TF-IDF
+
+Se usa el esquema **`ltc`** de la notación SMART (Salton y Buckley, 1988): $tf$
+logarítmica, $idf$ estándar y normalización coseno.
+
+$$
+w_{dt}=\bigl(1+\log tf_{dt}\bigr)\cdot\log\frac{N}{df_t},
+\qquad
+\tilde{\mathbf{x}}_d=\frac{\mathbf{x}_d}{\lVert\mathbf{x}_d\rVert_2}
+$$
+
+Cada componente responde a un problema concreto:
+
+- **$\log$ sobre $tf$** — la relevancia no crece linealmente con la frecuencia:
+  un término que aparece 20 veces no hace al documento 20 veces más relevante que
+  uno donde aparece una vez.
+- **$idf$** — un término presente en casi todos los documentos no discrimina.
+- **Normalización $L_2$** — sin ella los resúmenes largos ganarían siempre por
+  contener más términos. Al proyectar todo sobre la esfera unitaria, el producto
+  punto **es** el coseno del ángulo entre los vectores.
+
+```{r fn-tfidf, purl=TRUE}
+#' Ponderación TF-IDF, esquema SMART "ltc" (filas con norma L2 = 1).
+ponderar_tfidf <- function(TF) {
+  n   <- nrow(TF)
+  df  <- diff(TF@p)                   # nº de docs con tf > 0 por término
+  idf <- log(n / df)
+  X <- TF
+  X@x <- 1 + log(X@x)                 # tf sublineal
+  X <- X %*% Diagonal(x = idf)
+  normas <- sqrt(Matrix::rowSums(X ^ 2))
+  normas[normas == 0] <- 1
+  X <- Diagonal(x = 1 / normas) %*% X
+  X <- as(X, "CsparseMatrix")
+  dimnames(X) <- dimnames(TF)
+  list(X = X, idf = idf, df = df)
+}
+
+#' Vector de consulta con el MISMO esquema ltc y el idf ESTIMADO SOBRE EL
+#' CORPUS. Devuelve NULL si ningún término de la consulta está en el vocabulario.
+vector_consulta_tfidf <- function(consulta, vocab, idf,
+                                  stopwords = STOPWORDS_EN) {
+  tk <- agregar_bigramas(tokenizar(consulta, stopwords))[[1]]
+  j  <- match(tk, vocab)
+  j  <- j[!is.na(j)]
+  if (!length(j)) return(NULL)
+  tab <- table(j)
+  jj  <- as.integer(names(tab))
+  x   <- (1 + log(as.numeric(tab))) * idf[jj]
+  v <- sparseMatrix(i = rep(1L, length(jj)), j = jj, x = x,
+                    dims = c(1L, length(vocab)))
+  nv <- sqrt(sum(v@x ^ 2))
+  if (nv == 0) return(NULL)
+  v / nv
+}
+```
+
+## Ponderación BM25
+
+BM25 (Robertson y Zaragoza, 2009) sustituye la ponderación de TF-IDF por un
+modelo de saturación derivado del *probabilistic relevance framework*:
+
+$$
+\text{score}(q,d)=\sum_{t\in q} idf_t \cdot
+\frac{tf_{dt}\,(k_1+1)}{tf_{dt}+k_1\Bigl(1-b+b\,\dfrac{|d|}{\text{avgdl}}\Bigr)},
+\qquad
+idf_t=\log\!\left(1+\frac{N-df_t+0{,}5}{df_t+0{,}5}\right)
+$$
+
+con $k_1 = 1{,}2$ y $b = 0{,}75$, los valores por defecto de la literatura.
+
+- **$k_1$** controla la saturación: el aporte de $tf_{dt}$ tiende
+  asintóticamente a $k_1+1$. A diferencia de $\log(1+tf)$, que crece sin límite,
+  aquí **existe una cota**: el décimo uso de un término ya casi no suma.
+- **$b$** controla la normalización por longitud. Con $b=0{,}75$ se penaliza
+  parcialmente a los documentos largos, sin eliminar del todo la ventaja legítima
+  de contener más información.
+
+**Detalle de implementación.** BM25 se presenta habitualmente como una función
+que se evalúa consulta por consulta, pero todo lo que depende del documento
+($tf_{dt}$, $|d|$, $idf_t$) **se puede precomputar**. Se construye entonces una
+matriz dispersa $W$ con esos pesos, y el puntaje de una consulta se reduce a un
+producto matriz-vector:
+
+$$\mathbf{s} = W\,\mathbf{q}, \qquad q_t = tf_{qt}$$
+
+Esto convierte la búsqueda en una sola operación de álgebra lineal dispersa —el
+mismo costo que TF-IDF— y es lo que permite que la aplicación responda en
+milisegundos sin recorrer el corpus.
+
+```{r fn-bm25, purl=TRUE}
+#' BM25 Okapi con pesos por (documento, término) PRECOMPUTADOS en una matriz
+#' dispersa W. El puntaje de una consulta es entonces W %*% q.
+ponderar_bm25 <- function(TF, k1 = 1.2, b = 0.75) {
+  n   <- nrow(TF)
+  df  <- diff(TF@p)
+  idf <- log(1 + (n - df + 0.5) / (df + 0.5))   # variante no negativa
+  dl    <- Matrix::rowSums(TF)
+  avgdl <- mean(dl)
+  Tt <- as(TF, "TsparseMatrix")
+  denom <- Tt@x + k1 * (1 - b + b * dl[Tt@i + 1L] / avgdl)
+  w <- idf[Tt@j + 1L] * Tt@x * (k1 + 1) / denom
+  W <- sparseMatrix(i = Tt@i + 1L, j = Tt@j + 1L, x = w,
+                    dims = dim(TF), dimnames = dimnames(TF))
+  list(W = as(W, "CsparseMatrix"), idf = idf, dl = dl,
+       avgdl = avgdl, k1 = k1, b = b)
+}
+```
+
+**Ventajas de la representación léxica:** transparente e interpretable (se puede
+señalar qué término produjo cada puntaje), no requiere entrenamiento, escala a
+matrices dispersas enormes y es un *baseline* difícil de superar en corpus
+técnicos donde consulta y documentos comparten vocabulario.
+
+**Limitaciones:** no captura sinonimia (*tumour* vs *cancer*) ni polisemia
+(*network* neuronal vs génica vs social), ignora el orden de las palabras más
+allá de los bigramas, y la dimensión crece con el vocabulario.
+
+---
+
+# Tipo de recuperación
+
+| Estrategia | Tipo | ¿Cómo decide que un artículo es relevante? |
+|---|---|---|
+| **BM25** | Léxica | Acumula la evidencia de cada término de la consulta presente en el documento, ponderada por su rareza ($idf$), con rendimientos decrecientes en la frecuencia y corrección por longitud. Un documento sin ningún término de la consulta obtiene exactamente 0. |
+| **TF-IDF + coseno** | Léxica | Compara la **orientación** de los vectores en $\mathbb{R}^m$. Un artículo es relevante si su perfil de términos ponderados apunta en la misma dirección que el de la consulta, con independencia de su longitud. |
+| **LSA** | Semántica latente | Compara consulta y documentos en un espacio de $k$ dimensiones cuyos ejes son **combinaciones lineales de términos que co-ocurren**. Dos textos pueden quedar cerca sin compartir una sola palabra, si sus términos aparecen habitualmente en los mismos documentos. |
+| **Híbrida (RRF)** | Híbrida | Fusiona los ordenamientos de BM25 y LSA. Un artículo es relevante si aparece alto en **alguna** de las dos listas, y muy relevante si aparece alto en ambas. |
+
+La diferencia crítica entre las dos primeras y LSA: **BM25 y TF-IDF exigen
+coincidencia de superficie**. Si el usuario escribe *tumour* y el corpus dice
+*cancer*, el puntaje es 0 aunque los documentos traten exactamente del mismo
+tema. LSA sí puede resolverlo, porque ambos términos comparten vecindario de
+co-ocurrencia. Esa es precisamente la hipótesis que pone a prueba la consulta C2
+de la evaluación.
+
+---
+
+# Reducción de dimensionalidad: LSA / SVD truncada
+
+## Método y formulación
+
+Se aplica **SVD truncada** sobre la matriz TF-IDF, es decir, *Latent Semantic
+Analysis* (Deerwester, Dumais, Furnas, Landauer y Harshman, 1990). Es el método
+adecuado para matrices dispersas, y la razón es concreta: **no requiere centrar
+los datos** y por tanto no destruye la dispersión.
+
+Esa es exactamente la diferencia con PCA. PCA opera sobre la matriz de
+covarianzas, lo que obliga a restar la media de cada columna; con $m$ del orden
+de decenas de miles, la matriz centrada es densa y no cabe en memoria. La SVD
+truncada trabaja directamente sobre $X$ dispersa. Cuando los datos **sí** están
+centrados ambos métodos coinciden: los vectores singulares derechos son los
+componentes principales.
+
+$$
+X \approx X_k = U_k\,\Sigma_k\,V_k^{\top},
+\qquad
+X\in\mathbb{R}^{n\times m},\;
+U_k\in\mathbb{R}^{n\times k},\;
+\Sigma_k\in\mathbb{R}^{k\times k},\;
+V_k\in\mathbb{R}^{m\times k}
+$$
+
+Por el teorema de Eckart–Young–Mirsky, $X_k$ es la mejor aproximación de rango
+$k$ a $X$ en norma de Frobenius. Las coordenadas de los documentos en el espacio
+latente son
+
+$$\hat{D} = X V_k = U_k \Sigma_k \in \mathbb{R}^{n\times k}$$
+
+y se normalizan por filas para que la similitud sea directamente un coseno.
+
+El cálculo usa `irlba` (Baglama y Reichel, 2005), un método de Lanczos con
+reinicio implícito que obtiene solo los $k$ valores singulares dominantes sin
+formar nunca $X^{\top}X$ ni densificar $X$.
+
+## Criterio para elegir $k$
+
+Se elige el menor $k$ tal que la **energía acumulada** —la proporción de la norma
+de Frobenius al cuadrado que retiene la aproximación— alcance el 55 %:
+
+$$
+E(k)=\frac{\sum_{i=1}^{k}\sigma_i^{2}}{\lVert X\rVert_F^{2}}
+=\frac{\sum_{i=1}^{k}\sigma_i^{2}}{\sum_{i=1}^{r}\sigma_i^{2}}\;\ge\;0{,}55
+$$
+
+Es el análogo directo de la varianza explicada acumulada en PCA, con la
+diferencia de que aquí no hay centrado y por eso se habla de energía y no de
+varianza.
+
+**¿Por qué 55 % y no 90 %?** Porque en LSA el objetivo **no** es reconstruir $X$
+con fidelidad. El espectro de una matriz término-documento decae muy lentamente:
+alcanzar el 90 % exigiría del orden de mil componentes, lo que equivale a copiar
+la matriz original gastando más memoria. La compresión agresiva **es** el
+mecanismo del método: al descartar las componentes de menor energía se elimina el
+ruido idiosincrásico de cada documento y sobreviven los patrones de
+co-ocurrencia compartidos, que es lo que produce el efecto de sinonimia. La
+literatura clásica sitúa el rango útil entre 100 y 300 dimensiones para
+colecciones de este tamaño (Deerwester et al., 1990; Berry, Dumais y O'Brien,
+1995); el umbral del 55 % con piso de 25 componentes deja el $k$ resultante
+dentro de ese rango.
+
+```{r fn-svd, purl=TRUE}
+#' SVD truncada. Para corpus pequeños usa SVD densa exacta, que es más barata
+#' y precisa que Lanczos parcial cuando k se acerca al rango de la matriz.
+calcular_svd <- function(X, nv = 200, semilla = 2016325) {
+  nv <- max(2L, min(nv, min(dim(X)) - 2L))
+  set.seed(semilla)
+  if (nv >= 0.5 * min(dim(X))) {
+    s <- svd(as.matrix(X), nu = nv, nv = nv)
+    s$d <- s$d[seq_len(nv)]
+  } else {
+    s <- irlba(X, nv = nv)
+  }
+  energia_total <- sum(X@x ^ 2)                 # ||X||_F^2
+  energia_acum  <- cumsum(s$d ^ 2) / energia_total
+  list(u = s$u, d = s$d, v = s$v,
+       energia_acum = energia_acum, energia_total = energia_total)
+}
+
+#' Menor k cuya energía acumulada alcanza el umbral, con un piso mínimo.
+seleccionar_k <- function(energia_acum, umbral = 0.55, k_min = 25) {
+  k <- which(energia_acum >= umbral)[1]
+  if (is.na(k)) k <- length(energia_acum)
+  max(min(k_min, length(energia_acum)), k)
+}
+
+#' Empaqueta el modelo LSA final con k componentes (coordenadas normalizadas).
+armar_lsa <- function(svd_full, k) {
+  k <- min(k, length(svd_full$d))
+  V   <- svd_full$v[, seq_len(k), drop = FALSE]
+  doc <- svd_full$u[, seq_len(k), drop = FALSE] %*% diag(svd_full$d[seq_len(k)])
+  normas <- sqrt(rowSums(doc ^ 2)); normas[normas == 0] <- 1
+  list(V = V, d = svd_full$d[seq_len(k)],
+       doc_lsa = doc / normas, k = k,
+       energia = svd_full$energia_acum[k],
+       energia_acum = svd_full$energia_acum)
+}
+```
+
+## Proyección de la consulta al mismo espacio
+
+Este es el punto donde es más fácil equivocarse. La consulta **no** se puede
+comparar contra el espacio latente sin transformarla: hay que aplicarle
+exactamente la misma cadena que a los documentos.
+
+1. Se procesa el texto con **la misma función** `tokenizar()` y el mismo
+   vocabulario.
+2. Se pondera con el **mismo esquema `ltc`** y —crítico— con el vector `idf`
+   **estimado sobre el corpus**, no sobre la consulta. Un $idf$ recalculado sobre
+   cuatro palabras no significa nada.
+3. Se proyecta con la misma matriz $V_k$ aprendida en la construcción:
+   $$\hat{\mathbf{q}} = \mathbf{q}^{\top} V_k \in \mathbb{R}^{k}$$
+   Es la ecuación de *folding-in* de Deerwester et al. (1990): la consulta se
+   trata como un pseudo-documento que se inserta en el espacio ya construido, sin
+   recalcular la SVD.
+4. Se normaliza y se calcula el coseno contra las filas de $\hat{D}$.
+
+---
+
+# Mecanismo de ranking
+
+**Cálculo del puntaje.** Cada estrategia produce un vector
+$\mathbf{s}\in\mathbb{R}^n$ con un puntaje por documento, mediante una única
+operación matriz-vector.
+
+```{r fn-puntajes, purl=TRUE}
+puntajes_tfidf <- function(consulta, indices) {
+  q <- vector_consulta_tfidf(consulta, indices$vocab, indices$idf_tfidf)
+  if (is.null(q)) return(NULL)
+  as.numeric(indices$X_tfidf %*% t(q))          # coseno (filas y q unitarias)
+}
+
+puntajes_bm25 <- function(consulta, indices) {
+  tk <- agregar_bigramas(tokenizar(consulta))[[1]]
+  j  <- match(tk, indices$vocab); j <- j[!is.na(j)]
+  if (!length(j)) return(NULL)
+  tab <- table(j)
+  q <- sparseMatrix(i = as.integer(names(tab)), j = rep(1L, length(tab)),
+                    x = as.numeric(tab),
+                    dims = c(length(indices$vocab), 1L))
+  as.numeric(indices$W_bm25 %*% q)
+}
+
+puntajes_lsa <- function(consulta, indices) {
+  q <- vector_consulta_tfidf(consulta, indices$vocab, indices$idf_tfidf)
+  if (is.null(q)) return(NULL)
+  qk <- as.numeric(q %*% indices$lsa$V)         # folding-in al espacio latente
+  nq <- sqrt(sum(qk ^ 2))
+  if (nq == 0) return(NULL)
+  as.numeric(indices$lsa$doc_lsa %*% (qk / nq)) # coseno en R^k
+}
+
+#' Híbrida: fusión de rangos recíprocos (Cormack, Clarke y Buettcher, 2009).
+#'   RRF(d) = sum_m 1 / (c + rango_m(d)),  c = 60
+#' Fusiona ORDENAMIENTOS, no puntajes, evitando así que BM25 (escala no
+#' acotada) y LSA (coseno en [-1,1]) se sumen en escalas incomparables.
+puntajes_hibrido <- function(consulta, indices, c_rrf = 60) {
+  s_bm  <- puntajes_bm25(consulta, indices)
+  s_lsa <- puntajes_lsa(consulta, indices)
+  if (is.null(s_bm) && is.null(s_lsa)) return(NULL)
+  n <- if (!is.null(s_bm)) length(s_bm) else length(s_lsa)
+  acumular <- function(s) {
+    if (is.null(s)) return(numeric(n))
+    r <- numeric(n)
+    r[order(-s)] <- seq_len(n)                  # rango 1 = mejor
+    ifelse(s > 0, 1 / (c_rrf + r), 0)           # solo aporta si hay señal
+  }
+  acumular(s_bm) + acumular(s_lsa)
+}
+```
+
+**Ordenamiento.** Se ordena de mayor a menor y se toman los primeros $n$ que el
+usuario haya seleccionado. **Se descartan los puntajes $\le 0$**: en los métodos
+léxicos un 0 significa "ningún término en común", y devolverlo sería ruido puro.
+
+**Empates.** Se resuelven en cascada: (1) puntaje descendente, (2) **citas**
+descendente, (3) `paper_id` ascendente. El tercer criterio garantiza un orden
+**determinista y reproducible**; sin él, `order()` podría devolver órdenes
+distintos entre ejecuciones. Las citas son solo un desempate y nunca el criterio
+principal: el enunciado prohíbe ordenar únicamente por citas, fecha o descargas,
+y aquí eso no ocurre, porque si dos artículos no empatan en puntaje las citas son
+irrelevantes.
+
+```{r fn-buscar, purl=TRUE}
+#' Búsqueda: puntaje -> orden -> top n. Devuelve el tiempo en el atributo
+#' "tiempo_ms" y, si aplica, un aviso en el atributo "mensaje".
+buscar <- function(consulta, indices, metadatos,
+                   metodo = c("bm25", "tfidf", "lsa", "hibrido"), n = 10) {
+  metodo <- match.arg(metodo)
+  t0 <- proc.time()[["elapsed"]]
+  s <- switch(metodo,
+              bm25    = puntajes_bm25(consulta, indices),
+              tfidf   = puntajes_tfidf(consulta, indices),
+              lsa     = puntajes_lsa(consulta, indices),
+              hibrido = puntajes_hibrido(consulta, indices))
+  vacio <- data.frame(posicion = integer(), paper_id = integer(),
+                      puntaje = numeric())
+  if (is.null(s)) {
+    attr(vacio, "mensaje")   <- "La consulta no contiene términos del vocabulario del corpus."
+    attr(vacio, "tiempo_ms") <- round((proc.time()[["elapsed"]] - t0) * 1000, 1)
+    return(vacio)
+  }
+  ord <- order(-s, -metadatos$citations, metadatos$paper_id)
+  ord <- ord[s[ord] > 0]
+  top <- head(ord, n)
+  res <- data.frame(posicion = seq_along(top),
+                    paper_id = metadatos$paper_id[top],
+                    puntaje  = round(s[top], 4))
+  attr(res, "tiempo_ms") <- round((proc.time()[["elapsed"]] - t0) * 1000, 1)
+  attr(res, "mensaje") <- if (!nrow(res))
+    "Ningún artículo obtuvo puntaje positivo para esta consulta." else NA_character_
+  res
+}
+
+#' Ejecuta la búsqueda y une los metadatos para presentación.
+buscar_con_metadatos <- function(consulta, indices, metadatos, metodo, n = 10) {
+  r <- buscar(consulta, indices, metadatos, metodo, n)
+  out <- merge(r, metadatos, by = "paper_id", sort = FALSE)
+  out <- out[order(out$posicion), ]
+  attributes(out)$tiempo_ms <- attr(r, "tiempo_ms")
+  attributes(out)$mensaje   <- attr(r, "mensaje")
+  out
+}
+```
+
+**Qué significa un puntaje alto** — y por qué depende del método:
+
+| Método | Rango | Interpretación |
+|---|---|---|
+| BM25 | $[0,\infty)$, no acotado | Evidencia acumulada. Crece con el número de términos de la consulta, así que **no es comparable entre consultas distintas**. |
+| TF-IDF | $[0,1]$ | Coseno del ángulo entre vectores. 1 = perfiles de términos idénticos. |
+| LSA | $[-1,1]$, en la práctica $(0,1]$ | Coseno en el espacio latente. Alto = mismo territorio temático, aunque no compartan vocabulario. |
+| Híbrida (RRF) | $(0,\,2/(c+1)]$ | Suma de rangos recíprocos. No es una similitud: solo ordena. |
+
+**¿Se pueden comparar los puntajes entre métodos?** **No.** Un BM25 de 18,4 y un
+coseno LSA de 0,84 no son comparables: viven en escalas distintas y ni siquiera
+miden lo mismo. La interfaz lo advierte explícitamente en el modo comparación.
+Lo comparable son las **posiciones**, y por eso la fusión híbrida opera sobre
+rangos:
+
+$$\text{RRF}(d)=\sum_{m\in\{\text{BM25},\,\text{LSA}\}}\frac{1}{c+r_m(d)},\qquad c=60$$
+
+La constante $c=60$ amortigua las primeras posiciones: evita que un método que
+coloca un documento en el puesto 1 y otro que lo coloca en el 50 produzcan un
+resultado dominado por el primero.
+
+---
+
+# Construcción de los índices
+
+Se encadena todo lo anterior en una única función, que es la que ejecutan tanto
+este documento como el proceso de preparación de la aplicación.
+
+```{r fn-construir, purl=TRUE}
+#' Construye vocabulario, TF, TF-IDF, BM25 y LSA desde la base SQLite.
+construir_indices <- function(db_path,
+                              min_df_uni = 3, min_df_bi = 3,
+                              max_df_prop = 0.90,
+                              nv_svd = 200, umbral_energia = 0.55,
+                              k1 = 1.2, b = 0.75,
+                              peso_titulo = 3, semilla = 2016325) {
+  meta <- leer_corpus(db_path)
+  # criterio de inclusión: al menos título o resumen con texto
+  con_texto <- nzchar(trimws(paste(ifelse(is.na(meta$title), "", meta$title),
+                                   ifelse(is.na(meta$abstract), "", meta$abstract))))
+  meta <- meta[con_texto, , drop = FALSE]
+  meta$citations[is.na(meta$citations)] <- 0L
+
+  textos <- texto_documento(meta, peso_titulo)
+  toks   <- agregar_bigramas(tokenizar(textos))
+  # ajuste automático del umbral de df para corpus pequeños
+  if (nrow(meta) < 400) {
+    min_df_uni <- min(min_df_uni, 2); min_df_bi <- min(min_df_bi, 2)
+  }
+  vocab <- construir_vocabulario(toks, min_df_uni, min_df_bi, max_df_prop)
+  TF    <- matriz_frecuencias(toks, vocab)
+
+  tfidf <- ponderar_tfidf(TF)
+  bm25  <- ponderar_bm25(TF, k1 = k1, b = b)
+  s     <- calcular_svd(tfidf$X, nv = nv_svd, semilla = semilla)
+  k     <- seleccionar_k(s$energia_acum, umbral = umbral_energia)
+  lsa   <- armar_lsa(s, k)
+
+  indices <- list(vocab = as.character(vocab),
+                  df = attr(vocab, "df"),
+                  X_tfidf = tfidf$X, idf_tfidf = tfidf$idf,
+                  W_bm25 = bm25$W, idf_bm25 = bm25$idf,
+                  dl = bm25$dl, avgdl = bm25$avgdl,
+                  lsa = lsa,
+                  params = list(min_df_uni = min_df_uni, min_df_bi = min_df_bi,
+                                max_df_prop = max_df_prop, k1 = k1, b = b,
+                                peso_titulo = peso_titulo, nv_svd = nv_svd,
+                                umbral_energia = umbral_energia,
+                                semilla = semilla))
+  list(metadatos = meta, indices = indices, TF = TF)
+}
+```
+
+```{r construir, cache=TRUE}
+t_ini <- Sys.time()
+res   <- construir_indices(DB_PATH)
+t_construccion <- as.numeric(difftime(Sys.time(), t_ini, units = "secs"))
+META <- res$metadatos; IND <- res$indices; TF <- res$TF
+cat("Construccion completa en", round(t_construccion, 1), "segundos\n")
+```
+
+## Dimensiones resultantes
+
+```{r vocab-resumen}
+es_bi <- grepl("_", IND$vocab, fixed = TRUE)
+kable(data.frame(
+  Concepto = c("Documentos indexados", "Términos en el vocabulario",
+               "  · unigramas", "  · bigramas",
+               "Entradas no nulas en TF", "Densidad de la matriz (%)",
+               "Longitud media del documento (tokens)"),
+  Valor = c(nrow(TF), ncol(TF), sum(!es_bi), sum(es_bi),
+            length(TF@x),
+            round(100 * length(TF@x) / prod(dim(TF)), 3),
+            round(IND$avgdl, 1))),
+  caption = "Dimensiones de la representación")
+```
+
+```{r terminos-frecuentes, fig.height=5}
+top <- head(sort(setNames(IND$df, IND$vocab), decreasing = TRUE), 20)
+par(mar = c(4, 11, 2, 1))
+barplot(rev(top), horiz = TRUE, las = 1, col = "#58a6ff", border = NA,
+        cex.names = 0.8, xlab = "Número de documentos (df)",
+        main = "20 términos con mayor frecuencia documental")
+```
+
+```{r tfidf-check}
+cat("Norma L2 de las 5 primeras filas de X (debe ser 1):\n")
+print(round(sqrt(Matrix::rowSums(IND$X_tfidf[1:5, ]^2)), 6))
+cat("\nMatriz TF-IDF dispersa:", format(object.size(IND$X_tfidf), units = "MB"),
+    "| equivalente densa:",
+    format(structure(8 * prod(dim(IND$X_tfidf)), class = "object_size"),
+           units = "MB"), "\n")
+cat("Matriz W de BM25:", nrow(IND$W_bm25), "x", ncol(IND$W_bm25),
+    "|", format(object.size(IND$W_bm25), units = "MB"), "\n")
+```
+
+## Espectro y elección de $k$
+
+```{r scree, fig.height=4}
+ea <- IND$lsa$energia_acum; k <- IND$lsa$k
+par(mfrow = c(1, 2), mar = c(4, 4, 3, 1))
+plot(seq_along(ea), 100 * ea, type = "l", lwd = 2, col = "#58a6ff",
+     xlab = "Número de componentes k", ylab = "Energía acumulada (%)",
+     main = "Energía acumulada")
+abline(h = 55, lty = 2, col = "#8b949e"); abline(v = k, lty = 2, col = "#3fb950")
+points(k, 100 * ea[k], pch = 19, col = "#3fb950")
+text(k, 100 * ea[k] - 8, paste("k =", k), col = "#3fb950", cex = 0.9)
+
+d2 <- diff(c(0, ea))
+plot(seq_along(d2), 100 * d2, type = "h", col = "#8b949e",
+     xlab = "Componente", ylab = "Energía individual (%)",
+     main = "Espectro (scree)")
+abline(v = k, lty = 2, col = "#3fb950")
+```
+
+```{r lsa-resumen}
+kable(data.frame(
+  Concepto = c("Dimensión original (vocabulario)", "Dimensión reducida (k)",
+               "Factor de reducción", "Energía retenida (%)",
+               "Matriz TF-IDF dispersa (MB)", "Matriz LSA densa n x k (MB)"),
+  Valor = c(ncol(IND$X_tfidf), k,
+            sprintf("%.1fx", ncol(IND$X_tfidf) / k),
+            sprintf("%.1f", 100 * IND$lsa$energia),
+            round(as.numeric(object.size(IND$X_tfidf)) / 1024^2, 2),
+            round(as.numeric(object.size(IND$lsa$doc_lsa)) / 1024^2, 2))),
+  caption = "Resumen de la reducción dimensional")
+```
+
+## Verificación de la proyección
+
+Un documento del corpus usado como consulta debe recuperarse a sí mismo en la
+posición 1. Si esto falla, el *folding-in* está mal implementado.
+
+```{r verificar-proyeccion}
+i_prueba <- which(!vacio(META$abstract))[3]
+s_prueba <- puntajes_lsa(paste(META$title[i_prueba], META$abstract[i_prueba]), IND)
+cat("Documento de prueba (fila", i_prueba, ")\n",
+    "Posición recuperada por LSA:", which(order(-s_prueba) == i_prueba),
+    "| coseno consigo mismo:", round(max(s_prueba), 4), "\n")
+```
+
+## Interpretación de las componentes latentes
+
+Cada componente es una combinación lineal de términos. Los que tienen mayor carga
+en valor absoluto revelan el eje temático que la componente captura:
+
+```{r componentes}
+top_terminos <- function(j, n = 8) {
+  v <- IND$lsa$V[, j]
+  paste(IND$vocab[order(-abs(v))][1:n], collapse = ", ")
+}
+kable(data.frame(
+  Componente = paste0("C", 1:5),
+  `Energía (%)` = round(100 * diff(c(0, IND$lsa$energia_acum))[1:5], 2),
+  `Términos con mayor carga` = sapply(1:5, top_terminos),
+  check.names = FALSE),
+  caption = "Interpretación de las cinco primeras componentes latentes")
+```
+
+## Efecto de la reducción
+
+```{r efecto-reduccion}
+consulta_demo <- "machine learning model for disease prediction"
+medir <- function(fn, reps = 20) {
+  t0 <- proc.time()[["elapsed"]]
+  for (i in seq_len(reps)) invisible(fn(consulta_demo, IND))
+  round(1000 * (proc.time()[["elapsed"]] - t0) / reps, 2)
+}
+comp <- data.frame(
+  Estrategia = c("TF-IDF (m dims, dispersa)", "BM25 (m dims, dispersa)",
+                 sprintf("LSA (k = %d, densa)", k)),
+  Dimension = c(ncol(IND$X_tfidf), ncol(IND$W_bm25), k),
+  Memoria_MB = round(c(as.numeric(object.size(IND$X_tfidf)),
+                       as.numeric(object.size(IND$W_bm25)),
+                       as.numeric(object.size(IND$lsa$doc_lsa)) +
+                         as.numeric(object.size(IND$lsa$V))) / 1024^2, 2),
+  Tiempo_ms = c(medir(puntajes_tfidf), medir(puntajes_bm25), medir(puntajes_lsa)))
+kable(comp, caption = "Costo de cada representación (media de 20 consultas)")
+```
+
+**Lectura de estos números.**
+
+*Tiempo* — LSA es la estrategia más rápida en la consulta, porque el producto es
+contra una matriz densa $n\times k$ pequeña en lugar de recorrer la estructura
+dispersa. El costo se pagó **una sola vez** al construir el índice.
+
+*Memoria* — aquí hay un matiz que conviene no ocultar: la matriz reducida es
+**densa**, así que ocupa exactamente $8nk$ bytes. Si el corpus es pequeño y muy
+disperso, puede llegar a ocupar más que la dispersa original. La reducción de LSA
+es de **dimensión semántica**, no necesariamente de bytes; el beneficio real es
+la velocidad de consulta y la capacidad de capturar sinonimia.
+
+---
+
+# Integración en la aplicación Shiny
+
+## Arquitectura
+
+El buscador se añade como **módulo Shiny** al `app.R` del Taller 2, sin tocar las
+funcionalidades previas: los filtros, los indicadores, las gráficas `highcharter`,
+la tabla `DT` y el módulo de actualización por *scraping* siguen intactos. El
+módulo aporta una pestaña nueva.
+
+**Precomputación.** La aplicación ejecuta `readRDS()` **una sola vez al arrancar**,
+fuera de las funciones reactivas. Durante una búsqueda no se toca SQLite, no se
+retokeniza el corpus y no se recalcula la SVD: solo se procesa la consulta —unos
+pocos tokens— y se hace un producto matriz-vector.
+
+**Ciclo reactivo.** El disparador es `eventReactive()`, no un `reactive()` sobre
+el cuadro de texto; sin eso la app relanzaría una búsqueda con cada tecla
+pulsada. Se dispara con el botón, con la tecla Enter y **también al cambiar el
+método de recuperación o el número de resultados**, como exige la §3 del
+enunciado: si el usuario cambia de estrategia, el ranking se recalcula sin
+necesidad de volver a pulsar Buscar.
+
+**Casos borde manejados:** consulta vacía (no dispara), consulta sin términos del
+vocabulario (mensaje explícito, no una lista vacía silenciosa), consulta en
+español (cae en el caso anterior con el mismo aviso), artículo sin resumen (el
+fragmento indica "sin resumen disponible"), artículo sin DOI ni URL (el título se
+muestra sin enlace).
+
+**Sincronización con el módulo de actualización.** El dashboard del Taller 2
+incluye un tab que amplía la base por *scraping*, así que tras usarlo el índice
+queda desactualizado. Para evitar esa inconsistencia, `buscadorServer()` acepta
+`indices` y `metadatos` tanto como objetos estáticos como `reactive()`, y la
+aplicación añade un botón que reconstruye el índice bajo demanda. Esto **no**
+contradice la §4.7 del enunciado: la prohibición es reprocesar el corpus *en cada
+búsqueda*, no hacerlo en una acción explícita del usuario cuando los datos
+cambiaron.
+
+## Fragmentos de texto y resaltado
+
+```{r fn-fragmentos, purl=TRUE}
+#' Términos únicos de la consulta, ya procesados.
+terminos_consulta <- function(consulta) unique(tokenizar(consulta)[[1]])
+
+#' Fragmento centrado en la primera aparición de algún término de la consulta.
+crear_fragmento <- function(texto, terminos, ancho = 300) {
+  if (is.na(texto) || !nzchar(texto)) return("(sin resumen disponible)")
+  plano <- limpiar_texto(texto)
+  pos <- Inf
+  for (t in terminos) {
+    p <- regexpr(paste0("\\b", t), plano, perl = TRUE)[1]
+    if (p > 0 && p < pos) pos <- p
+  }
+  if (!is.finite(pos)) pos <- 1
+  ini <- max(1, pos - 110)
+  fin <- min(nchar(texto), ini + ancho)
+  frag <- substr(texto, ini, fin)
+  if (ini > 1) frag <- sub("^\\S*\\s", "", frag)      # corta palabra partida
+  if (fin < nchar(texto)) frag <- sub("\\s\\S*$", "", frag)
+  paste0(if (ini > 1) "… " else "", frag,
+         if (fin < nchar(texto)) " …" else "")
+}
+
+#' Envuelve en <mark> los términos de la consulta dentro del fragmento.
+resaltar <- function(fragmento, terminos) {
+  if (!length(terminos)) return(fragmento)
+  patron <- paste0("(?i)\\b(", paste(terminos, collapse = "|"), ")")
+  gsub(patron, "<mark>\\1</mark>", fragmento, perl = TRUE)
+}
+```
+
+## Módulo Shiny: interfaz
+
+Estética heredada del dashboard del Taller 2 (paleta GitHub oscuro:
+`#0d1117` / `#58a6ff` / `#3fb950`).
+
+```{r fn-modulo-ui, purl=TRUE}
+.css_buscador <- "
+.busc-wrap{font-family:'Inter','Segoe UI',sans-serif;color:#c9d1d9;}
+.busc-barra{display:flex;gap:10px;margin-bottom:12px;}
+.busc-barra .form-group{flex:1;margin-bottom:0;}
+.busc-wrap input[type=text]{background:#0d1117;border:1px solid #30363d;
+  color:#c9d1d9;border-radius:6px;height:44px;font-size:15px;}
+.busc-wrap input[type=text]:focus{border-color:#58a6ff;box-shadow:0 0 0 3px rgba(88,166,255,.25);}
+.busc-wrap .btn-buscar{background:#238636;color:#fff;border:1px solid #2ea043;
+  border-radius:6px;height:44px;padding:0 22px;font-weight:600;}
+.busc-wrap .btn-buscar:hover{background:#2ea043;color:#fff;}
+.busc-wrap .selectize-input,.busc-wrap .form-control{background:#0d1117!important;
+  border:1px solid #30363d!important;color:#c9d1d9!important;border-radius:6px;}
+.busc-wrap .selectize-dropdown{background:#161b22;color:#c9d1d9;border:1px solid #30363d;}
+.busc-wrap label{color:#8b949e;font-size:12px;text-transform:uppercase;letter-spacing:.5px;}
+.busc-info{color:#8b949e;font-size:12.5px;font-family:'Space Mono',monospace;margin:6px 0 14px;}
+.res-card{background:#161b22;border:1px solid #30363d;border-radius:8px;
+  padding:14px 16px;margin-bottom:12px;transition:border-color .15s;}
+.res-card:hover{border-color:#58a6ff;}
+.res-pos{display:inline-block;min-width:30px;text-align:center;background:#21262d;
+  color:#58a6ff;border-radius:6px;font-family:'Space Mono',monospace;
+  font-weight:700;padding:2px 7px;margin-right:10px;}
+.res-titulo{font-size:15.5px;font-weight:600;}
+.res-titulo a{color:#58a6ff;text-decoration:none;}
+.res-titulo a:hover{text-decoration:underline;}
+.res-meta{color:#8b949e;font-size:12.5px;margin:6px 0;}
+.res-chip{display:inline-block;background:rgba(63,185,80,.15);color:#3fb950;
+  border:1px solid rgba(63,185,80,.4);border-radius:12px;padding:1px 10px;
+  font-size:11.5px;margin-left:6px;}
+.res-frag{color:#c9d1d9;font-size:13.5px;line-height:1.55;margin-top:6px;}
+.res-frag mark{background:rgba(210,153,34,.35);color:#e3b341;padding:0 2px;border-radius:3px;}
+.res-pie{margin-top:8px;font-family:'Space Mono',monospace;font-size:12px;color:#8b949e;}
+.res-score{font-weight:700;padding:1px 8px;border-radius:6px;margin-left:6px;}
+.res-score.bm25{color:#3fb950;background:rgba(63,185,80,.12);}
+.res-score.tfidf{color:#58a6ff;background:rgba(88,166,255,.12);}
+.res-score.lsa{color:#bc8cff;background:rgba(188,140,255,.12);}
+.res-score.hibrido{color:#e3b341;background:rgba(210,153,34,.12);}
+.busc-aviso{background:#161b22;border:1px dashed #30363d;border-radius:8px;
+  padding:18px;color:#8b949e;text-align:center;}
+.busc-colcab{font-family:'Space Mono',monospace;color:#e3b341;font-size:13px;
+  border-bottom:1px solid #30363d;padding-bottom:6px;margin-bottom:12px;}
+"
+
+ETIQUETAS_METODO <- c(bm25    = "BM25 (léxica)",
+                      tfidf   = "TF-IDF + coseno (léxica)",
+                      lsa     = "LSA / SVD truncada (semántica latente)",
+                      hibrido = "Híbrida BM25 + LSA (fusión RRF)")
+
+buscadorUI <- function(id, k_lsa = NULL) {
+  ns <- NS(id)
+  etiq <- ETIQUETAS_METODO
+  if (!is.null(k_lsa))
+    etiq["lsa"] <- sprintf("LSA / SVD truncada, k = %d (semántica latente)", k_lsa)
+  opciones <- c(stats::setNames(names(etiq), etiq),
+                stats::setNames("comparar", "Comparar dos estrategias"))
+  tagList(
+    tags$head(tags$style(HTML(.css_buscador))),
+    tags$script(HTML(sprintf(
+      "$(document).on('keypress', '#%s', function(e){if(e.which==13){$('#%s').click();}});",
+      ns("consulta"), ns("btn")))),
+    div(class = "busc-wrap",
+      h2("Búsqueda de artículos científicos", style = "color:#e6edf3;margin-top:0;"),
+      p("Escriba una consulta en lenguaje natural (el corpus está en inglés).",
+        style = "color:#8b949e;"),
+      div(class = "busc-barra",
+          textInput(ns("consulta"), NULL, width = "100%",
+                    placeholder = "p. ej.: machine learning models for disease diagnosis"),
+          actionButton(ns("btn"), "Buscar", class = "btn-buscar",
+                       icon = icon("magnifying-glass"))),
+      fluidRow(
+        column(4, selectInput(ns("metodo"), "Estrategia de recuperación",
+                              choices = opciones, selected = "bm25")),
+        column(2, selectInput(ns("topn"), "Resultados",
+                              choices = c(5, 10, 20), selected = 10)),
+        column(3, conditionalPanel(
+          "input.metodo == 'comparar'", ns = ns,
+          selectInput(ns("met_a"), "Estrategia A",
+                      choices = stats::setNames(names(etiq), etiq),
+                      selected = "bm25"))),
+        column(3, conditionalPanel(
+          "input.metodo == 'comparar'", ns = ns,
+          selectInput(ns("met_b"), "Estrategia B",
+                      choices = stats::setNames(names(etiq), etiq),
+                      selected = "lsa")))
+      ),
+      uiOutput(ns("info")),
+      uiOutput(ns("resultados"))
+    )
+  )
+}
+```
+
+## Módulo Shiny: tarjetas de resultado
+
+```{r fn-modulo-tarjetas, purl=TRUE}
+#' Tarjeta HTML de un resultado.
+.tarjeta <- function(fila, terminos, metodo, compacta = FALSE) {
+  enlace <- if (!is.na(fila$url) && nzchar(fila$url)) fila$url
+            else if (!is.na(fila$doi) && nzchar(fila$doi))
+              paste0("https://doi.org/", sub("^https?://doi.org/", "", fila$doi))
+            else NA_character_
+  titulo <- if (!is.na(enlace))
+    tags$a(href = enlace, target = "_blank", fila$title) else fila$title
+  aut <- strsplit(ifelse(is.na(fila$authors_raw), "", fila$authors_raw), ";\\s*")[[1]]
+  aut_txt <- if (length(aut) > 3)
+    paste0(paste(aut[1:3], collapse = "; "), " … et al. (", length(aut), ")")
+    else paste(aut, collapse = "; ")
+  frag <- resaltar(crear_fragmento(fila$abstract, terminos,
+                                   ancho = if (compacta) 190 else 300), terminos)
+  div(class = "res-card",
+    div(span(class = "res-pos", fila$posicion),
+        span(class = "res-titulo", titulo),
+        span(class = "res-chip", fila$topic_label)),
+    div(class = "res-meta",
+        HTML(paste0(aut_txt, " &nbsp;·&nbsp; ", fila$publication_date,
+                    " &nbsp;·&nbsp; ", fila$citations, " citas · ",
+                    fila$downloads, " descargas",
+                    if (!is.na(fila$doi) && nzchar(fila$doi))
+                      paste0(" &nbsp;·&nbsp; DOI: ",
+                             sub("^https?://doi.org/", "", fila$doi)) else ""))),
+    div(class = "res-frag", HTML(frag)),
+    div(class = "res-pie", "puntaje",
+        span(class = paste("res-score", metodo), fila$puntaje))
+  )
+}
+
+#' Lista de tarjetas, o el aviso correspondiente si no hay resultados.
+.lista_tarjetas <- function(res, terminos, metodo, compacta = FALSE) {
+  msj <- attr(res, "mensaje")
+  if (!is.null(msj) && !is.na(msj)) return(div(class = "busc-aviso", msj))
+  if (!nrow(res))
+    return(div(class = "busc-aviso",
+               "Ningún artículo obtuvo puntaje positivo para esta consulta."))
+  tagList(lapply(seq_len(nrow(res)),
+                 function(i) .tarjeta(res[i, ], terminos, metodo, compacta)))
+}
+```
+
+## Módulo Shiny: lógica del servidor
+
+```{r fn-modulo-server, purl=TRUE}
+#' Servidor del módulo. `indices` y `metadatos` pueden pasarse como objetos
+#' estáticos (lo normal) o como expresiones reactive(), lo que permite
+#' reconstruir el índice tras actualizar el corpus sin reiniciar la app.
+buscadorServer <- function(id, indices, metadatos) {
+  moduleServer(id, function(input, output, session) {
+
+    # Admite ambas formas sin duplicar código
+    ind  <- if (is.reactive(indices))   indices   else function() indices
+    meta <- if (is.reactive(metadatos)) metadatos else function() metadatos
+
+    # eventReactive, NO reactive sobre input$consulta: la búsqueda no debe
+    # relanzarse con cada tecla pulsada. Se dispara con el botón o Enter y,
+    # además, al cambiar cualquier control de configuración, porque el
+    # enunciado (§3) exige recalcular el ranking cuando el usuario cambia de
+    # método de recuperación. req() la bloquea mientras no haya consulta.
+    busqueda <- eventReactive(
+      list(input$btn, input$metodo, input$topn, input$met_a, input$met_b), {
+      req(nzchar(trimws(input$consulta)))
+      n     <- as.integer(input$topn)
+      terms <- terminos_consulta(input$consulta)
+      if (input$metodo != "comparar") {
+        r <- buscar_con_metadatos(input$consulta, ind(), meta(), input$metodo, n)
+        list(modo = "simple", metodo = input$metodo, res = r, terminos = terms)
+      } else {
+        ra <- buscar_con_metadatos(input$consulta, ind(), meta(), input$met_a, n)
+        rb <- buscar_con_metadatos(input$consulta, ind(), meta(), input$met_b, n)
+        list(modo = "comparar", ma = input$met_a, mb = input$met_b,
+             ra = ra, rb = rb, terminos = terms)
+      }
+    }, ignoreInit = TRUE)
+
+    output$info <- renderUI({
+      b <- busqueda()
+      if (b$modo == "simple") {
+        div(class = "busc-info",
+            sprintf("%s — %d resultado(s) — %.1f ms",
+                    ETIQUETAS_METODO[b$metodo], nrow(b$res),
+                    attr(b$res, "tiempo_ms")))
+      } else {
+        div(class = "busc-info",
+            sprintf("A: %s (%.1f ms)  |  B: %s (%.1f ms) — los puntajes de métodos distintos NO son comparables entre sí",
+                    ETIQUETAS_METODO[b$ma], attr(b$ra, "tiempo_ms"),
+                    ETIQUETAS_METODO[b$mb], attr(b$rb, "tiempo_ms")))
+      }
+    })
+
+    output$resultados <- renderUI({
+      b <- busqueda()
+      if (b$modo == "simple") {
+        .lista_tarjetas(b$res, b$terminos, b$metodo)
+      } else {
+        fluidRow(
+          column(6, div(class = "busc-colcab", paste("A ·", ETIQUETAS_METODO[b$ma])),
+                 .lista_tarjetas(b$ra, b$terminos, b$ma, compacta = TRUE)),
+          column(6, div(class = "busc-colcab", paste("B ·", ETIQUETAS_METODO[b$mb])),
+                 .lista_tarjetas(b$rb, b$terminos, b$mb, compacta = TRUE))
+        )
+      }
+    })
+  })
+}
+```
+
+## Exportación de los archivos que usa la aplicación
+
+Este bloque es el puente entre el documento y la app: extrae **literalmente** el
+contenido de los bloques marcados con `purl=TRUE` —todas las funciones
+anteriores— y lo escribe en `R/funciones_buscador.R`. Por construcción, el código
+del informe y el de la aplicación no pueden divergir.
+
+(Se extraen los bloques leyendo el propio `.Rmd` en lugar de usar
+`knitr::purl()`, porque `purl()` no es reentrante: no puede invocarse desde
+dentro de un `knit()` en curso.)
+
+```{r fn-extraer, purl=TRUE}
+#' Extrae el código de los bloques de un .Rmd marcados con `purl=TRUE`.
+extraer_bloques_purl <- function(archivo_rmd) {
+  lineas <- readLines(archivo_rmd, warn = FALSE, encoding = "UTF-8")
+  cercas <- grep("^```", lineas)                   # todas las cercas ```
+  aperturas <- cercas[seq(1, length(cercas), by = 2)]
+  cierres   <- cercas[seq(2, length(cercas), by = 2)]
+  marcado <- grepl("purl\\s*=\\s*TRUE", lineas[aperturas])
+  unlist(lapply(which(marcado), function(i) {
+    if (cierres[i] - aperturas[i] < 2) return(character(0))
+    c(lineas[(aperturas[i] + 1):(cierres[i] - 1)], "")
+  }))
+}
+```
+
+```{r exportar}
+dir.create("R", showWarnings = FALSE)
+dir.create("modelos", showWarnings = FALSE)
+
+cabecera <- c(
+  "# =====================================================================",
+  "#  Taller 4 - Mineria de Datos (2016325)",
+  "#  R/funciones_buscador.R",
+  "#  ARCHIVO GENERADO AUTOMATICAMENTE por taller_4.Rmd. No editar a mano:",
+  "#  cualquier cambio debe hacerse en el .Rmd y volver a knitear.",
+  paste0("#  Generado: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
+  "# =====================================================================",
+  "suppressPackageStartupMessages({",
+  "  library(Matrix); library(irlba); library(shiny)",
+  "  library(DBI); library(RSQLite)",
+  "})", "")
+
+codigo <- extraer_bloques_purl("taller_4.Rmd")
+writeLines(c(cabecera, codigo), "R/funciones_buscador.R", useBytes = TRUE)
+
+# Script auxiliar de construcción (entregable exigido en la §7 del enunciado):
+# permite regenerar la caché sin volver a knitear el documento completo.
+dir.create("scripts", showWarnings = FALSE)
+writeLines(c(
+  "# Regenera modelos/*.rds a partir de la base SQLite.",
+  "# Ejecutar tras actualizar el corpus con el modulo de scraping del Taller 2:",
+  "#     Rscript scripts/01_construir_representaciones.R",
+  "source(\"R/funciones_buscador.R\")",
+  "res <- construir_indices(\"nature_srep_2025.db\")",
+  "dir.create(\"modelos\", showWarnings = FALSE)",
+  "saveRDS(res$metadatos, \"modelos/metadatos.rds\")",
+  "saveRDS(res$indices,   \"modelos/indices.rds\")",
+  "cat(\"Articulos:\", nrow(res$metadatos),",
+  "    \"| Vocabulario:\", length(res$indices$vocab),",
+  "    \"| k =\", res$indices$lsa$k, \"\\n\")"),
+  "scripts/01_construir_representaciones.R", useBytes = TRUE)
+
+saveRDS(META, "modelos/metadatos.rds")   # cache que la app carga al arrancar
+saveRDS(IND,  "modelos/indices.rds")
+
+cat("R/funciones_buscador.R              ->", length(codigo), "líneas de código\n")
+cat("scripts/01_construir_representaciones.R -> script auxiliar\n")
+cat("modelos/metadatos.rds  ->", format(object.size(META), units = "MB"), "\n")
+cat("modelos/indices.rds    ->", format(object.size(IND),  units = "MB"), "\n")
+```
+
+**Verificación.** El archivo generado debe cargarse en un entorno limpio y
+funcionar sin nada más que los `.rds`:
+
+```{r verificar-export}
+env <- new.env()
+source("R/funciones_buscador.R", local = env)
+IND_v  <- readRDS("modelos/indices.rds")
+META_v <- readRDS("modelos/metadatos.rds")
+prueba <- env$buscar_con_metadatos("machine learning", IND_v, META_v, "bm25", 3)
+
+cat("Funciones exportadas :", length(ls(env, all.names = TRUE)), "\n")
+cat("Búsqueda de prueba   :", nrow(prueba), "resultados\n")
+cat("UI del módulo        :", class(env$buscadorUI("test", k_lsa = IND_v$lsa$k))[1], "\n")
+stopifnot(nrow(prueba) > 0)
+```
+
+## Cambios necesarios en `app.R`
+
+Cuatro adiciones sobre el `app.R` del Taller 2. Ninguna toca las funcionalidades
+existentes.
+
+> **Esto no se ejecuta desde aquí.** Son líneas para copiar y pegar dentro de
+> `app.R` con el editor. Sueltas no funcionan: `menuItem()` y `tabItem()` solo
+> existen dentro de la estructura de `dashboardPage()` y requieren
+> `library(shinydashboard)`.
+
+```r
+## 1. Al inicio del archivo, junto a las demás library()
+library(Matrix)
+source("R/funciones_buscador.R")           # lo genera taller_4.Rmd
+IND  <- readRDS("modelos/indices.rds")     # cache, se carga UNA vez
+META <- readRDS("modelos/metadatos.rds")
+
+## 2. Dentro de sidebarMenu(...)
+menuItem("Buscador", tabName = "buscador", icon = icon("magnifying-glass"))
+
+## 3. Dentro de tabItems(...)
+tabItem("buscador", buscadorUI("buscador", k_lsa = IND$lsa$k))
+
+## 4. Dentro de server <- function(input, output, session) { ... }
+buscadorServer("buscador", indices = IND, metadatos = META)
+```
+
+**Despliegue en shinyapps.io** — `modelos/` debe incluirse o la app no arranca:
+
+```r
+rsconnect::deployApp(
+  appDir   = ".",
+  appFiles = c("app.R", "nature_srep_2025.db",
+               "R/funciones_buscador.R",
+               "modelos/indices.rds", "modelos/metadatos.rds"),
+  appName  = "dashboard-shiny")
+```
+
+---
+
+# Evaluación de resultados
+
+## Diseño de las consultas
+
+Una consulta por cada tipo exigido. Están **en inglés** porque el corpus lo está:
+una consulta en español devolvería cero resultados en las cuatro estrategias y no
+discriminaría entre métodos.
+
+```{r consultas}
+dir.create("evaluacion", showWarnings = FALSE)
+consultas <- data.frame(
+  id = c("C1","C2","C3","C4","C5"),
+  tipo = c("terminos directos", "sinonimos o terminos relacionados",
+           "general", "especifica", "resultados poco relevantes esperados"),
+  consulta = c(
+    "machine learning model for disease prediction",
+    "computer aided detection of tumours in medical scans",
+    "artificial intelligence",
+    "large language models for generating clinical notes",
+    "network analysis"),
+  categoria_esperada = c("Machine Learning", "Machine Learning",
+                         "IA Generativa", "IA Generativa", "Estadística"),
+  justificacion = c(
+    "Términos que aparecen literalmente en títulos y resúmenes: mide la coincidencia léxica básica.",
+    "Ningún artículo usa esta redacción; 'computer aided', 'tumours' y 'scans' son sinónimos de 'automated', 'tumor' e 'imaging'. Penaliza a los métodos léxicos y favorece al espacio latente.",
+    "Dos palabras muy frecuentes: df alto, idf bajo. Muestra el comportamiento cuando la consulta discrimina poco.",
+    "Consulta larga y muy específica; solo unos pocos artículos la satisfacen. Mide precisión en la cola de la distribución.",
+    "Deliberadamente ambigua: 'network' aparece en 'neural network', 'gene regulatory network' y 'social network'. Se espera que algún método devuelva resultados de un dominio equivocado."),
+  stringsAsFactors = FALSE)
+write.csv(consultas, "evaluacion/consultas.csv",
+          row.names = FALSE, fileEncoding = "UTF-8")
+kable(consultas[, c("id","tipo","consulta")], caption = "Consultas de evaluación")
+```
+
+## Juicios de relevancia
+
+Los juicios se construyen por ***pooling***, el procedimiento estándar de TREC
+(Voorhees y Harman, 2005): se recupera el top-10 con cada estrategia, se toma la
+**unión** de documentos y se juzga cada uno **una sola vez por consulta**, con
+independencia del método que lo recuperó. Así ninguna estrategia se evalúa contra
+un conjunto de juicios distinto al de las otras.
+
+```{r corridas}
+METODOS <- c("bm25", "tfidf", "lsa", "hibrido")
+K_EVAL  <- 5     # profundidad para P@k y nDCG@k
+N_POOL  <- 10    # documentos recuperados por consulta y método
+
+corridas <- list()
+for (i in seq_len(nrow(consultas))) {
+  for (m in METODOS) {
+    r <- buscar(consultas$consulta[i], IND, META, m, n = N_POOL)
+    if (!nrow(r)) next
+    corridas[[length(corridas) + 1]] <- data.frame(
+      id_consulta = consultas$id[i], metodo = m,
+      posicion = r$posicion, paper_id = r$paper_id, puntaje = r$puntaje,
+      tiempo_ms = attr(r, "tiempo_ms"), stringsAsFactors = FALSE)
+  }
+}
+corridas <- do.call(rbind, corridas)
+cat("Pares (consulta, documento) recuperados:", nrow(corridas), "\n")
+```
+
+El bloque siguiente escribe `evaluacion/pool_juicios.csv` con una sugerencia
+inicial basada en la coincidencia con `topic_label`. **Esa columna debe revisarse
+artículo por artículo** leyendo título y resumen; al volver a knitear, los juicios
+ya revisados se conservan.
+
+```{r pool}
+ARCH_POOL <- "evaluacion/pool_juicios.csv"
+
+pool <- unique(corridas[, c("id_consulta", "paper_id")])
+pool <- merge(pool, consultas[, c("id","consulta")],
+              by.x = "id_consulta", by.y = "id")
+pool <- merge(pool, META[, c("paper_id","title","topic_label","abstract")],
+              by = "paper_id", all.x = TRUE)
+pool$abstract <- substr(gsub("\\s+", " ", pool$abstract), 1, 220)
+pool <- pool[order(pool$id_consulta, pool$paper_id), ]
+
+esperada <- setNames(consultas$categoria_esperada, consultas$id)
+pool$relevante <- as.integer(pool$topic_label == esperada[pool$id_consulta])
+pool$relevante[is.na(pool$relevante)] <- 0L
+
+if (file.exists(ARCH_POOL)) {           # conservar juicios ya revisados
+  previo <- read.csv(ARCH_POOL, stringsAsFactors = FALSE, encoding = "UTF-8")
+  idx <- match(paste(pool$id_consulta, pool$paper_id),
+               paste(previo$id_consulta, previo$paper_id))
+  pool$relevante <- ifelse(is.na(idx), pool$relevante, previo$relevante[idx])
+  cat("Juicios previos conservados:", sum(!is.na(idx)), "de", nrow(pool), "\n")
+}
+write.csv(pool[, c("id_consulta","consulta","paper_id","title",
+                   "topic_label","abstract","relevante")],
+          ARCH_POOL, row.names = FALSE, fileEncoding = "UTF-8")
+
+kable(as.data.frame(table(Consulta = pool$id_consulta,
+                          Relevante = pool$relevante)),
+      caption = "Tamaño del pool y juicios por consulta")
+```
+
+## Métricas
+
+$$
+P@5=\frac{\#\{\text{relevantes entre los 5 primeros}\}}{5},
+\qquad
+\text{MRR}=\frac{1}{r_1},
+\qquad
+\text{nDCG@}5=\frac{\displaystyle\sum_{i=1}^{5} \frac{rel_i}{\log_2(i+1)}}{\text{IDCG@}5}
+$$
+
+- **P@5** — la métrica exigida. Mide cuántos aciertos hay arriba, pero es ciega
+  al orden: dos aciertos en las posiciones 1–2 puntúan igual que en las 4–5.
+- **MRR** — inverso de la posición del primer acierto. Importa porque el usuario
+  real de un buscador mira los primeros resultados.
+- **nDCG@5** — sí pondera por posición, con descuento logarítmico, y normaliza
+  contra el ordenamiento ideal. Es la más informativa de las tres.
+
+```{r metricas}
+rel <- setNames(pool$relevante, paste(pool$id_consulta, pool$paper_id))
+marcar <- function(idc, pid) {
+  v <- rel[paste(idc, pid)]; ifelse(is.na(v), 0L, v)
+}
+precision_at_k <- function(r, k = K_EVAL) mean(head(r, k))
+rr  <- function(r) { p <- which(r == 1)[1]; if (is.na(p)) 0 else 1 / p }
+dcg <- function(r) sum(r / log2(seq_along(r) + 1))
+ndcg_at_k <- function(r, k = K_EVAL) {
+  r <- head(r, k); ideal <- dcg(sort(r, decreasing = TRUE))
+  if (ideal == 0) 0 else dcg(r) / ideal
+}
+
+filas <- list()
+for (idc in consultas$id) for (m in METODOS) {
+  sub <- corridas[corridas$id_consulta == idc & corridas$metodo == m, ]
+  sub <- sub[order(sub$posicion), ]
+  if (!nrow(sub)) {
+    filas[[length(filas)+1]] <- data.frame(
+      id_consulta = idc, metodo = m, n_recuperados = 0L,
+      P_at_5 = 0, MRR = 0, nDCG_at_5 = 0, tiempo_ms = NA_real_)
+    next
+  }
+  r <- marcar(idc, sub$paper_id)
+  filas[[length(filas)+1]] <- data.frame(
+    id_consulta = idc, metodo = m, n_recuperados = nrow(sub),
+    P_at_5 = round(precision_at_k(r), 3), MRR = round(rr(r), 3),
+    nDCG_at_5 = round(ndcg_at_k(r), 3), tiempo_ms = sub$tiempo_ms[1])
+}
+met <- do.call(rbind, filas)
+met <- merge(met, consultas[, c("id","tipo")], by.x = "id_consulta", by.y = "id")
+met <- met[order(met$id_consulta, met$metodo), ]
+write.csv(met, "evaluacion/resultados_metricas.csv",
+          row.names = FALSE, fileEncoding = "UTF-8")
+
+kable(met[, c("id_consulta","tipo","metodo","n_recuperados",
+              "P_at_5","MRR","nDCG_at_5","tiempo_ms")],
+      row.names = FALSE, caption = "Métricas por consulta y estrategia")
+```
+
+```{r promedios}
+prom <- aggregate(cbind(P_at_5, MRR, nDCG_at_5, tiempo_ms) ~ metodo, met,
+                  FUN = function(v) mean(v, na.rm = TRUE), na.action = na.pass)
+prom[, -1] <- round(prom[, -1], 3)
+prom <- prom[order(-prom$nDCG_at_5), ]
+kable(prom, row.names = FALSE, caption = "Promedio sobre las 5 consultas")
+```
+
+```{r grafico-metricas, fig.height=4.5}
+m_plot <- as.matrix(prom[, c("P_at_5","MRR","nDCG_at_5")])
+rownames(m_plot) <- prom$metodo
+barplot(t(m_plot), beside = TRUE, ylim = c(0, 1.08),
+        col = c("#58a6ff", "#3fb950", "#bc8cff"), border = NA,
+        ylab = "Valor de la métrica", main = "Comparación de estrategias")
+legend("topright", c("P@5", "MRR", "nDCG@5"), bty = "n", horiz = TRUE,
+       fill = c("#58a6ff", "#3fb950", "#bc8cff"), border = NA)
+```
+
+## Solapamiento entre estrategias
+
+¿Cuánto cambia realmente el *ranking* al pasar a la representación reducida?
+
+```{r solapamiento}
+solape <- function(q, m1, m2, n = 10) {
+  a <- buscar(q, IND, META, m1, n)$paper_id
+  b <- buscar(q, IND, META, m2, n)$paper_id
+  if (!length(a) || !length(b)) return(NA_real_)
+  length(intersect(a, b)) / max(length(a), length(b))
+}
+sol <- data.frame(
+  Consulta        = consultas$id,
+  `BM25 vs TFIDF` = sapply(consultas$consulta, solape, "bm25",  "tfidf"),
+  `BM25 vs LSA`   = sapply(consultas$consulta, solape, "bm25",  "lsa"),
+  `TFIDF vs LSA`  = sapply(consultas$consulta, solape, "tfidf", "lsa"),
+  check.names = FALSE, row.names = NULL)
+sol[, -1] <- lapply(sol[, -1], function(v)
+  ifelse(is.na(v), "sin resultados", sprintf("%.2f", v)))
+kable(sol, caption = "Solapamiento del top-10 (0 = listas disjuntas, 1 = idénticas)")
+```
+
+Se espera un solapamiento alto entre BM25 y TF-IDF —ambos son léxicos y solo
+difieren en la ponderación— y notablemente menor contra LSA. Si así ocurre, queda
+confirmado que la reducción **no** es una compresión sin efecto: reordena los
+resultados de forma cualitativa.
+
+## Comparación cualitativa de los rankings
+
+```{r comparar-rankings, results='asis'}
+for (i in seq_len(nrow(consultas))) {
+  q <- consultas$consulta[i]
+  cat("\n\n### ", consultas$id[i], " - *", consultas$tipo[i], "*\n\n",
+      "> ", q, "\n\n", sep = "")
+  tabla <- NULL
+  for (mm in c("bm25", "lsa")) {
+    r <- buscar_con_metadatos(q, IND, META, mm, 5)
+    if (!nrow(r)) next
+    tabla <- rbind(tabla, data.frame(
+      Metodo = mm, Pos = r$posicion, Titulo = substr(r$title, 1, 60),
+      Categoria = r$topic_label, Puntaje = r$puntaje))
+  }
+  if (is.null(tabla)) { cat("_Sin resultados para esta consulta._\n"); next }
+  print(kable(tabla, row.names = FALSE))
+}
+```
+
+## Análisis
+
+> **Cómo completar esta sección.** Los párrafos siguientes son una guía de
+> lectura: cada afirmación debe contrastarse con las tablas anteriores y
+> concretarse con los artículos que efectivamente aparezcan.
+
+**C1 (términos directos).** Es el caso favorable a la recuperación léxica. BM25
+debería ganar o empatar: los términos de la consulta están literalmente en los
+títulos y su $idf$ los separa con claridad. Si LSA queda por debajo aquí es
+esperable y no un defecto — la reducción difumina distinciones finas entre
+documentos que comparten campo temático.
+
+**C2 (sinónimos).** La consulta discriminante del experimento. Si los métodos
+léxicos degradan y LSA sostiene su P@5, se confirma la hipótesis del espacio
+latente: *tumour* y *cancer* nunca coinciden como cadenas, pero sí comparten
+vecindario de co-ocurrencia. Si LSA **no** mejora, la explicación más probable es
+que $k$ sea demasiado bajo o que el corpus sea demasiado pequeño para que las
+co-ocurrencias sean estables; conviene reportarlo tal cual y probar con un umbral
+de energía mayor.
+
+**C3 (general).** Dos palabras muy frecuentes: $idf$ bajo en ambos términos, así
+que BM25 tiene poca base para discriminar y el orden lo terminan decidiendo las
+longitudes de documento. Es el escenario donde la fusión híbrida suele aportar
+más, porque combina dos criterios débiles pero poco correlacionados.
+
+**C4 (específica).** Consulta larga: cada término adicional suma evidencia en
+BM25 y solo unos pocos artículos la satisfacen. Se espera P@5 alta, aunque
+posiblemente haya menos de 5 documentos relevantes disponibles — en ese caso P@5
+tiene un techo inferior a 1 por construcción y nDCG@5 es la métrica que hay que
+mirar.
+
+**C5 (resultados poco relevantes).** Diseñada para fallar. *Network* es polisémico
+en este corpus, así que al menos un método debería colar un artículo de un
+dominio equivocado en el top-5. **Este es el análisis de error que exige el
+enunciado:** identifique el artículo concreto, indique en qué posición apareció y
+con qué método, y explique el mecanismo — para BM25, que la coincidencia de
+superficie no distingue sentidos; para LSA, que un $k$ pequeño puede colapsar en
+un mismo eje latente contextos que en realidad son distintos.
+
+**Conclusión general.** Complétela a partir de la tabla de promedios: qué
+estrategia gana en nDCG@5, si la ventaja es consistente o depende del tipo de
+consulta, y si la híbrida compensa las debilidades individuales. El resultado
+típico en corpus técnicos pequeños es que BM25 sea un *baseline* muy fuerte, que
+LSA gane solo en las consultas con desajuste de vocabulario, y que la fusión
+híbrida sea la más estable entre tipos de consulta aunque rara vez la mejor en un
+tipo concreto.
+
+---
+
+Medidas adoptadas frente a la restricción de memoria:
+
+1. **Matrices dispersas en todo el pipeline** (`dgCMatrix`). La matriz TF-IDF
+   solo almacena las entradas no nulas; no se llama `as.matrix()` sobre ella
+   salvo en el caso de corpus muy pequeño, donde la SVD densa es más barata que
+   Lanczos.
+2. **Vocabulario acotado** por $df$ mínimo y máximo, con justificación
+   estadística y no un corte arbitrario.
+3. **SVD parcial** vía `irlba`: se calculan solo los primeros valores singulares,
+   sin formar $X^{\top}X$.
+4. **Precomputación y caché** en `.rds`: la aplicación no reconstruye nada.
+5. **Sin dependencias pesadas**: no se usan modelos preentrenados, redes
+   neuronales ni APIs de pago. El sistema completo corre con `Matrix` e `irlba`.
+
+---
+
+# Limitaciones y trabajo futuro
+
+- **LSA es lineal.** Captura co-ocurrencia, no significado. Los *sentence
+  embeddings* (SBERT) resolverían mejor la sinonimia, a costa de descargar un
+  modelo de cientos de MB — descartado por la restricción de recursos.
+- **El corpus es monolingüe.** Una consulta en español no recupera nada. La
+  solución realista es traducir la consulta antes de lanzarla, no reindexar.
+- **Sin retroalimentación de relevancia.** No se implementó *pseudo-relevance
+  feedback* (Rocchio), que suele dar mejoras consistentes expandiendo la consulta
+  con términos de los primeros documentos recuperados.
+- **Los juicios son de un solo evaluador**, lo que introduce sesgo. En un montaje
+  formal se usarían varios anotadores y se reportaría el acuerdo (κ de Cohen).
+- **$k$ se fija con un criterio de energía**, no optimizando una métrica de
+  recuperación. Un barrido de $k$ contra nDCG@5 sería más riguroso, aunque con
+  cinco consultas tendría muy poca potencia estadística.
+
+---
+
+# Dependencias
+
+```{r dependencias}
+PAQUETES <- c("shiny","shinydashboard","highcharter","DT","dplyr",
+              "DBI","RSQLite","rvest","httr2","xml2",   # Taller 2
+              "Matrix","irlba",                          # Taller 4: buscador
+              "rmarkdown","knitr","rsconnect")
+kable(data.frame(
+  Paquete = PAQUETES,
+  Version = vapply(PAQUETES, function(p)
+    tryCatch(as.character(packageVersion(p)),
+             error = function(e) "no instalado"), character(1)),
+  row.names = NULL), caption = paste("Paquetes usados —", R.version.string))
+```
+
+Para generar `renv.lock`, ejecutar **una vez** en la carpeta del proyecto:
+
+```r
+install.packages("renv")
+renv::init(bare = TRUE)   # crea el entorno del proyecto
+renv::hydrate()           # copia los paquetes ya instalados
+renv::snapshot()          # escribe renv.lock
+# quien clone el repositorio solo necesita: renv::restore()
+```
+
+---
+
+# Referencias
+
+- Robertson, S. y Zaragoza, H. (2009). The probabilistic relevance framework:
+  BM25 and beyond. *Foundations and Trends in Information Retrieval*, 3(4), 333–389.
+- Robertson, S., Zaragoza, H. y Taylor, M. (2004). Simple BM25 extension to
+  multiple weighted fields. *CIKM '04*, 42–49.
+- Salton, G. y Buckley, C. (1988). Term-weighting approaches in automatic text
+  retrieval. *Information Processing & Management*, 24(5), 513–523.
+- Voorhees, E. M. y Harman, D. K. (eds.) (2005). *TREC: Experiment and Evaluation
+  in Information Retrieval*. MIT Press.
+
+```{r sesion}
+sessionInfo()
+```
