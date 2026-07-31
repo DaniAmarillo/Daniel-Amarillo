@@ -1,0 +1,51 @@
+consulta,estrategia,ranking,score_coseno,titulo,relevante
+coral reef restoration and degradation,TF-IDF,1,0.5068,Quantifying coral reef–ocean interactions is critical for predicting reef futures under climate change,sí
+coral reef restoration and degradation,TF-IDF,2,0.3395,Restoration cannot be scaled up globally to save reefs from loss and degradation,sí
+coral reef restoration and degradation,TF-IDF,3,0.2419,Protection of coral reef fish delivers ecosystem-critical biocontrol of coral-eating starfish across the Great Barrier Reef,sí
+coral reef restoration and degradation,TF-IDF,4,0.2258,A control theory framework and in situ experimental platform for informing restoration of coral reefs,sí
+coral reef restoration and degradation,TF-IDF,5,0.201,Author Correction: Restoration cannot be scaled up globally to save reefs from loss and degradation,sí
+coral reef restoration and degradation,LSA,1,0.6564,Quantifying coral reef–ocean interactions is critical for predicting reef futures under climate change,sí
+coral reef restoration and degradation,LSA,2,0.6417,Restoration cannot be scaled up globally to save reefs from loss and degradation,sí
+coral reef restoration and degradation,LSA,3,0.5466,Protection of coral reef fish delivers ecosystem-critical biocontrol of coral-eating starfish across the Great Barrier Reef,sí
+coral reef restoration and degradation,LSA,4,0.496,A control theory framework and in situ experimental platform for informing restoration of coral reefs,sí
+coral reef restoration and degradation,LSA,5,0.4274,Critical thresholds of adult patch density and spacing during coral fertilization,sí
+global warming effects on species diversity loss,TF-IDF,1,0.2356,Global hotspots of butterfly diversity are threatened in a warming world,sí
+global warming effects on species diversity loss,TF-IDF,2,0.2278,Climate warming fuels the global antibiotic resistome by altering soil bacterial traits,sí
+global warming effects on species diversity loss,TF-IDF,3,0.2273,An update on author and reviewer diversity,sí
+global warming effects on species diversity loss,TF-IDF,4,0.2265,Warming threatens soil health,sí
+global warming effects on species diversity loss,TF-IDF,5,0.2058,Threat reduction must be coupled with targeted recovery programmes to conserve global bird diversity,sí
+global warming effects on species diversity loss,LSA,1,0.4143,Global hotspots of butterfly diversity are threatened in a warming world,sí
+global warming effects on species diversity loss,LSA,2,0.3683,Pesticides and habitat loss additively reduce wild bees in crop fields,sí
+global warming effects on species diversity loss,LSA,3,0.3677,Climate warming fuels the global antibiotic resistome by altering soil bacterial traits,sí
+global warming effects on species diversity loss,LSA,4,0.3426,An update on author and reviewer diversity,sí
+global warming effects on species diversity loss,LSA,5,0.3205,Warming threatens soil health,sí
+climate change,TF-IDF,1,0.8095,Dispersal under climate change,sí
+climate change,TF-IDF,2,0.6474,Global dependency of canopy height on vapour pressure deficit and its projections under climate change,sí
+climate change,TF-IDF,3,0.6122,Adaptability to climate change is difficult to predict,sí
+climate change,TF-IDF,4,0.471,Vulnerability of soil food webs to chemical pollution and climate change,sí
+climate change,TF-IDF,5,0.4405,Geographic redistributions are insufficient to mitigate exposure to climate change in North American birds,sí
+climate change,LSA,1,0.9268,Dispersal under climate change,sí
+climate change,LSA,2,0.8687,Adaptability to climate change is difficult to predict,sí
+climate change,LSA,3,0.8,Global dependency of canopy height on vapour pressure deficit and its projections under climate change,sí
+climate change,LSA,4,0.6566,Vulnerability of soil food webs to chemical pollution and climate change,sí
+climate change,LSA,5,0.5576,Geographic redistributions are insufficient to mitigate exposure to climate change in North American birds,sí
+generative artificial intelligence large language models ecology,TF-IDF,1,0.5639,The many flavours of ecology,no
+generative artificial intelligence large language models ecology,TF-IDF,2,0.2811,Generative AI as a tool to accelerate the field of ecology,sí
+generative artificial intelligence large language models ecology,TF-IDF,3,0.256,Safeguarding long-term research in ecology and evolution,no
+generative artificial intelligence large language models ecology,TF-IDF,4,0.2314,Lasting effects of losing large carnivores,no
+generative artificial intelligence large language models ecology,TF-IDF,5,0.2252,Rigorous validation of ecological models against empirical time series,no
+generative artificial intelligence large language models ecology,LSA,1,0.8126,The many flavours of ecology,no
+generative artificial intelligence large language models ecology,LSA,2,0.7064,Generative AI as a tool to accelerate the field of ecology,sí
+generative artificial intelligence large language models ecology,LSA,3,0.5118,Safeguarding long-term research in ecology and evolution,no
+generative artificial intelligence large language models ecology,LSA,4,0.4597,Precision ecology for targeted conservation action,no
+generative artificial intelligence large language models ecology,LSA,5,0.4555,Behavioural ecology in the twenty-first century,no
+deep sea mining microbial communities recovery,TF-IDF,1,0.6041,Assessing mining impacts in the deep sea,sí
+deep sea mining microbial communities recovery,TF-IDF,2,0.3562,Methane fuel for sea spiders,no
+deep sea mining microbial communities recovery,TF-IDF,3,0.2093,Deep cuts,no
+deep sea mining microbial communities recovery,TF-IDF,4,0.2058,Community conservatism is widespread across microbial phyla and environments,sí
+deep sea mining microbial communities recovery,TF-IDF,5,0.164,Pre-exposure of abundant species to disturbance improves resilience in microbial metacommunities,sí
+deep sea mining microbial communities recovery,LSA,1,0.8125,Assessing mining impacts in the deep sea,sí
+deep sea mining microbial communities recovery,LSA,2,0.6537,Methane fuel for sea spiders,no
+deep sea mining microbial communities recovery,LSA,3,0.3215,Impacts of an industrial deep-sea mining trial on macrofaunal biodiversity,sí
+deep sea mining microbial communities recovery,LSA,4,0.3194,Deep cuts,no
+deep sea mining microbial communities recovery,LSA,5,0.2821,Community conservatism is widespread across microbial phyla and environments,sí
