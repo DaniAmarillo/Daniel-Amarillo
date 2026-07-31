@@ -1,0 +1,536 @@
+---
+title: "Taller 4 — Sistema de recuperación de información para artículos científicos"
+subtitle: "Minería de Datos (2016325) — Universidad Nacional de Colombia"
+author: "Daniel Eduardo Amarillo Echeverry"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    theme: flatly
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(DBI)
+library(RSQLite)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(tm)
+library(SnowballC)
+library(Matrix)
+library(irlba)
+library(knitr)
+library(ggplot2)
+```
+
+# Objetivo
+
+Este documento amplía la aplicación del Taller 2/3 con un sistema de
+recuperación de información sobre los artículos almacenados en
+`JBA_25_26.sqlite`. Se documenta el proceso completo: construcción del
+corpus, procesamiento de texto, representación vectorial, reducción
+dimensional, tipo de recuperación, mecanismo de ranking, integración en
+la aplicación Shiny y evaluación comparativa de dos estrategias.
+
+Las dos estrategias implementadas y evaluadas aquí son **exactamente**
+las que usa la aplicación (`app.R`, pestaña *Buscador*):
+
+1.  **TF-IDF + similitud coseno** — recuperación léxica, sobre la
+    representación original (dispersa) del corpus.
+2.  **LSA / Truncated SVD + similitud coseno** — recuperación en un
+    espacio reducido, donde tanto los documentos como la consulta se
+    proyectan al mismo espacio de *k* componentes.
+
+# Construcción del corpus
+
+```{r conexion-datos}
+con <- dbConnect(RSQLite::SQLite(), "JBA_25_26.sqlite")
+
+papers   <- dbReadTable(con, "papers")
+abstract <- dbReadTable(con, "abstract")
+
+dbDisconnect(con)
+```
+
+**Campos utilizados para representar cada artículo:** título (`titulo`)
+y las cuatro secciones del abstract estructurado por DOI: `Backround`,
+`Metodos`, `Resultados` y `Conclusion`. La base de datos **no** tiene un
+campo independiente de palabras clave; por esa razón no se usan keywords
+como fuente de texto. `topic_label` se conserva únicamente como metadato
+de filtro/comparación, no se agrega al texto libre porque es una
+categoría asignada por el pipeline de carga y no una palabra clave del
+autor — mezclarla con el texto distorsionaría artificialmente la
+similitud hacia artículos de la misma categoría.
+
+```{r construccion-corpus}
+abstract <- abstract |>
+  mutate(across(c(Backround, Metodos, Resultados, Conclusion),
+                ~ replace_na(.x, "")))
+
+corpus <- papers |>
+  select(doi, titulo, topic_label, year) |>
+  left_join(abstract, by = c("doi","topic_label")) |>
+  mutate(
+    across(c(Backround, Metodos, Resultados, Conclusion), ~ replace_na(.x, "")),
+    texto_completo = str_squish(paste(titulo, Backround, Metodos, Resultados, Conclusion))
+  ) |>
+  select(doi, titulo, topic_label, year, texto_completo)
+```
+
+## Cobertura del corpus
+
+```{r cobertura-corpus}
+n_total        <- nrow(corpus)
+n_sin_titulo   <- sum(is.na(papers$titulo) | trimws(papers$titulo) == "")
+n_sin_abstract <- sum(str_squish(corpus$texto_completo) == str_squish(corpus$titulo))
+n_vacios       <- sum(nchar(corpus$texto_completo) == 0)
+
+tibble(
+  Métrica = c("Total de artículos", "Sin título", "Sin ninguna sección de abstract",
+              "Texto totalmente vacío (excluidos)"),
+  Valor   = c(n_total, n_sin_titulo, n_sin_abstract, n_vacios)
+) |> kable()
+```
+
+**Tratamiento de valores faltantes:** un artículo sin absolutamente
+ningún texto (ni título ni abstract) se excluye del corpus indexado,
+porque no puede representarse vectorialmente. **No se inventa
+contenido** para reemplazar textos faltantes: cuando una sección del
+abstract no existe, se trata como cadena vacía y simplemente no aporta
+términos, en vez de generarse un resumen sintético.
+
+```{r filtrar-vacios}
+corpus <- corpus |> filter(nchar(texto_completo) > 0)
+saveRDS(corpus, "cache/corpus.rds")
+```
+
+**Idioma:** el corpus corresponde a una revista internacional; el
+contenido textual (títulos y abstracts) está mayoritariamente en
+**inglés**, por lo que el preprocesamiento (stopwords, stemming) se
+configura para ese idioma.
+
+**Criterio de inclusión/exclusión:** se incluyen todos los artículos con
+al menos un fragmento de texto (título o alguna sección del abstract);
+se excluyen únicamente los que no tienen ningún texto disponible.
+
+# Procesamiento del texto
+
+Operaciones aplicadas y justificación:
+
+- **Minúsculas:** evita tratar `"Diagnosis"` y `"diagnosis"` como
+  términos distintos.
+- **Eliminación de puntuación:** no aporta a la comparación de contenido
+  temático.
+- **Números conservados (decisión, no omisión):** en literatura
+  científica pueden ser relevantes (p. ej. *"covid-19"*, *"type 2
+  diabetes"*), así que no se eliminan.
+- **Eliminación de stopwords en inglés:** palabras funcionales (*"the"*,
+  *"and"*, *"of"*...) no discriminan relevancia temática y sólo añaden
+  ruido/dimensión al vocabulario.
+- **Stemming (Porter, `SnowballC`):** reduce variantes morfológicas
+  (*"diagnosis"/"diagnostic"/"diagnosed"* → raíz común), mejorando el
+  solapamiento léxico en TF-IDF a costa de perder legibilidad directa de
+  los términos.
+- **No se aplica lematización** adicional: el stemming de Porter es
+  suficiente para el propósito de recuperación y evita la
+  complejidad/dependencias extra de un lematizador.
+- **No se construyen n-gramas:** se usa una representación unigrama por
+  simplicidad y para mantener el vocabulario (y por tanto la matriz
+  TF-IDF) más compacto, dado el límite de memoria de la sección 6 del
+  enunciado.
+
+```{r preprocesamiento}
+preprocesar_texto <- function(x) {
+  x |>
+    tolower() |>
+    str_replace_all("[[:punct:]]", " ") |>
+    str_replace_all("\\s+", " ") |>
+    str_trim()
+}
+
+corpus_txt <- Corpus(VectorSource(preprocesar_texto(corpus$texto_completo)))
+corpus_txt <- tm_map(corpus_txt, removeWords, stopwords("en"))
+corpus_txt <- tm_map(corpus_txt, stemDocument, language = "en")
+corpus_txt <- tm_map(corpus_txt, stripWhitespace)
+```
+
+# Representación vectorial: TF-IDF
+
+Se utiliza **TF-IDF** (Term Frequency – Inverse Document Frequency)
+porque es una representación estándar, barata computacionalmente,
+interpretable y adecuada para corpus de tamaño moderado como este. Se
+limita el vocabulario para controlar memoria (sección 6 del enunciado):
+
+- se descartan términos que aparecen en **menos de 2 documentos**
+  (erratas / ruido);
+- se descartan términos que aparecen en **más del 90 %** de los
+  documentos (demasiado comunes para discriminar relevancia).
+
+```{r tfidf}
+dtm <- DocumentTermMatrix(
+  corpus_txt,
+  control = list(
+    bounds    = list(global = c(2, floor(0.9 * length(corpus_txt)))),
+    weighting = weightTfIdf
+  )
+)
+
+dtm_sparse <- Matrix::sparseMatrix(
+  i = dtm$i, j = dtm$j, x = dtm$v,
+  dims = c(dtm$nrow, dtm$ncol),
+  dimnames = list(corpus$doi, colnames(dtm))
+)
+
+vocabulario <- colnames(dtm_sparse)
+n_docs      <- nrow(dtm_sparse)
+df_termino  <- Matrix::colSums(dtm_sparse > 0)
+idf         <- log(n_docs / df_termino)
+
+saveRDS(dtm_sparse, "cache/dtm_tfidf.rds")
+saveRDS(vocabulario, "cache/vocabulario.rds")
+saveRDS(idf,         "cache/idf.rds")
+
+tibble(
+  Métrica = c("Documentos", "Tamaño del vocabulario", "Densidad de la matriz (%)"),
+  Valor   = c(nrow(dtm_sparse), ncol(dtm_sparse),
+              round(100 * Matrix::nnzero(dtm_sparse) / length(dtm_sparse), 3))
+) |> kable()
+```
+
+- **Dimensión de la representación:** igual al tamaño del vocabulario
+  mostrado arriba (una columna por término).
+- **Matriz dispersa o densa:** dispersa (`dgCMatrix` de `Matrix`); nunca
+  se densifica.
+- **Recursos computacionales:** solo se requiere RAM suficiente para una
+  matriz dispersa de `documentos × vocabulario`, muy por debajo del
+  límite de 16 GB para un corpus de este tamaño.
+- **Ventajas:** simple, rápida, interpretable (cada dimensión es un
+  término real); funciona bien cuando la consulta comparte vocabulario
+  literal con los documentos.
+- **Limitaciones:** no captura sinonimia ni relaciones semánticas (una
+  consulta con términos relacionados pero no idénticos a los del
+  documento puede no recuperarlo); sensible a la elección de
+  vocabulario.
+
+# Tipo de recuperación
+
+Se implementan y comparan dos tipos de recuperación:
+
+- **Léxica (TF-IDF + similitud coseno):** compara la orientación de los
+  vectores de término entre la consulta y cada documento. Un artículo es
+  relevante si comparte términos (tras stemming) con la consulta,
+  ponderados por qué tan distintivos son esos términos en el corpus
+  (idf).
+- **Semántica en espacio reducido (LSA / Truncated SVD + similitud
+  coseno):** compara consulta y documentos en un espacio de *k*
+  dimensiones latentes construido a partir de las co-ocurrencias de
+  términos en el corpus completo; dos documentos pueden ser cercanos
+  aunque no compartan exactamente las mismas palabras, si sus términos
+  co-ocurren de forma similar en el resto del corpus.
+
+# Reducción de dimensionalidad
+
+**Método:** Truncated SVD, calculado con el paquete `irlba`, que opera
+directamente sobre la matriz TF-IDF dispersa **sin convertirla a densa**
+en ningún momento — esto es lo que en este contexto se conoce como LSA
+(*Latent Semantic Analysis*) cuando se aplica sobre una matriz
+término-documento ponderada por TF-IDF.
+
+```{r seleccion-k}
+k_max <- min(200, ncol(dtm_sparse) - 1, nrow(dtm_sparse) - 1)
+svd_probe <- irlba(dtm_sparse, nv = k_max)
+
+var_explicada <- svd_probe$d^2 / sum(svd_probe$d^2)
+var_acum      <- cumsum(var_explicada)
+k_final       <- which(var_acum >= 0.80)[1]
+if (is.na(k_final)) k_final <- k_max
+
+tibble(componente = seq_along(var_acum), varianza_acumulada = var_acum) |>
+  ggplot(aes(componente, varianza_acumulada)) +
+  geom_line() +
+  geom_hline(yintercept = 0.80, linetype = "dashed", color = "firebrick") +
+  geom_vline(xintercept = k_final, linetype = "dashed", color = "steelblue") +
+  labs(title = "Varianza acumulada explicada por Truncated SVD",
+       x = "Número de componentes (k)", y = "Varianza acumulada") +
+  theme_minimal()
+```
+
+- **Dimensión original:** tamaño del vocabulario TF-IDF
+  (`r ncol(dtm_sparse)` dimensiones).
+- **Dimensión final:** `r k_final` componentes.
+- **Criterio de selección de k:** primer valor de *k* para el cual la
+  varianza acumulada explicada por los valores singulares supera el 80
+  %, acotado a un máximo práctico de 200 componentes para mantener el
+  costo de cómputo bajo.
+- **Información que se intenta conservar:** la estructura de
+  co-ocurrencia dominante entre términos y documentos (los patrones
+  temáticos más fuertes del corpus), descartando componentes de baja
+  varianza que suelen corresponder a ruido o idiosincrasias léxicas de
+  documentos individuales.
+- **Proyección de la consulta:** la consulta se convierte primero a un
+  vector TF-IDF con el **mismo** vocabulario e idf del corpus
+  (folding-in de términos) y luego se proyecta al espacio de *k*
+  componentes con la fórmula estándar de *folding-in* de LSA:
+
+$$q_k = q^\top V \Sigma^{-1}$$
+
+donde $V$ son los vectores singulares por término y $\Sigma$ los valores
+singulares. Los documentos, por su parte, se representan como $U\Sigma$
+(`docs × k`). Nunca se recalcula la SVD para proyectar una consulta
+nueva.
+
+```{r ajuste-svd-final}
+lsa_svd <- irlba(dtm_sparse, nv = k_final)
+lsa_svd$dimnames_terminos <- vocabulario
+lsa_svd$doi <- corpus$doi
+
+saveRDS(lsa_svd, "cache/lsa_svd.rds")
+
+doc_vectores_lsa <- lsa_svd$u %*% diag(lsa_svd$d)
+rownames(doc_vectores_lsa) <- lsa_svd$doi
+```
+
+- **Efecto sobre el tiempo de respuesta:** comparar contra `r k_final`
+  dimensiones densas por documento es más rápido que multiplicar contra
+  una matriz dispersa de `r ncol(dtm_sparse)` columnas, especialmente al
+  escalar el corpus.
+- **Efecto sobre el consumo de memoria:** los vectores de documento en
+  el espacio LSA (`docs × k`) ocupan una fracción pequeña de lo que
+  ocuparía la matriz TF-IDF completa densificada.
+- **Efecto sobre el ranking:** se compara empíricamente en la sección de
+  evaluación; en general LSA puede recuperar artículos temáticamente
+  relacionados que no comparten términos literales con la consulta, a
+  costa de perder algo de precisión en consultas muy específicas (ver
+  ejemplo de "consulta con términos poco frecuentes" más abajo).
+
+# Mecanismo de ranking
+
+Para **ambas** estrategias el puntaje de relevancia es la **similitud
+coseno** entre el vector de la consulta y el vector de cada documento
+(en el espacio TF-IDF o en el espacio LSA, según la estrategia). Los
+artículos se ordenan de mayor a menor puntaje y se devuelven los
+primeros *n* que el usuario elija (5, 10 o 20).
+
+```{r funciones-similitud}
+tokenizar_stem <- function(texto) {
+  texto <- preprocesar_texto(texto)
+  tokens <- unlist(str_split(texto, "\\s+"))
+  tokens <- tokens[!(tokens %in% stopwords("en"))]
+  tokens <- tokens[nchar(tokens) >= 3]
+  wordStem(tokens, language = "en")
+}
+
+consulta_a_tfidf <- function(consulta) {
+  tokens <- tokenizar_stem(consulta)
+  tf <- table(tokens)
+
+  vec <- numeric(length(vocabulario))
+  names(vec) <- vocabulario
+
+  terminos_comunes <- intersect(names(tf), vocabulario)
+  vec[terminos_comunes] <- as.numeric(tf[terminos_comunes]) * idf[terminos_comunes]
+  vec
+}
+
+similitud_coseno <- function(a, b) {
+  if (is.matrix(b) || is(b, "Matrix")) {
+    num <- as.numeric(b %*% a)
+    norm_b <- sqrt(Matrix::rowSums(b^2))
+    norm_a <- sqrt(sum(a^2))
+    ifelse(norm_a == 0 | norm_b == 0, 0, num / (norm_b * norm_a))
+  } else {
+    sum(a * b) / (sqrt(sum(a^2)) * sqrt(sum(b^2)))
+  }
+}
+
+buscar_tfidf <- function(consulta, n_resultados = 10) {
+  q_vec <- consulta_a_tfidf(consulta)
+  sim <- similitud_coseno(q_vec, dtm_sparse)
+  names(sim) <- rownames(dtm_sparse)
+
+  ranking <- sort(sim, decreasing = TRUE)[seq_len(min(n_resultados, length(sim)))]
+
+  data.frame(doi = names(ranking), puntaje = as.numeric(ranking)) |>
+    left_join(corpus, by = "doi") |>
+    mutate(posicion = row_number()) |>
+    select(posicion, doi, titulo, topic_label, year, puntaje)
+}
+
+buscar_lsa <- function(consulta, n_resultados = 10) {
+  q_tfidf <- consulta_a_tfidf(consulta)
+  V <- matrix(lsa_svd$v, ncol = length(lsa_svd$d))
+  q_lsa <- as.numeric(q_tfidf %*% V) / lsa_svd$d
+
+  sim <- similitud_coseno(q_lsa, doc_vectores_lsa)
+  names(sim) <- rownames(doc_vectores_lsa)
+
+  ranking <- sort(sim, decreasing = TRUE)[seq_len(min(n_resultados, length(sim)))]
+
+  data.frame(doi = names(ranking), puntaje = as.numeric(ranking)) |>
+    left_join(corpus, by = "doi") |>
+    mutate(posicion = row_number()) |>
+    select(posicion, doi, titulo, topic_label, year, puntaje)
+}
+```
+
+**Manejo de empates:** en caso de puntajes idénticos, `sort()` conserva
+el orden de aparición original en la matriz (orden por `doi`); no se
+aplica un criterio de desempate adicional porque los puntajes reales
+rara vez son exactamente iguales al usar representaciones continuas.
+
+**Comparabilidad entre métodos:** los puntajes de TF-IDF y de LSA **no
+son directamente comparables entre sí** — ambos están acotados en
+$[-1, 1]$ por ser similitud coseno, pero se calculan en espacios
+distintos con magnitudes y distribuciones distintas. Sirven para ordenar
+*dentro* de cada estrategia, no para mezclar resultados de ambas en un
+único ranking.
+
+**Criterios secundarios:** no se usan citas, descargas ni fecha de
+publicación como criterio de ranking — el enunciado explícitamente
+indica que ordenar solo por esos campos no es una recuperación de
+información válida para este taller. Esos campos sí se muestran como
+metadato en los resultados, pero no afectan el orden.
+
+# Integración en la aplicación
+
+La aplicación Shiny (`app.R`, pestaña **Buscador**) usa exactamente las
+funciones `buscar_tfidf()` y `buscar_lsa()` documentadas y evaluadas en
+este documento, cargándolas desde `03_funciones_busqueda.R`, el cual a
+su vez lee los objetos ya calculados en `./cache/*.rds` (generados por
+`02_corpus_representacion.R`, que reproduce los mismos pasos de este
+documento). **La aplicación nunca reconstruye la matriz TF-IDF ni
+reentrena la SVD en cada búsqueda** — solo se recalculan al actualizar
+la base de datos.
+
+En la UI, el usuario puede: escribir una consulta en lenguaje natural,
+elegir la estrategia (TF-IDF, LSA, o ambas en paralelo) y elegir el
+número de resultados (5, 10 o 20). Los resultados muestran posición,
+título, autores, fecha, categoría, DOI (como enlace), puntaje y un
+fragmento del texto del artículo.
+
+# Evaluación de los resultados
+
+Se definen 5 consultas relacionadas con el contenido de la revista,
+cubriendo los casos pedidos en el enunciado.
+
+```{r consultas-evaluacion}
+consultas_eval <- tibble::tribble(
+  ~id, ~tipo,                                   ~consulta,
+  1,   "Términos literales del corpus",         "perceived coworkers' work addiction",
+  2,   "Sinónimos / términos relacionados",      "dependency behaviour to work",
+  3,   "Consulta general",                       "child addiction to technology",
+  4,   "Consulta específica",                    "child dependency to Large Language Models",
+  5,   "Caso difícil / poco relevante esperado",  "coffe and rain adictive behaviour"
+)
+
+kable(consultas_eval)
+```
+
+> **Nota:** la consulta 5 se elige deliberadamente sobre un tema que
+> probablemente **no** está bien representado en el corpus de la
+> revista, para forzar un caso donde ambos métodos devuelvan resultados
+> poco relevantes y así poder analizarlo (requisito explícito del
+> enunciado).
+
+## Relevancia y [Precision\@5](mailto:Precision@5){.email}
+
+Para cada consulta se ejecutan ambas estrategias, se listan los primeros
+5 resultados y se marca manualmente cuáles son relevantes (columna
+`relevante`, a completar por el estudiante tras leer los
+títulos/fragmentos reales del corpus).
+
+```{r evaluacion-loop}
+evaluar_consulta <- function(consulta, id) {
+  res_tfidf <- buscar_tfidf(consulta, n_resultados = 5) |> mutate(estrategia = "TF-IDF")
+  res_lsa   <- buscar_lsa(consulta,   n_resultados = 5) |> mutate(estrategia = "LSA")
+
+  bind_rows(res_tfidf, res_lsa) |> mutate(id_consulta = id, consulta_texto = consulta)
+}
+
+resultados_todas <- purrr::map2_dfr(
+  consultas_eval$consulta, consultas_eval$id,
+  evaluar_consulta
+)
+
+# Columna a diligenciada manualmente (1 = relevante, 0 = no relevante) después
+# de revisar los títulos y fragmentos reales devueltos para cada consulta.
+resultados_todas <- resultados_todas |> mutate(relevante = c(1,1,0,0,0,1,1,0,0,0,1,1,1,0,0,1,1,1,1,0,1,1,1,0,1,1,1,1,1,1,0,1,1,1,0,1,1,1,0,1,1,0,0,0,0,1,0,0,1,0))
+
+resultados_todas |>
+  select(id_consulta, consulta_texto, estrategia, posicion, titulo, puntaje, relevante) |>
+  kable()
+```
+
+```{r precision-at-5, eval}
+precision_5 <- resultados_todas |>
+  group_by(id_consulta, estrategia) |>
+  summarise(precision_at_5 = sum(relevante, na.rm = TRUE) / 5, .groups = "drop")
+
+precision_5 |> kable()
+
+precision_5 |>
+  ggplot(aes(factor(id_consulta), precision_at_5, fill = estrategia)) +
+  geom_col(position = "dodge") +
+  labs(x = "Consulta", y = "Precision@5", fill = "Estrategia") +
+  theme_minimal()
+```
+
+Para cada consulta se debe además:
+
+Comparar las diferencias entre los rankings de TF-IDF y LSA (¿aparecen
+los mismos artículos? ¿en qué orden?).
+
+### Comparación entre los rankings
+
+En general ambas estrategias arrojan resultados similares en cada una de
+las consultas, sin embargo la precisión de la estrategia **LSA** es
+mucho mas fuerte en todos los casos a excepción de la consulta litera,
+donde hubo empate técnico según nuestra métrica. Esto se debe a que la
+estrategia **LSA** a diferencia de **TF-IDF** tiene en cuenta el
+significado oculto y el contexto de los las palabras, muy importante
+para consultas en este tipo de revistas que miden variables latentes que
+describen el comportamiento humano.
+
+Un ejemplo de esta diferencia está en la consulta de casos raros,
+consultando `coffe and rain adictive behaviour` donde **LSA** encontró
+satisfactoriamente un articulo sobre las sustancias nocivas que se
+consumen durante el uso prolongado de juegos de video que menciona el
+cafe y sus derivados .
+
+# Consideraciones computacionales
+
+- La matriz TF-IDF se mantiene **dispersa** (`dgCMatrix`) en todo
+  momento; nunca se convierte a matriz densa.
+- El vocabulario se acota (mínimo 2 documentos, máximo 90 % de
+  documentos) para evitar crecimiento innecesario de dimensiones.
+- La Truncated SVD se calcula con `irlba`, que trabaja directamente
+  sobre matrices dispersas sin necesidad de densificarlas, y se limita a
+  un máximo de 200 componentes.
+- Todos los objetos pesados (matriz TF-IDF, vocabulario, idf, modelo
+  SVD) se calculan una única vez y se guardan en `./cache/*.rds`; la
+  aplicación Shiny solo los lee con `readRDS()`, sin recalcular nada por
+  cada búsqueda.
+- No se usan APIs de pago ni modelos neuronales de gran tamaño; toda la
+  representación y reducción se hace con paquetes locales (`tm`,
+  `irlba`, `Matrix`).
+
+# Reproducibilidad
+
+Para reproducir este documento y regenerar la caché usada por la
+aplicación:
+
+1.  Colocar `JBA_25_26.sqlite` en el directorio de trabajo.
+2.  Ejecutar este `.Rmd` (o `02_corpus_representacion.R` +
+    `03_funciones_busqueda.R`, que contienen el mismo pipeline
+    empaquetado para uso directo de `app.R`).
+3.  Verificar que se creó la carpeta `./cache` con `corpus.rds`,
+    `dtm_tfidf.rds`, `vocabulario.rds`, `idf.rds` y `lsa_svd.rds`.
+4.  Ejecutar `shiny::runApp("app.R")`.
