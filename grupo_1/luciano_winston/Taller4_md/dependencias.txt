@@ -1,0 +1,48 @@
+# ==============================================================================
+# DEPENDENCIAS DEL PROYECTO
+# Taller 4 -- Mineria de Datos (2016325)
+# ==============================================================================
+# Instalacion:  source("pipeline.R"); instalar_dependencias()
+# ==============================================================================
+
+
+# ------------------------------------------------------------------------------
+# APLICACION SHINY 
+# ------------------------------------------------------------------------------
+shiny              # framework
+bslib              # temas
+shinyjs            # JS desde R: navegacion entre paginas
+DT                 # tablas interactivas
+highcharter        # visualizaciones del Taller 2
+
+# ------------------------------------------------------------------------------
+# DATOS
+# ------------------------------------------------------------------------------
+DBI                # capa de acceso: permite migrar a Postgres sin tocar codigo
+RSQLite            # base de datos del corpus
+dplyr              # manipulacion
+tidyr              # unnest de autores y referencias
+purrr              # map sobre listas JSON
+jsonlite           # autores y referencias serializados
+tibble             # data frames del scraper
+stringr            # manipulacion de texto
+
+# ------------------------------------------------------------------------------
+# EXTRACCION  (sin navegador headless)
+# ------------------------------------------------------------------------------
+httr2              # cliente HTTP
+rvest              # parseo de HTML
+xml2               # backend de rvest
+
+# ------------------------------------------------------------------------------
+# RECUPERACION DE INFORMACION
+# ------------------------------------------------------------------------------
+Matrix             # matrices dispersas
+SnowballC          # stemming Porter
+stringi            # normalizacion de acentos a ASCII
+
+# ------------------------------------------------------------------------------
+# SOLO PARA CONSTRUIR EL INDICE Y EVALUAR  
+# ------------------------------------------------------------------------------
+RSpectra           # SVD truncado sin densificar la matriz
+
