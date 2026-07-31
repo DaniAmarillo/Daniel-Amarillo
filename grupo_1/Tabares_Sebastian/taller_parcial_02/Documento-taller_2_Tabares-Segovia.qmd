@@ -1,0 +1,305 @@
+---
+title: "TALLER 2: MINERÍA DE DATOS"
+subtitle: "Dashboard KDD — Nature Ecology & Evolution"
+author: "Sebastián Tabares-Segovia"
+date: "07 Junio 2026"
+lang: es-CO
+format:
+  pdf:
+    documentclass: article
+    papersize: letter
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    colorlinks: true
+    geometry: "margin=2.5cm"
+    include-in-header:
+      text: |
+        \usepackage{graphicx}
+        \usepackage{booktabs}
+        \usepackage{float}
+        \usepackage{fancyhdr}
+        \usepackage{titling}
+        \pagestyle{fancy}
+        \fancyhf{}
+        \rhead{Taller 2: Minería de Datos}
+        \lhead{Tabares-Segovia}
+        \cfoot{\thepage}
+
+        \makeatletter
+        \pretitle{
+          \begin{center}
+          \begin{minipage}{0.22\textwidth}
+          \raggedright
+          \includegraphics[height=0.9cm]{www/logo_nature.png}
+          \end{minipage}
+          \begin{minipage}{0.54\textwidth}
+          \centering
+          \textbf{\large UNIVERSIDAD NACIONAL DE COLOMBIA}\\
+          \vspace{0.2em}
+          \large Facultad de Ciencias
+          \end{minipage}
+          \begin{minipage}{0.22\textwidth}
+          \raggedleft
+          \includegraphics[height=1.4cm]{www/logo_unal.png}
+          \end{minipage}
+
+          \vspace{0.8em}
+          \hrule
+          \vspace{1.8em}
+          \LARGE
+        }
+        \posttitle{\par\end{center}\vspace{0.5em}}
+        \preauthor{\begin{center}\large}
+        \postauthor{\par\end{center}}
+        \predate{\begin{center}\large}
+        \postdate{\par\end{center}\vspace{1em}}
+        \makeatother
+---
+
+
+
+# Objetivo
+
+El objetivo de este taller es construir una aplicación interactiva en **Shiny (R)** que permita consultar, visualizar y actualizar la base de datos SQLite construida en el Taller 1, funcionando como un dashboard analítico orientado al proceso KDD visto en clase.
+
+| Etapa KDD      | Implementación en la app                            |
+|----------------|-----------------------------------------------------|
+| Recolección    | API OpenAlex + scraping `rvest` sobre nature.com    |
+| Almacenamiento | Base de datos SQLite (`nature_eco_evo_2025.sqlite`) |
+| Consulta       | Filtros dinámicos construidos en SQL desde R        |
+| Visualización  | 4 gráficos interactivos con `highcharter`           |
+| Actualización  | Botón de scraping para artículos nuevos (2026)      |
+
+# Fuente de Datos
+
+## Base de datos del Taller 1
+
+La base de datos de entrada fue construida en el Taller 1 a partir de dos fuentes:
+
+-   **API de OpenAlex**: metadatos estructurados (título, autores, DOI, abstract, citas, referencias) para los 325 artículos de Nature Ecology & Evolution publicados en 2025.
+-   **Scraping de `nature.com`**: los *Accesses* (vistas totales) fueron extraídos del HTML estático de cada artículo con pausas aleatorias de 1.5–4 segundos.
+
+## Estructura de la base de datos
+
+**Tabla `papers` (325 registros, 14 columnas):**
+
+| Columna            | Tipo    | Fuente                           |
+|--------------------|---------|----------------------------------|
+| `paper_id`         | TEXT PK | OpenAlex                         |
+| `journal_name`     | TEXT    | Fijo                             |
+| `title`            | TEXT    | OpenAlex                         |
+| `publication_date` | TEXT    | OpenAlex                         |
+| `year`             | INTEGER | OpenAlex                         |
+| `doi`              | TEXT    | OpenAlex                         |
+| `url`              | TEXT    | Construida del DOI               |
+| `abstract`         | TEXT    | OpenAlex (índice invertido)      |
+| `authors_raw`      | TEXT    | OpenAlex                         |
+| `n_authors`        | INTEGER | Conteo                           |
+| `citations`        | INTEGER | OpenAlex                         |
+| `downloads`        | INTEGER | Scraping nature.com              |
+| `n_references`     | INTEGER | OpenAlex                         |
+| `topic_label`      | TEXT    | Clasificación por palabras clave |
+
+**Tabla `paper_references` (14.981 registros):** pares `paper_id` / `reference_id`.
+
+## Validación
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+suppressPackageStartupMessages({
+  library(DBI)
+  library(RSQLite)
+  library(knitr)
+  library(dplyr)
+  library(ggplot2)
+  library(stringr)
+})
+con <- dbConnect(RSQLite::SQLite(), "nature_eco_evo_2025.sqlite")
+
+val <- dbGetQuery(con, "
+  SELECT COUNT(*) AS total_papers,
+    SUM(CASE WHEN title IS NULL THEN 1 ELSE 0 END) AS null_title,
+    SUM(CASE WHEN abstract IS NULL THEN 1 ELSE 0 END) AS null_abstract,
+    COUNT(downloads) AS con_accesses,
+    SUM(CASE WHEN downloads IS NULL THEN 1 ELSE 0 END) AS null_accesses
+  FROM papers")
+refs_n <- dbGetQuery(con, "SELECT COUNT(*) AS n FROM paper_references")$n
+
+kable(data.frame(
+  Tabla = c("papers","paper_references"),
+  Registros = c(val$total_papers, refs_n),
+  Nulls_título = c(val$null_title, NA),
+  Con_Accesses = c(val$con_accesses, NA)
+), caption = "Validación de la base de datos", booktabs = TRUE, na.rm = FALSE)
+```
+
+# Arquitectura de la Aplicación
+
+La aplicación se desarrolló en un único archivo `app.R` con el framework **Shiny** y tema `flatly` de `bslib`. Está organizada en cuatro pestañas.
+
+## Pestaña Dashboard
+
+- **Encabezado personalizado**: el navbar incluye logos institucionales, título del dashboard, nombre del autor y correo.
+-   **6 tarjetas de indicadores**: actualizadas dinámicamente según filtros.
+-   **2 tarjetas de hallazgos**: artículo más citado y con más Accesses, con hipervínculo al DOI.
+-   **4 gráficos `highcharter`**: cada uno responde al clic mostrando un modal con los artículos del subconjunto seleccionado.
+
+## Pestaña Artículos
+
+Tabla `DT::datatable` con título (hipervínculo), autores, fecha, tema, DOI, citas y Accesses. Incluye filtros por columna y descarga CSV.
+
+## Pestaña Actualizar datos
+
+Flujo de scraping al presionar el botón:
+
+1.  Recupera la fecha del último artículo en la BD.
+2.  Consulta OpenAlex por artículos posteriores a esa fecha.
+3.  Filtra duplicados.
+4.  Si hay nuevos: clasifica, scrapeea Accesses y guarda en SQLite.
+5.  Si no hay nuevos: actualiza citas de los últimos 5 artículos.
+6.  Log con timestamp de cada paso.
+
+## Pestaña Metodología
+
+Descripción del pipeline KDD, tabla de funciones nuevas y metadata de la base de datos.
+
+# Widgets Interactivos
+
+| Widget | Función Shiny | Pestaña |
+|-------------------|--------------------------------|---------------------|
+| Selector de rango de fechas | `dateRangeInput()` | Dashboard, Artículos |
+| Selección múltiple de categorías | `checkboxGroupInput()` | Dashboard |
+| Lista desplegable | `selectInput()` | Artículos |
+| Búsqueda por título | `textInput()` | Dashboard, Artículos |
+| Búsqueda por autor | `textInput()` | Dashboard, Artículos |
+| Filtro por DOI | `textInput()` | Dashboard |
+| Botón aplicar / limpiar filtros | `actionButton()` | Dashboard |
+| Botón de scraping | `actionButton()` | Actualizar |
+| Botón descarga CSV | `downloadButton()` | Artículos, Modal |
+| Tabla interactiva principal | `DT::datatable()` | Artículos |
+| Tabla modal (clic en gráfico) | `DT::datatable()` | Dashboard |
+
+Total: **11 tipos de widgets**, superando el mínimo de 3 requerido.
+
+# Indicadores Descriptivos
+
+```{r}
+#| echo: false
+ind <- dbGetQuery(con, "
+  SELECT COUNT(*) AS total_papers,
+    ROUND(AVG(n_authors),1) AS avg_autores,
+    ROUND(AVG(citations),1) AS avg_citas,
+    ROUND(AVG(n_references),1) AS avg_refs,
+    COUNT(downloads) AS con_accesses
+  FROM papers")
+
+top_c <- dbGetQuery(con,"SELECT title, citations FROM papers ORDER BY citations DESC LIMIT 1")
+top_a <- dbGetQuery(con,"SELECT title, downloads FROM papers WHERE downloads IS NOT NULL ORDER BY downloads DESC LIMIT 1")
+
+kable(data.frame(
+  Indicador = c("Total artículos","Promedio autores/paper","Promedio citas/paper",
+                "Promedio referencias/paper","Papers con Accesses",
+                "Artículo más citado","Artículo con más Accesses"),
+  Valor = c(ind$total_papers, ind$avg_autores, ind$avg_citas, ind$avg_refs,
+            ind$con_accesses,
+            paste0(substr(top_c$title,1,50),"... (", top_c$citations," citas)"),
+            paste0(substr(top_a$title,1,50),"... (", format(top_a$downloads,big.mark=",")," Accesses)"))
+), caption = "Indicadores descriptivos del dashboard", booktabs = TRUE)
+```
+
+# Visualizaciones
+
+## Artículos por categoría temática
+
+```{r}
+#| echo: false
+#| fig-height: 2.8
+#| fig-cap: "Distribución temática de los 325 artículos"
+df_t <- dbGetQuery(con,"SELECT topic_label, COUNT(*) AS n FROM papers GROUP BY topic_label ORDER BY n DESC")
+cols <- c("Otros"="#94a3b8","Machine Learning"="#8CBF3C","Estadística"="#7c3aed","IA Generativa"="#16a34a")
+ggplot(df_t, aes(x=reorder(topic_label,n), y=n, fill=topic_label)) +
+  geom_col(show.legend=FALSE) +
+  geom_text(aes(label=n), hjust=-0.2, size=3.2) +
+  scale_fill_manual(values=cols) +
+  scale_y_continuous(expand=expansion(mult=c(0,0.15))) +
+  coord_flip() + labs(x=NULL,y="N° artículos") +
+  theme_classic(base_size=10)
+```
+
+**Otros** domina con el `r round(max(df_t$n)/sum(df_t$n)*100,1)`% del total. Los artículos de ML e IA Generativa representan el `r round(sum(df_t$n[df_t$topic_label %in% c("Machine Learning","IA Generativa")])/sum(df_t$n)*100,1)`%.
+
+## Evolución temporal de publicaciones
+
+```{r}
+#| echo: false
+#| fig-height: 2.5
+#| fig-cap: "Publicaciones mensuales — Nature Ecology & Evolution 2025"
+df_m <- dbGetQuery(con,"SELECT substr(publication_date,1,7) AS mes, COUNT(*) AS n FROM papers GROUP BY mes ORDER BY mes")
+ggplot(df_m, aes(x=mes, y=n, group=1)) +
+  geom_line(color="#8CBF3C", linewidth=0.9) +
+  geom_point(color="#8CBF3C", size=1.8) +
+  labs(x="Mes", y="N° artículos") +
+  theme_classic(base_size=9) +
+  theme(axis.text.x=element_text(angle=45,hjust=1,size=7))
+```
+
+Mes pico: **`r df_m$mes[which.max(df_m$n)]`** (`r max(df_m$n)` artículos). Media: `r round(mean(df_m$n),1)` · Varianza: `r round(var(df_m$n),1)` · DE: `r round(sd(df_m$n),1)` artículos/mes.
+
+## Distribución de citas
+
+```{r}
+#| echo: false
+#| fig-height: 2.5
+#| fig-cap: "Histograma de citas por artículo. Línea azul: mediana."
+df_ci <- dbGetQuery(con,"SELECT citations FROM papers WHERE citations IS NOT NULL")
+ggplot(df_ci, aes(x=citations)) +
+  geom_histogram(bins=30, fill="#dc2626", color="white", alpha=0.85) +
+  geom_vline(xintercept=median(df_ci$citations), color="#1d4ed8", linetype="dashed") +
+  labs(x="Citas",y="Frecuencia") + theme_classic(base_size=9)
+```
+
+Mediana: `r median(df_ci$citations)` · Media: `r round(mean(df_ci$citations),1)` · Varianza: `r round(var(df_ci$citations),1)` · DE: `r round(sd(df_ci$citations),1)`. El `r round(mean(df_ci$citations==0)*100,1)`% sin citas aún.
+
+## Top 10 autores más frecuentes
+
+```{r}
+#| echo: false
+#| fig-height: 3
+#| fig-cap: "Top 10 autores con mayor número de artículos"
+aut_raw <- dbGetQuery(con,"SELECT authors_raw FROM papers WHERE authors_raw IS NOT NULL")$authors_raw
+aut_vec <- unlist(strsplit(aut_raw,"; "))
+df_au   <- sort(table(aut_vec),decreasing=TRUE) |> head(10) |> as.data.frame()
+colnames(df_au) <- c("autor","n"); df_au$n <- as.integer(df_au$n)
+ggplot(df_au, aes(x=reorder(autor,n), y=n)) +
+  geom_col(fill="#7c3aed") +
+  geom_text(aes(label=n), hjust=-0.2, size=2.8) +
+  scale_y_continuous(expand=expansion(mult=c(0,0.15))) +
+  coord_flip() + labs(x=NULL,y="N° artículos") +
+  theme_classic(base_size=8)
+dbDisconnect(con)
+```
+
+# Funciones nuevas respecto al contenido de clase
+
+| Función | Paquete | Justificación |
+|--------------------|--------------------|--------------------------------|
+| `hchart()`, `highchart()`, `renderHighchart()`, `highchartOutput()` | `highcharter` | Requerido por enunciado sección 2.1.5. Clase 11 menciona `plotly` como alternativa. |
+| `resp_body_json()` | `httr2` | Hermana de `resp_body_html()` para respuestas JSON de OpenAlex. |
+| `dbWriteTable()` | `DBI` | Inserción masiva de data frame en SQLite. |
+| `dbExecute()` | `DBI` | `UPDATE` desde R para actualizar citas. |
+| `downloadHandler()` | `shiny` | Descarga de tablas filtradas y selecciones del modal en formato CSV. |
+| `downloadHandler()` | `shiny` | Permite exportar en CSV tanto la tabla general como los subconjuntos seleccionados desde los gráficos. |
+| `JS()` | `htmlwidgets` | Click handlers en JavaScript para eventos highcharter → Shiny. |
+
+# Limitaciones
+
+-   **Variable `downloads`**: se utilizó la métrica de *Accesses* de nature.com como equivalente, aceptada por el enunciado (sección 6.1 del Taller 1).
+-   **Artículos sin abstract**: los artículos *News & Views* y *Correspondence* no tienen abstract en OpenAlex, afectando la clasificación temática.
+-   **Clasificación por palabras clave**: puede subestimar artículos con terminología muy especializada fuera de los diccionarios definidos.
+
+# Conclusión
+
+Este taller implementó el ciclo completo del proceso KDD sobre los artículos de Nature Ecology & Evolution 2025. La app demuestra cómo las decisiones de la fase de recolección condicionan las posibilidades de análisis posteriores. La funcionalidad de clic interactivo en los gráficos, que abre un modal con los artículos del subconjunto y sus estadísticas descriptivas, representa la integración más sofisticada del taller: conecta la visualización de alto nivel con el acceso granular a los datos en una sola interacción.

@@ -1,0 +1,12 @@
+# Dependencias ADICIONALES para el scraping en modo navegador
+# (Selenium + undetected-chromedriver, fiel al Taller 1).
+# Se instalan solo en ejecución local o dentro del Docker; NO en Streamlit Cloud,
+# porque allí no hay navegador con interfaz gráfica.
+#
+#   pip install -r requirements.txt -r requirements-scraper.txt
+#
+selenium>=4.20
+undetected-chromedriver>=3.5.5
+beautifulsoup4>=4.12
+requests>=2.31
+setuptools>=68

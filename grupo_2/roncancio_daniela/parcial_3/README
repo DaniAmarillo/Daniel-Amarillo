@@ -1,0 +1,51 @@
+# Instrucciones para reproducir el análisis
+
+## Requisitos
+
+- R >= 4.1.0
+- RStudio >= 2022.07
+
+## Paquetes necesarios
+
+```r
+install.packages(c("tidyverse", "lubridate", "caret", "randomForest",
+                   "pROC", "PRROC", "rpart", "rpart.plot", "vip",
+                   "scales", "broom"))
+```
+
+## Datos
+
+Colocar el archivo `db_2026.csv` en el mismo directorio que `taller_3.Rmd`.
+
+## Reproducción
+
+**Opción 1 — Documento HTML completo:**
+1. Abrir `taller_3.html` 
+
+**Opción 2 — Solo el código:**
+1. Abrir `taller_3.R` en RStudio
+2. Ejecutar con `source("taller_3.R")` o sección por sección
+
+## Tiempo estimado
+
+- Limpieza y features: ~5 minutos
+- Entrenamiento de modelos: ~30-90 minutos (Random Forest sobre 650K beneficiarios)
+
+## Archivos generados
+
+| Archivo | Descripción |
+|---|---|
+| `taller_3.html` | Reporte principal con resultados |
+| `metricas_modelos.csv` | Tabla comparativa de métricas |
+| `perfiles_costo.csv` | Costo esperado por perfil |
+| `modelo_rf.rds` | Modelo Random Forest entrenado |
+| `modelo_costo.rds` | Modelo de estimación de costos |
+
+## Estructura de la carpeta
+
+```
+├── Parcial_3.html
+├── Parcial_3.Rmd  
+├── README.md
+
+```

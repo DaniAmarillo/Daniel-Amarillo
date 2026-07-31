@@ -1,0 +1,1568 @@
+---
+title: "Taller 3 - Minería de Datos"
+subtitle: "Clasificación y estimación de costos asociados con colelitiasis (CID K80)"
+author: "Juan Andrés Camacho Zárate"
+date: "`r Sys.Date()`"
+
+output:
+  rmdformats::robobook:
+    toc_depth: 3
+    number_sections: true
+    code_folding: hide
+    highlight: tango
+
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  out.width = "96%"
+)
+
+paquetes <- c(
+  "data.table",
+  "knitr",
+  "kableExtra",
+  "scales",
+  "here"
+)
+
+faltantes <- paquetes[
+  !vapply(
+    paquetes,
+    requireNamespace,
+    logical(1),
+    quietly = TRUE
+  )
+]
+
+if (length(faltantes) > 0L) {
+  stop(
+    "Faltan estos paquetes: ",
+    paste(faltantes, collapse = ", ")
+  )
+}
+
+library(data.table)
+library(knitr)
+library(kableExtra)
+library(scales)
+library(here)
+
+ruta_resultados <- here("resultados")
+ruta_figuras <- here("figuras")
+
+archivos_requeridos <- c(
+  "diagnostico_resumen_k80.csv",
+  "diagnostico_distribucion_k80.csv",
+  "10_validacion_variables_k80.csv",
+  "11_resumen_general_variables_k80.csv",
+  "12_resumen_por_target_k80.csv",
+  "13_cuantiles_por_target_k80.csv",
+  "14_distribucion_sexo_k80.csv",
+  "15_distribucion_tipo_beneficiario_k80.csv",
+  "16_distribucion_estado_k80.csv",
+  "17_distribucion_unidad_k80.csv",
+  "18_top_especialidades_k80.csv",
+  "19_top_procedimientos_k80.csv",
+  "20_faltantes_variables_k80.csv",
+  "21_inconsistencias_variables_k80.csv",
+  "22_beneficiarios_positivos_k80.csv",
+  "30_metricas_modelos_k80.csv",
+  "31_umbrales_modelos_k80.csv",
+  "32_importancia_glmnet_k80.csv",
+  "33_importancia_random_forest_k80.csv",
+  "34_seleccion_modelo_k80.csv",
+  "35_errores_prueba_k80.csv",
+  "36_tamanos_muestras_modelos_k80.csv",
+  "40_metricas_modelos_costo_k80.csv",
+  "41_seleccion_modelo_costo_k80.csv",
+  "43_coeficientes_gamma_k80.csv",
+  "44_coeficientes_lognormal_k80.csv",
+  "45_perfiles_costo_observado_k80.csv",
+  "46_calibracion_modelo_costo_k80.csv"
+)
+
+rutas_requeridas <- file.path(
+  ruta_resultados,
+  archivos_requeridos
+)
+
+archivos_faltantes <- rutas_requeridas[
+  !file.exists(rutas_requeridas)
+]
+
+if (length(archivos_faltantes) > 0L) {
+  stop(
+    "Faltan archivos de resultados:\n",
+    paste(archivos_faltantes, collapse = "\n")
+  )
+}
+
+leer_resultado <- function(nombre) {
+  fread(
+    file.path(
+      ruta_resultados,
+      nombre
+    ),
+    encoding = "UTF-8"
+  )
+}
+
+tabla <- function(
+    datos,
+    titulo = NULL,
+    digitos = 3,
+    nombres = NULL) {
+
+  salida <- copy(
+    as.data.table(datos)
+  )
+
+  if (!is.null(nombres)) {
+    setnames(
+      salida,
+      old = names(salida),
+      new = nombres
+    )
+  }
+
+  kable(
+    salida,
+    format = "html",
+    caption = titulo,
+    digits = digitos,
+    align = "c",
+    escape = TRUE
+  ) |>
+    kable_styling(
+      bootstrap_options = c(
+        "striped",
+        "hover",
+        "condensed",
+        "responsive"
+      ),
+      full_width = FALSE,
+      position = "center"
+    )
+}
+
+fmt_entero <- function(x) {
+  scales::number(
+    x,
+    accuracy = 1,
+    big.mark = ".",
+    decimal.mark = ","
+  )
+}
+
+fmt_numero <- function(x, exactitud = 0.01) {
+  scales::number(
+    x,
+    accuracy = exactitud,
+    big.mark = ".",
+    decimal.mark = ","
+  )
+}
+
+fmt_pct <- function(x, exactitud = 0.1) {
+  scales::percent(
+    x,
+    accuracy = exactitud,
+    decimal.mark = ","
+  )
+}
+
+fmt_costo <- function(x, exactitud = 1) {
+  paste0(
+    fmt_numero(x, exactitud),
+    " unidades monetarias"
+  )
+}
+
+diagnostico <- leer_resultado(
+  "diagnostico_resumen_k80.csv"
+)
+
+distribucion_target <- leer_resultado(
+  "diagnostico_distribucion_k80.csv"
+)
+
+validacion <- leer_resultado(
+  "10_validacion_variables_k80.csv"
+)
+
+resumen_general <- leer_resultado(
+  "11_resumen_general_variables_k80.csv"
+)
+
+resumen_target <- leer_resultado(
+  "12_resumen_por_target_k80.csv"
+)
+
+cuantiles_target <- leer_resultado(
+  "13_cuantiles_por_target_k80.csv"
+)
+
+distribucion_sexo <- leer_resultado(
+  "14_distribucion_sexo_k80.csv"
+)
+
+distribucion_tipo <- leer_resultado(
+  "15_distribucion_tipo_beneficiario_k80.csv"
+)
+
+distribucion_estado <- leer_resultado(
+  "16_distribucion_estado_k80.csv"
+)
+
+distribucion_unidad <- leer_resultado(
+  "17_distribucion_unidad_k80.csv"
+)
+
+especialidades <- leer_resultado(
+  "18_top_especialidades_k80.csv"
+)
+
+procedimientos <- leer_resultado(
+  "19_top_procedimientos_k80.csv"
+)
+
+faltantes_variables <- leer_resultado(
+  "20_faltantes_variables_k80.csv"
+)
+
+inconsistencias <- leer_resultado(
+  "21_inconsistencias_variables_k80.csv"
+)
+
+positivos_k80 <- leer_resultado(
+  "22_beneficiarios_positivos_k80.csv"
+)
+
+metricas_clasificacion <- leer_resultado(
+  "30_metricas_modelos_k80.csv"
+)
+
+umbrales <- leer_resultado(
+  "31_umbrales_modelos_k80.csv"
+)
+
+importancia_glmnet <- leer_resultado(
+  "32_importancia_glmnet_k80.csv"
+)
+
+importancia_rf <- leer_resultado(
+  "33_importancia_random_forest_k80.csv"
+)
+
+seleccion_clasificacion <- leer_resultado(
+  "34_seleccion_modelo_k80.csv"
+)
+
+errores_prueba <- leer_resultado(
+  "35_errores_prueba_k80.csv"
+)
+
+tamanos_modelos <- leer_resultado(
+  "36_tamanos_muestras_modelos_k80.csv"
+)
+
+metricas_costos <- leer_resultado(
+  "40_metricas_modelos_costo_k80.csv"
+)
+
+seleccion_costos <- leer_resultado(
+  "41_seleccion_modelo_costo_k80.csv"
+)
+
+coef_gamma <- leer_resultado(
+  "43_coeficientes_gamma_k80.csv"
+)
+
+coef_lognormal <- leer_resultado(
+  "44_coeficientes_lognormal_k80.csv"
+)
+
+perfiles_costos <- leer_resultado(
+  "45_perfiles_costo_observado_k80.csv"
+)
+
+calibracion_costos <- leer_resultado(
+  "46_calibracion_modelo_costo_k80.csv"
+)
+
+n_beneficiarios <- validacion$n_beneficiarios[1]
+n_registros <- validacion$n_registros_reconstruidos[1]
+n_k80 <- validacion$n_k80[1]
+n_con_cid <- validacion$n_con_cid[1]
+
+prevalencia_global <- n_k80 / n_beneficiarios
+prevalencia_cid <- n_k80 / n_con_cid
+
+n_consultas <- resumen_general$n_consultas[1]
+n_procedimientos <- resumen_general$n_procedimientos[1]
+n_examenes <- resumen_general$n_examenes[1]
+n_terapias <- resumen_general$n_terapias[1]
+n_internaciones_registro <- resumen_general$n_internaciones[1]
+n_urgencias <- resumen_general$n_urgencias[1]
+
+q1_costo_k80 <- quantile(
+  positivos_k80$costo_total_positivo,
+  0.25,
+  names = FALSE
+)
+
+q3_costo_k80 <- quantile(
+  positivos_k80$costo_total_positivo,
+  0.75,
+  names = FALSE
+)
+
+iqr_costo_k80 <- q3_costo_k80 - q1_costo_k80
+
+umbral_atipico_k80 <-
+  q3_costo_k80 + 1.5 * iqr_costo_k80
+
+n_atipicos_k80 <- sum(
+  positivos_k80$costo_total_positivo >
+    umbral_atipico_k80
+)
+
+max_costo_k80 <- max(
+  positivos_k80$costo_total_positivo
+)
+
+rf_prueba <- metricas_clasificacion[
+  analisis == "Principal" &
+    modelo == "Random Forest" &
+    conjunto == "Prueba"
+]
+
+logit_prueba <- metricas_clasificacion[
+  analisis == "Principal" &
+    modelo ==
+      "Regresión logística regularizada" &
+    conjunto == "Prueba"
+]
+
+logit_sens_prueba <- metricas_clasificacion[
+  analisis == "Sensibilidad CID observado" &
+    modelo ==
+      "Regresión logística regularizada" &
+    conjunto == "Prueba"
+]
+
+rf_sens_prueba <- metricas_clasificacion[
+  analisis == "Sensibilidad CID observado" &
+    modelo == "Random Forest" &
+    conjunto == "Prueba"
+]
+
+costo_log_prueba <- metricas_costos[
+  modelo == "Regresión lognormal" &
+    conjunto == "Prueba"
+]
+
+costo_gamma_prueba <- metricas_costos[
+  modelo == "GLM Gamma" &
+    conjunto == "Prueba"
+]
+
+linea_base_prueba <- metricas_costos[
+  modelo == "Línea base: mediana" &
+    conjunto == "Prueba"
+]
+
+variables_disponibles <- data.table(
+  Variable = c(
+    "CID",
+    "UTI",
+    "INTERNADO",
+    "PORTE_ANESTESICO",
+    "DT_UTILIZACAO",
+    "DESC_ESPECIALIDADE",
+    "TIPO_UNIDADE_PREST_HOSPITALAR",
+    "UF_CNES_PREST_HOSPITALAR",
+    "DT_NASCIMENTO_BENEFICIARIO",
+    "TIPO_BENEFICIARIO",
+    "SEXO_BENEFICIARIO",
+    "CETIPO",
+    "CD_PROCEDIMENTO",
+    "DESCRICAO_PROCEDIMENTO",
+    "VALOR_UTILIZACAO",
+    "CHAVE_FUNCIONAL"
+  ),
+  Descripción = c(
+    "Código diagnóstico asociado a la utilización.",
+    "Indicador de paso por UCI.",
+    "Indicador de internación.",
+    "Nivel o porte anestésico.",
+    "Fecha de utilización del plan.",
+    "Especialidad del profesional o servicio.",
+    "Tipo de unidad hospitalaria.",
+    "Estado o región de la institución.",
+    "Fecha de nacimiento.",
+    "Tipo de beneficiario.",
+    "Sexo registrado.",
+    "Tipo de utilización: consulta, examen, terapia, internación, urgencia u otros.",
+    "Código del procedimiento.",
+    "Descripción del procedimiento.",
+    "Valor económico de la utilización o procedimiento.",
+    "Identificador del beneficiario."
+  )
+)
+```
+
+# Resumen ejecutivo
+
+Se analizaron **`r fmt_entero(n_beneficiarios)` beneficiarios** y **`r fmt_entero(n_registros)` registros de procedimientos o utilizaciones facturadas**. La variable objetivo identificó **`r fmt_entero(n_k80)` beneficiarios** con al menos un código CID que comienza por `K80`, equivalente a una prevalencia global observada de **`r fmt_pct(prevalencia_global, 0.001)`**.
+
+El análisis descriptivo mostró que los beneficiarios con K80 presentan mayor edad, predominio femenino, más procedimientos, mayor uso hospitalario y costos acumulados sustancialmente superiores.
+
+Se compararon una **regresión logística regularizada** y un **Random Forest probabilístico**. El Random Forest fue seleccionado en el análisis principal mediante PR-AUC de validación. En prueba alcanzó ROC-AUC de **`r fmt_numero(rf_prueba$roc_auc, 0.001)`**, PR-AUC de **`r fmt_numero(rf_prueba$pr_auc, 0.001)`**, sensibilidad de **`r fmt_pct(rf_prueba$sensibilidad, 0.1)`** y especificidad de **`r fmt_pct(rf_prueba$especificidad, 0.1)`**. El modelo ordena adecuadamente el riesgo, pero detecta solo una fracción de los casos.
+
+Como análisis de sensibilidad se restringió la cohorte a beneficiarios con algún CID registrado. La prevalencia aumentó a **`r fmt_pct(prevalencia_cid, 0.01)`** y el ROC-AUC disminuyó, lo que evidencia la influencia de la disponibilidad diagnóstica sobre el desempeño.
+
+Para el costo se seleccionó una **regresión lognormal con corrección de Duan**. En prueba obtuvo MAE de **`r fmt_costo(costo_log_prueba$mae)`**, RMSE de **`r fmt_costo(costo_log_prueba$rmse)`** y \(R^2\) de **`r fmt_numero(costo_log_prueba$r2, 0.001)`**.
+
+# Definición del problema
+
+## Contexto clínico
+
+La colelitiasis corresponde a la presencia de cálculos en la vesícula biliar o en las vías biliares. La categoría `K80` de la CIE-10 comprende subcategorías relacionadas con la localización de los cálculos, la presencia de colecistitis y la presencia de obstrucción.
+
+La elección de K80 se fundamentó en tres criterios:
+
+1. El código se encuentra representado en la base.
+2. La condición no había sido seleccionada por otro estudiante al momento del registro.
+3. La cantidad de beneficiarios y procedimientos permite realizar caracterización, clasificación y análisis de costos.
+
+La enfermedad fue registrada en la planilla compartida con el nombre **Cholelithiasis (Colelitiasis)** y el CID **K80**.
+
+## Fuentes oficiales consultadas
+
+La definición e interpretación se apoyaron en:
+
+- [OMS — ICD-10 Browser](https://icd.who.int/browse10/2019/en)
+- [OMS — International Classification of Diseases](https://www.who.int/standards/classifications/classification-of-diseases)
+- [ANS — Padrão TISS y tablas relacionadas](https://www.gov.br/ans/pt-br/assuntos/prestadores/padrao-para-troca-de-informacao-de-saude-suplementar-2013-tiss/padrao-tiss-tabelas-relacionadas)
+
+La CIE-10 se utilizó para justificar K80. Las tablas TISS/TUSS se consideraron para interpretar códigos y descripciones de procedimientos.
+
+## Diferencia entre CID y procedimiento
+
+`CID` identifica el diagnóstico asociado a una utilización. En cambio, `CD_PROCEDIMENTO` identifica el procedimiento realizado. Un procedimiento como una colecistectomía puede estar relacionado con K80, pero no reemplaza el código diagnóstico ni se utilizó para construir la etiqueta.
+
+## Variable objetivo
+
+Para cada beneficiario \(i\):
+
+\[
+Y_i =
+\begin{cases}
+1, & \text{si presenta al menos una transacción cuyo CID normalizado comienza por K80},\\
+0, & \text{en caso contrario}.
+\end{cases}
+\]
+
+La normalización eliminó puntos, espacios y caracteres no alfanuméricos. Por ello, códigos como `K80.0`, `K80.1` o `K80.2` se reconocieron mediante el prefijo `K80`.
+
+La etiqueta cero significa **ausencia de un registro K80 observado**, no ausencia clínica confirmada de colelitiasis.
+
+# Fuente de datos y granularidad
+
+## Variables disponibles
+
+```{r tabla-variables}
+tabla(
+  variables_disponibles,
+  "Variables originales utilizadas en el análisis",
+  digitos = 0
+)
+```
+
+## Niveles de análisis
+
+La base admite tres niveles:
+
+- **Beneficiario:** `CHAVE_FUNCIONAL`.
+- **Consulta o utilización aproximada:** `CHAVE_FUNCIONAL + DT_UTILIZACAO`.
+- **Procedimiento:** información de la utilización junto con `CD_PROCEDIMENTO`.
+
+La unidad del modelo de clasificación es el beneficiario. Los procedimientos se agregaron por beneficiario sin confundirlos con consultas. Debido a que no existe un identificador único de episodio, el informe presenta por separado el número de registros clasificados como consulta según `CETIPO` y el total de procedimientos.
+
+## Magnitud de la base
+
+```{r resumen-magnitud}
+resumen_magnitud <- data.table(
+  Indicador = c(
+    "Beneficiarios",
+    "Registros o procedimientos",
+    "Consultas según CETIPO",
+    "Exámenes",
+    "Terapias",
+    "Registros de internación",
+    "Registros de urgencias",
+    "Beneficiarios con algún CID",
+    "Beneficiarios con K80",
+    "Registros con K80"
+  ),
+  Valor = c(
+    n_beneficiarios,
+    n_procedimientos,
+    n_consultas,
+    n_examenes,
+    n_terapias,
+    n_internaciones_registro,
+    n_urgencias,
+    n_con_cid,
+    n_k80,
+    diagnostico[indicador == "Registros K80", valor]
+  )
+)
+
+resumen_magnitud[
+  ,
+  Valor := fmt_entero(Valor)
+]
+
+tabla(
+  resumen_magnitud,
+  "Dimensión del conjunto analizado",
+  digitos = 0
+)
+```
+
+Los exámenes constituyen el tipo de utilización más numeroso de la base, mientras que las consultas representan una fracción menor del total de registros. Esta composición confirma que una atención puede generar múltiples procedimientos y que el volumen de filas no debe interpretarse como el número de episodios clínicos independientes. Por ello, la construcción del conjunto analítico se realizó a nivel de beneficiario y los conteos de utilización se conservaron como variables separadas.
+
+# Preparación y calidad de los datos
+
+## Procesamiento reproducible
+
+La base contiene más de nueve millones de registros. Para evitar desbordamientos de memoria se leyó por bloques y se acumularon los resultados en SQLite. Las transformaciones incluyeron:
+
+- normalización de textos;
+- validación de identificadores;
+- conversión de fechas;
+- homologación de sexo y tipo de beneficiario;
+- agrupación de tipos de servicio y unidades;
+- conversión de valores monetarios;
+- identificación de costos negativos, cero y faltantes;
+- resolución modal de atributos contradictorios;
+- agregación final a una fila por beneficiario.
+
+```{r validacion-base}
+tabla(
+  validacion,
+  "Validación de la tabla analítica final",
+  digitos = 0
+)
+```
+
+La tabla final contiene exactamente una fila por beneficiario y conserva los 306 casos K80.
+
+## Distribución de la variable objetivo
+
+```{r target}
+target_tabla <- copy(
+  distribucion_target
+)
+
+setnames(
+  target_tabla,
+  c(
+    "target_k80",
+    "N",
+    "porcentaje"
+  ),
+  c(
+    "K80",
+    "Beneficiarios",
+    "Porcentaje"
+  )
+)
+
+target_tabla[
+  ,
+  K80 := fifelse(
+    K80 == 1,
+    "Con K80",
+    "Sin K80"
+  )
+]
+
+tabla(
+  target_tabla,
+  "Distribución de la variable objetivo",
+  digitos = 6
+)
+```
+
+La prevalencia extremadamente baja justifica el uso de particiones estratificadas, ponderación de clases, PR-AUC y selección de umbral fuera del conjunto de prueba.
+
+## Cobertura diagnóstica
+
+Solo **`r fmt_entero(n_con_cid)` beneficiarios** tienen algún CID registrado, equivalentes a **`r fmt_pct(n_con_cid / n_beneficiarios, 0.01)`** de la cohorte. Por esta razón se efectuaron:
+
+- un análisis principal con todos los beneficiarios;
+- un análisis de sensibilidad restringido a beneficiarios con algún CID.
+
+## Valores faltantes
+
+```{r faltantes}
+faltantes_mostrar <- copy(
+  faltantes_variables
+)
+
+setnames(
+  faltantes_mostrar,
+  c(
+    "variable",
+    "n_faltantes",
+    "porcentaje"
+  ),
+  c(
+    "Variable",
+    "Faltantes",
+    "Porcentaje"
+  )
+)
+
+faltantes_mostrar[
+  ,
+  Porcentaje :=
+    paste0(
+      fmt_numero(
+        Porcentaje,
+        0.01
+      ),
+      " %"
+    )
+]
+
+tabla(
+  faltantes_mostrar,
+  "Valores faltantes a nivel de beneficiario",
+  digitos = 0
+)
+```
+
+Los mayores faltantes corresponden al estado y a la unidad hospitalaria: ambas variables presentan exactamente 164.932 beneficiarios sin información, lo que sugiere que la ausencia se origina conjuntamente en los datos del prestador. En lugar de asignarles artificialmente la categoría más frecuente, se conservaron como `SIN INFORMACION`, permitiendo que el modelo distinguiera los registros con menor completitud. Las variables numéricas se imputaron con estadísticas aprendidas exclusivamente en entrenamiento.
+
+## Inconsistencias y tratamiento
+
+```{r inconsistencias}
+inconsistencias_largo <- melt(
+  inconsistencias,
+  measure.vars = names(inconsistencias),
+  variable.name = "Problema",
+  value.name = "Beneficiarios"
+)
+
+inconsistencias_largo[
+  ,
+  Tratamiento := c(
+    "Categoría modal del beneficiario",
+    "Fecha modal; no se encontraron discrepancias",
+    "Categoría modal del beneficiario"
+  )
+]
+
+tabla(
+  inconsistencias_largo,
+  "Inconsistencias identificadas y tratamiento",
+  digitos = 0
+)
+```
+
+Las decisiones modales evitan elegir arbitrariamente el primer registro y permiten conservar la información histórica completa. Las inconsistencias fueron poco frecuentes: aproximadamente 0,08 % de los beneficiarios presentó más de un sexo y 0,69 % más de un tipo de beneficiario. Por tanto, la resolución modal corrige contradicciones reales sin modificar sustancialmente la composición global de la cohorte.
+
+## Valores extremos y calidad de `VALOR_UTILIZACAO`
+
+En la base general se identificaron:
+
+- **`r fmt_entero(resumen_general$n_costos_negativos[1])` registros con costo negativo**;
+- **`r fmt_entero(resumen_general$n_costos_cero[1])` registros con costo cero**;
+- **`r fmt_entero(resumen_general$n_costos_faltantes[1])` costos faltantes**.
+
+Los costos negativos y cero se conservaron para auditoría, pero el modelamiento económico se efectuó sobre costos estrictamente positivos.
+
+Entre los 306 beneficiarios K80, el costo acumulado presenta:
+
+- Q1: **`r fmt_costo(q1_costo_k80, 0.01)`**;
+- mediana: **`r fmt_costo(median(positivos_k80$costo_total_positivo), 0.01)`**;
+- Q3: **`r fmt_costo(q3_costo_k80, 0.01)`**;
+- máximo: **`r fmt_costo(max_costo_k80, 0.01)`**.
+
+Mediante la regla \(Q_3 + 1.5 \times RIQ\), **`r n_atipicos_k80` beneficiarios** se clasifican como valores altos atípicos, equivalentes a cerca del 10 % de los casos K80. El máximo es aproximadamente 59 veces la mediana, evidencia de una cola derecha muy pronunciada. No se eliminaron automáticamente porque pueden corresponder a episodios reales de alta complejidad; se emplearon transformaciones y modelos apropiados para asimetría.
+
+```{r figura-distribucion-costos, echo=FALSE}
+knitr::include_graphics(
+  file.path(
+    ruta_figuras,
+    "12_distribucion_costos_k80.png"
+  )
+)
+```
+
+# Construcción y selección de variables
+
+## Agregación a nivel de beneficiario
+
+Se construyeron variables de:
+
+- edad;
+- sexo modal;
+- tipo de beneficiario modal;
+- estado y unidad predominantes;
+- número de procedimientos, consultas, exámenes, terapias y urgencias;
+- registros de internación, UCI y anestesia;
+- días de observación;
+- proporciones de cada tipo de servicio;
+- faltantes e inconsistencias;
+- costo total, promedio y máximo;
+- indicadores de cirugía, imagenología y procedimientos biliares.
+
+## Variables excluidas del clasificador
+
+No se utilizaron como predictores:
+
+- `target_k80`;
+- `n_registros_k80`;
+- `tiene_cid_registrado`;
+- costos;
+- procedimientos biliares;
+- cirugía;
+- internación.
+
+Las primeras variables definen o revelan directamente la etiqueta. Las últimas pueden representar diagnóstico o tratamiento posterior y producir fuga de información.
+
+Para el modelo de costos sí se utilizaron cirugía, internación, UCI, imagenología y procedimientos biliares, porque el objetivo económico es explicar y estimar el costo observado, no anticipar el diagnóstico.
+
+# Análisis descriptivo de la enfermedad
+
+## Edad
+
+```{r figura-edad, echo=FALSE}
+knitr::include_graphics(
+  file.path(
+    ruta_figuras,
+    "04_edad_por_target_k80.png"
+  )
+)
+```
+
+```{r tabla-edad}
+perfil_numerico <- merge(
+  resumen_target[
+    ,
+    .(
+      target_k80,
+      n_beneficiarios,
+      edad_media,
+      procedimientos_promedio,
+      consultas_promedio,
+      examenes_promedio,
+      terapias_promedio,
+      internaciones_promedio,
+      urgencias_promedio,
+      costo_total_promedio
+    )
+  ],
+  cuantiles_target,
+  by = "target_k80"
+)
+
+perfil_numerico[
+  ,
+  Grupo := fifelse(
+    target_k80 == 1,
+    "Con K80",
+    "Sin K80"
+  )
+]
+
+tabla(
+  perfil_numerico[
+    ,
+    .(
+      Grupo,
+      n_beneficiarios,
+      edad_media,
+      edad_mediana,
+      edad_q1,
+      edad_q3,
+      procedimientos_promedio,
+      procedimientos_mediana,
+      consultas_promedio,
+      examenes_promedio,
+      urgencias_promedio,
+      costo_total_promedio,
+      costo_mediano
+    )
+  ],
+  "Perfil numérico de los grupos",
+  digitos = 2
+)
+```
+
+Los casos K80 presentan una edad media 7,6 años mayor y una mediana 5 años superior. La mayor diferencia aparece en los adultos de mediana edad: el 50 % central de los casos se concentra entre 35 y 55 años, mientras que en el grupo sin K80 se extiende entre 21 y 53 años. La ausencia casi total de casos en edades infantiles contribuye a desplazar la distribución hacia edades adultas.
+
+Además, la separación no se limita a la edad. Los beneficiarios con K80 acumulan en promedio 6,3 veces más procedimientos y su mediana es 13,2 veces mayor. Esto indica que la enfermedad registrada aparece dentro de trayectorias asistenciales considerablemente más intensas.
+
+## Sexo
+
+```{r sexo}
+sexo_tabla <- copy(
+  distribucion_sexo
+)
+
+sexo_tabla[
+  ,
+  Grupo := fifelse(
+    target_k80 == 1,
+    "Con K80",
+    "Sin K80"
+  )
+]
+
+sexo_tabla[
+  ,
+  Porcentaje := 100 * n / sum(n),
+  by = target_k80
+]
+
+tabla(
+  sexo_tabla[
+    ,
+    .(
+      Grupo,
+      Sexo = sexo,
+      Beneficiarios = n,
+      Porcentaje
+    )
+  ],
+  "Distribución por sexo",
+  digitos = 2
+)
+```
+
+Las mujeres representan aproximadamente el 71,9 % de los casos K80, frente a cerca del 55,1 % del grupo sin K80. Considerando los denominadores de cada sexo, la proporción observada de K80 es aproximadamente 2,1 veces mayor entre mujeres que entre hombres. Esta comparación es coherente con el perfil descriptivo de la cohorte, pero no debe interpretarse como riesgo poblacional causal porque depende de la cobertura, la utilización y el registro diagnóstico de la base.
+
+## Tipo de beneficiario
+
+```{r tipo-beneficiario}
+tipo_tabla <- copy(
+  distribucion_tipo
+)
+
+tipo_tabla[
+  ,
+  Grupo := fifelse(
+    target_k80 == 1,
+    "Con K80",
+    "Sin K80"
+  )
+]
+
+tipo_tabla[
+  ,
+  Porcentaje := 100 * n / sum(n),
+  by = target_k80
+]
+
+tabla(
+  tipo_tabla[
+    ,
+    .(
+      Grupo,
+      `Tipo de beneficiario` =
+        tipo_beneficiario,
+      Beneficiarios = n,
+      Porcentaje
+    )
+  ],
+  "Distribución por tipo de beneficiario",
+  digitos = 2
+)
+```
+
+Los titulares representan el 57,8 % de los casos K80, frente al 51,8 % del grupo sin K80, mientras que los dependientes tienen una participación ligeramente menor entre los casos. La diferencia es moderada y puede estar parcialmente relacionada con la estructura de edad; por ello, el tipo de beneficiario se considera una variable complementaria y no una señal clínica específica.
+
+## Estado o región
+
+```{r estado}
+estado_k80 <- distribucion_estado[
+  target_k80 == 1
+][
+  order(-n)
+][
+  1:min(10, .N)
+]
+
+estado_k80[
+  ,
+  Porcentaje :=
+    100 * n / sum(
+      distribucion_estado[
+        target_k80 == 1,
+        n
+      ]
+    )
+]
+
+tabla(
+  estado_k80[
+    ,
+    .(
+      Estado = estado_predominante,
+      Beneficiarios = n,
+      Porcentaje
+    )
+  ],
+  "Principales estados entre beneficiarios K80",
+  digitos = 2
+)
+```
+
+São Paulo concentra el 73,5 % de los beneficiarios K80, frente a aproximadamente 47,3 % del grupo sin K80; Paraná reúne 10,8 % de los casos frente a cerca de 4,0 % de los no casos. Estas diferencias pueden reflejar composición de la cartera, disponibilidad de prestadores, prácticas de codificación o mayor intensidad de atención. La distribución geográfica debe interpretarse junto con la cobertura de la base y el 25,2 % de estado faltante; no representa prevalencia poblacional ni permite concluir que residir en esos estados cause mayor riesgo.
+
+## Tipo de unidad hospitalaria
+
+```{r unidad}
+unidad_k80 <- distribucion_unidad[
+  target_k80 == 1
+][
+  order(-n)
+]
+
+unidad_k80[
+  ,
+  Porcentaje := 100 * n / sum(n)
+]
+
+tabla(
+  unidad_k80[
+    ,
+    .(
+      Unidad = unidad_predominante,
+      Beneficiarios = n,
+      Porcentaje
+    )
+  ],
+  "Unidad predominante entre beneficiarios K80",
+  digitos = 2
+)
+```
+
+El hospital es la unidad predominante del 64,7 % de los beneficiarios K80, frente a cerca del 22,6 % de quienes no tienen K80. Esta diferencia es una de las señales descriptivas más marcadas y es compatible con una condición que puede requerir urgencias, internación y cirugía. Sin embargo, como la unidad se resume usando todo el periodo observado, también puede registrar consecuencias posteriores al diagnóstico; por esa razón se interpreta como parte de la trayectoria asistencial y no como un antecedente causal.
+
+## Especialidades
+
+```{r especialidades}
+especialidades_k80 <- especialidades[
+  target_k80 == 1
+][
+  order(-n_registros)
+][
+  1:min(12, .N)
+]
+
+tabla(
+  especialidades_k80[
+    ,
+    .(
+      Especialidad = especialidad,
+      Registros = n_registros
+    )
+  ],
+  "Especialidades más frecuentes en beneficiarios K80",
+  digitos = 0
+)
+```
+
+Las especialidades más frecuentes muestran dos etapas de la atención. Medicina clínica y pronto atendimento concentran el contacto inicial y la evaluación de síntomas agudos, mientras que cirugía del aparato digestivo, cirugía general, anestesiología, patología e imagenología reflejan el estudio diagnóstico y el tratamiento definitivo. La presencia simultánea de especialidades generales y quirúrgicas confirma que el costo y la utilización no provienen de un único procedimiento, sino de una ruta asistencial completa.
+
+## Procedimientos
+
+```{r procedimientos}
+procedimientos_k80 <- procedimientos[
+  target_k80 == 1
+][
+  order(-n_registros)
+][
+  1:min(15, .N)
+]
+
+tabla(
+  procedimientos_k80[
+    ,
+    .(
+      Código = codigo,
+      Procedimiento = descripcion,
+      Registros = n_registros,
+      `Costo positivo acumulado` =
+        costo_total_positivo
+    )
+  ],
+  "Procedimientos más frecuentes en beneficiarios K80",
+  digitos = 2
+)
+```
+
+Entre los procedimientos se observan colecistectomías, consultas, visitas hospitalarias, pruebas hepáticas, atención de urgencias, procedimientos anestésicos y soporte posoperatorio. Las 640 colecistectomías sin colangiografía y las 187 con colangiografía respaldan la relación clínica del grupo K80 con el tratamiento quirúrgico.
+
+El código `90101040`, correspondiente a registros no mapeados, domina tanto en frecuencia como en costo acumulado. Este hallazgo constituye una limitación de calidad: parte de la utilización no puede interpretarse clínicamente con precisión. Además, los conteos representan registros facturados y no cirugías o episodios únicos; un mismo beneficiario puede aportar varias filas asociadas con una sola atención.
+
+## Procedimientos y costos por beneficiario
+
+```{r figura-procedimientos, echo=FALSE}
+knitr::include_graphics(
+  file.path(
+    ruta_figuras,
+    "06_procedimientos_por_target_k80.png"
+  )
+)
+```
+
+```{r figura-costos, echo=FALSE}
+knitr::include_graphics(
+  file.path(
+    ruta_figuras,
+    "05_costos_por_target_k80.png"
+  )
+)
+```
+
+Las escalas logarítmicas muestran una separación marcada. La mediana de procedimientos aumenta de 5 a 66 y la mediana del costo acumulado de 329,39 a 9.119,01 unidades monetarias. En términos relativos, la mediana de costo es aproximadamente 27,7 veces mayor entre los casos, mientras que la media es cerca de 9,7 veces mayor. La diferencia entre ambas razones confirma que los valores extremos afectan especialmente al grupo sin K80 y que la mediana describe mejor al beneficiario típico.
+
+Aun así, existe superposición entre las distribuciones: algunos beneficiarios sin K80 tienen utilización y costos elevados por otras enfermedades. Por tanto, estas variables discriminan grupos, pero no son exclusivas de la colelitiasis.
+
+# Modelamiento predictivo
+
+## Particiones
+
+La separación se realizó a nivel de beneficiario, evitando que una misma persona apareciera en más de un conjunto. Se preservaron las proporciones de K80 y de disponibilidad de CID.
+
+```{r tamanos}
+tabla(
+  tamanos_modelos,
+  "Tamaños utilizados en los modelos",
+  digitos = 0
+)
+```
+
+En el análisis principal se usaron todos los positivos y una muestra determinista de 50 negativos por positivo en entrenamiento. Validación y prueba conservaron la prevalencia natural. En el análisis de sensibilidad se utilizaron todos los beneficiarios con CID observado.
+
+## Modelos comparados
+
+Se entrenaron:
+
+1. **Regresión logística regularizada:** combinación de penalización L1 y L2 mediante `glmnet`.
+2. **Random Forest probabilístico:** ensamble de árboles mediante `ranger`.
+
+La imputación, agrupación de categorías poco frecuentes y definición de niveles se aprendieron únicamente en entrenamiento.
+
+## Manejo del desbalance
+
+El desbalance se trató mediante:
+
+- particiones estratificadas;
+- muestreo controlado de negativos en entrenamiento principal;
+- pesos de clase;
+- optimización del umbral en validación;
+- evaluación con PR-AUC, F1, sensibilidad y precisión.
+
+La exactitud se reporta, pero no se usa como criterio principal porque un clasificador que predijera siempre cero obtendría una exactitud cercana al 100 %.
+
+## Métrica principal
+
+La métrica principal fue **PR-AUC**, porque resume el compromiso entre precisión y sensibilidad de la clase positiva y es informativa bajo prevalencia extrema. También se reportaron accuracy, F1, sensibilidad, especificidad y ROC-AUC, como solicita la guía.
+
+El modelo se seleccionó en validación mediante PR-AUC y el umbral se fijó maximizando F1. La prueba se reservó para evaluación final.
+
+## Resultados de clasificación
+
+```{r metricas-clasificacion}
+metricas_prueba <- metricas_clasificacion[
+  conjunto == "Prueba",
+  .(
+    analisis,
+    modelo,
+    n,
+    positivos,
+    prevalencia,
+    umbral,
+    accuracy,
+    sensibilidad,
+    especificidad,
+    precision,
+    f1,
+    roc_auc,
+    pr_auc,
+    tp,
+    tn,
+    fp,
+    fn
+  )
+]
+
+tabla(
+  metricas_prueba,
+  "Desempeño en el conjunto de prueba",
+  digitos = 4
+)
+```
+
+```{r figura-roc, echo=FALSE}
+knitr::include_graphics(
+  file.path(
+    ruta_figuras,
+    "07_curvas_roc_modelos_k80.png"
+  )
+)
+```
+
+```{r figura-pr, echo=FALSE}
+knitr::include_graphics(
+  file.path(
+    ruta_figuras,
+    "08_curvas_pr_modelos_k80.png"
+  )
+)
+```
+
+```{r figura-metricas, echo=FALSE}
+knitr::include_graphics(
+  file.path(
+    ruta_figuras,
+    "09_metricas_modelos_k80.png"
+  )
+)
+```
+
+El Random Forest fue seleccionado en el análisis principal. Su ROC-AUC supera 0,98, pero la sensibilidad es de solo 14,9 %. El modelo es eficaz para ordenar el riesgo y encontrar un grupo pequeño altamente concentrado, pero no para recuperar la mayoría de los casos.
+
+El PR-AUC de **`r fmt_numero(rf_prueba$pr_auc, 0.001)`** debe compararse con la prevalencia de **`r fmt_pct(rf_prueba$prevalencia, 0.001)`**. Equivale aproximadamente a **`r fmt_numero(rf_prueba$pr_auc / rf_prueba$prevalencia, 1)` veces** la línea base aleatoria. En el umbral seleccionado, el modelo marca 76 beneficiarios como positivos: 7 son verdaderos casos y 69 son falsas alarmas. En términos operativos, se obtiene aproximadamente un caso verdadero por cada 11 beneficiarios revisados.
+
+La referencia de desempeño superior al 85 % se alcanza en ROC-AUC, accuracy y especificidad del análisis principal. Sin embargo, esas métricas no bastan para afirmar que el problema está resuelto, pues F1, precisión y sensibilidad siguen siendo bajas. Los umbrales de 0,607 para Random Forest y 0,968 para la regresión logística tampoco deben interpretarse como probabilidades clínicas calibradas, porque el entrenamiento utilizó muestreo de negativos y ponderación de clases.
+
+## Comparación de modelos
+
+En el análisis principal, Random Forest supera a la regresión regularizada en PR-AUC, F1, precisión y sensibilidad, además de producir aproximadamente la mitad de falsos positivos. La mejora absoluta es modesta, pero consistente en las métricas orientadas a la clase positiva.
+
+En el análisis con CID observado, la regresión regularizada es más estable y fue seleccionada por PR-AUC de validación. Allí, su PR-AUC de 0,0405 representa solo unas 2,5 veces la prevalencia de 1,65 %, muy por debajo del incremento relativo de 75 veces observado en el análisis principal. La caída del ROC-AUC de 0,986 a 0,743 indica que una parte sustancial de la separación principal está vinculada con intensidad de registro y utilización, no exclusivamente con señales específicas de colelitiasis.
+
+# Interpretación de los modelos
+
+## Importancia del Random Forest
+
+```{r importancia-rf}
+top_rf <- importancia_rf[
+  analisis == "Principal"
+][
+  order(-importancia)
+][
+  1:min(12, .N)
+]
+
+tabla(
+  top_rf[
+    ,
+    .(
+      Variable = variable,
+      Importancia = importancia
+    )
+  ],
+  "Variables más importantes del Random Forest principal",
+  digitos = 5
+)
+```
+
+Las variables dominantes son la proporción de exámenes, el número total de procedimientos, el número de exámenes, las consultas, la cantidad de información faltante y el tipo de unidad. La presencia simultánea de conteos y proporciones indica que el modelo utiliza tanto la **escala** de la utilización como su **composición**.
+
+La importancia de Random Forest establece un orden relativo, pero no indica si una variable aumenta o disminuye el riesgo ni demuestra causalidad. En particular, la importancia de la información faltante probablemente refleja diferencias en prácticas de documentación o tipo de prestador, más que una característica biológica de la enfermedad.
+
+## Coeficientes de la regresión regularizada
+
+```{r importancia-logistica}
+top_logit <- importancia_glmnet[
+  analisis == "Principal" &
+    importancia_absoluta > 0
+][
+  order(-importancia_absoluta)
+][
+  1:min(12, .N)
+]
+
+tabla(
+  top_logit[
+    ,
+    .(
+      Variable = variable,
+      Coeficiente = coeficiente,
+      `Importancia absoluta` =
+        importancia_absoluta
+    )
+  ],
+  "Principales coeficientes de la regresión regularizada",
+  digitos = 4
+)
+```
+
+Los coeficientes positivos de `log_n_procedimientos`, `log_n_consultas`, la unidad hospitalaria y el sexo femenino son coherentes con el perfil descriptivo. En cambio, varias proporciones presentan coeficientes negativos. Esto no significa que los exámenes, consultas o urgencias protejan frente a K80: al incluir simultáneamente conteos totales y proporciones que compiten por sumar una parte de la utilización, cada coeficiente representa un cambio condicional manteniendo las demás variables constantes.
+
+Los efectos por estado también pueden capturar diferencias de cobertura y codificación. Por ello, los signos deben interpretarse respecto de sus categorías de referencia, dentro de este conjunto de datos, y no como efectos causales o clínicos independientes.
+
+## Relación con la enfermedad
+
+La mayor utilización, el predominio hospitalario y la composición de exámenes y consultas son coherentes con un proceso que puede implicar dolor abdominal, diagnóstico por imágenes, pruebas de laboratorio, hospitalización y cirugía. No obstante, estas señales pueden corresponder también a otras enfermedades, lo que explica falsos positivos.
+
+En conjunto, el clasificador reconoce principalmente una **trayectoria de atención compleja** asociada con K80, no factores etiológicos previos a la enfermedad. Esta distinción es fundamental: el modelo caracteriza beneficiarios cuya historia asistencial se parece a la de los casos registrados, pero no constituye un modelo prospectivo de aparición de colelitiasis.
+
+# Análisis de errores, sesgos y confiabilidad
+
+## Matrices de confusión resumidas
+
+```{r errores}
+errores_resumen <- metricas_clasificacion[
+  conjunto == "Prueba",
+  .(
+    Análisis = analisis,
+    Modelo = modelo,
+    `Verdaderos positivos` = tp,
+    `Verdaderos negativos` = tn,
+    `Falsos positivos` = fp,
+    `Falsos negativos` = fn
+  )
+]
+
+tabla(
+  errores_resumen,
+  "Errores de clasificación en prueba",
+  digitos = 0
+)
+```
+
+El Random Forest principal detectó **`r rf_prueba$tp` de `r rf_prueba$positivos` positivos** y dejó **`r rf_prueba$fn` falsos negativos**. Esto significa que omitió aproximadamente el 85,1 % de los casos presentes en prueba. A cambio, solo marcó como positivos a 76 de 98.047 beneficiarios y redujo las falsas alarmas a 69.
+
+Su especificidad y accuracy altas se deben en parte a la enorme cantidad de negativos. Por eso, la matriz de confusión confirma la misma conclusión que PR-AUC: el modelo puede servir para construir una lista pequeña de revisión prioritaria, pero no para descartar enfermedad en quienes reciben una predicción negativa.
+
+## Falsos positivos
+
+Los falsos positivos corresponden a beneficiarios con patrones de utilización intensos o similares a los casos K80, pero sin registro K80. Pueden incluir:
+
+- otras enfermedades digestivas;
+- cirugías o internaciones por otras causas;
+- casos de K80 no documentados mediante CID;
+- ruido en la codificación diagnóstica.
+
+## Falsos negativos
+
+Los falsos negativos pueden presentar menor utilización o un patrón menos característico. También pueden tener el diagnóstico registrado en pocas transacciones y una historia general semejante a la de los controles.
+
+## Posibles sesgos
+
+- **Sesgo de documentación:** solo 2,9 % de los beneficiarios tiene algún CID.
+- **Sesgo de utilización:** personas con mayor uso generan más oportunidades de registrar K80.
+- **Sesgo geográfico:** la base no representa necesariamente la población de cada estado.
+- **Sesgo temporal:** se agregan utilizaciones de todo el periodo.
+- **Sesgo de tratamiento:** algunos procedimientos pueden ser posteriores al diagnóstico.
+- **Desbalance:** 306 positivos frente a más de 653 mil beneficiarios.
+
+## Confiabilidad del modelo
+
+El modelo es confiable para **priorizar** perfiles de riesgo relativo dentro de esta base, pero no para confirmar o descartar clínicamente colelitiasis. La sensibilidad baja impide usarlo como herramienta única de tamizaje. Se requiere validación externa y una definición temporal prospectiva antes de cualquier aplicación operativa.
+
+# Estimación del costo asociado con K80
+
+## Unidad de análisis y justificación
+
+La unidad económica elegida fue el **beneficiario con al menos un registro K80**. La respuesta corresponde al costo total positivo acumulado durante el periodo observado.
+
+Esta unidad permite representar la carga económica integral asociada con consultas, exámenes, hospitalizaciones y procedimientos múltiples. Su limitación es que depende de la duración de observación y no equivale al costo de un único episodio.
+
+## Costo observado y variabilidad
+
+```{r costo-observado}
+costo_observado_tabla <- data.table(
+  Indicador = c(
+    "Beneficiarios K80",
+    "Costo promedio",
+    "Costo mediano",
+    "Q1",
+    "Q3",
+    "Máximo",
+    "Valores altos atípicos por regla IQR"
+  ),
+  Valor = c(
+    fmt_entero(nrow(positivos_k80)),
+    fmt_numero(
+      mean(positivos_k80$costo_total_positivo),
+      0.01
+    ),
+    fmt_numero(
+      median(positivos_k80$costo_total_positivo),
+      0.01
+    ),
+    fmt_numero(q1_costo_k80, 0.01),
+    fmt_numero(q3_costo_k80, 0.01),
+    fmt_numero(max_costo_k80, 0.01),
+    fmt_entero(n_atipicos_k80)
+  )
+)
+
+tabla(
+  costo_observado_tabla,
+  "Costo acumulado observado en beneficiarios K80",
+  digitos = 0
+)
+```
+
+La media supera a la mediana en aproximadamente 62 %, y 31 beneficiarios se ubican por encima del umbral de valores altos atípicos. El máximo de 541.061,89 unidades monetarias es muy superior al resto de la distribución. Por ello, el promedio representa la carga financiera total, mientras que la mediana y el rango intercuartílico describen mejor el costo del beneficiario típico.
+
+## Modelos de costo
+
+Se compararon:
+
+1. GLM Gamma con enlace log.
+2. Regresión lognormal con corrección de Duan.
+3. Línea base basada en la mediana del entrenamiento.
+
+La selección se realizó en validación por menor MAE. La prueba se usó una sola vez.
+
+```{r metricas-costos}
+tabla(
+  metricas_costos,
+  "Métricas de los modelos de costo",
+  digitos = 4
+)
+```
+
+La regresión lognormal fue seleccionada en validación. En prueba obtuvo:
+
+- MAE: **`r fmt_costo(costo_log_prueba$mae)`**;
+- RMSE: **`r fmt_costo(costo_log_prueba$rmse)`**;
+- RMSLE: **`r fmt_numero(costo_log_prueba$rmsle, 0.001)`**;
+- \(R^2\): **`r fmt_numero(costo_log_prueba$r2, 0.001)`**;
+- razón entre total predicho y observado: **`r fmt_numero(costo_log_prueba$razon_totales, 0.001)`**.
+
+En validación, la regresión lognormal redujo el MAE aproximadamente 18 % frente a la línea base y aumentó el \(R^2\) de -0,153 a 0,502. En prueba, la mejora en MAE fue más pequeña, cercana al 2 %, pero el RMSE disminuyó alrededor de 24 % y el \(R^2\) pasó de -0,171 a 0,326. Esto indica que el modelo aporta principalmente al distinguir beneficiarios de costos muy diferentes, aunque todavía comete errores absolutos grandes.
+
+Aunque Gamma obtuvo un MAE de prueba algo menor, no se cambió la selección después de observar prueba. Mantener la regresión lognormal preserva la separación metodológica entre selección en validación y evaluación final.
+
+## Observado frente a predicho
+
+```{r figura-observado-predicho, echo=FALSE}
+knitr::include_graphics(
+  file.path(
+    ruta_figuras,
+    "10_observado_vs_predicho_costo_k80.png"
+  )
+)
+```
+
+El modelo captura parte de la variación y supera la línea base, pero los puntos se dispersan ampliamente alrededor de la diagonal. Se observa el comportamiento típico de regresión hacia el centro: algunos costos bajos son sobreestimados y varios costos muy altos son subestimados. Por tanto, las predicciones son más apropiadas para comparar perfiles o estimar carga agregada que para presupuestar con precisión el costo individual de cada beneficiario.
+
+## Residuos
+
+```{r figura-residuos, echo=FALSE}
+knitr::include_graphics(
+  file.path(
+    ruta_figuras,
+    "11_residuos_modelo_costo_k80.png"
+  )
+)
+```
+
+Los residuos se concentran alrededor de cero en la zona central, pero aumentan en magnitud para algunas predicciones altas. Los residuos positivos representan subestimación del costo observado y los negativos sobreestimación. La presencia de ambos tipos de error en los extremos confirma que variables no observadas —como gravedad clínica, duración exacta de la internación o complicaciones— siguen explicando una parte importante del costo.
+
+## Calibración
+
+```{r calibracion}
+calibracion_ordenada <- copy(
+  calibracion_costos
+)
+
+calibracion_ordenada[
+  ,
+  orden := as.integer(
+    sub(
+      "Q",
+      "",
+      quintil_predicho
+    )
+  )
+]
+
+setorder(
+  calibracion_ordenada,
+  orden
+)
+
+tabla(
+  calibracion_ordenada[
+    ,
+    !"orden"
+  ],
+  "Calibración por quintiles de costo predicho",
+  digitos = 3
+)
+```
+
+El modelo presenta calibración cercana a la ideal en Q2 y Q3, con razones predicho/observado de 0,927 y 0,985. Sin embargo, subestima Q1 en cerca de 38 %, sobreestima Q4 en aproximadamente 36 % y Q5 en alrededor de 21 %. Esto muestra que el ordenamiento de riesgo económico es útil, pero la magnitud predicha requiere cautela en los extremos. Cada quintil de prueba contiene únicamente nueve o diez personas, por lo que estas diferencias también tienen alta incertidumbre muestral.
+
+## Variables relacionadas con el costo
+
+```{r coeficientes-lognormal}
+coef_significativos <- coef_lognormal[
+  termino != "(Intercept)" &
+    valor_p < 0.05
+][
+  order(valor_p)
+]
+
+tabla(
+  coef_significativos[
+    ,
+    .(
+      Término = termino,
+      Estimación = estimacion,
+      `Valor p` = valor_p,
+      `Factor multiplicativo` =
+        factor_multiplicativo
+    )
+  ],
+  "Variables significativas del modelo lognormal",
+  digitos = 4
+)
+```
+
+Manteniendo constantes las demás variables, UCI presenta el mayor factor multiplicativo: los beneficiarios con registro de UCI tienen un costo esperado cercano a 3,8 veces el de perfiles comparables sin UCI. Imagenología y procedimientos biliares se asocian con factores aproximados de 1,83 y 2,00, mientras que cirugía se relaciona con un incremento cercano al 22 %.
+
+La interpretación depende de la escala. Para `log_n_urgencias`, el factor 1,16 corresponde a un aumento de una unidad en \(\log(1+n)\), no a una urgencia adicional. Para `prop_examenes`, el factor 2,37 corresponde a un cambio extremo de 0 a 1; un aumento de 10 puntos porcentuales implica aproximadamente un 9 % de incremento esperado.
+
+Los coeficientes negativos de algunas unidades, como hospital, son efectos **condicionales** respecto de la categoría de referencia y después de controlar UCI, cirugía, urgencias y demás variables. No significan que la atención hospitalaria reduzca el costo. Todos estos resultados son asociativos, no causales.
+
+## Costo esperado bajo diferentes perfiles
+
+```{r perfiles-costos}
+perfiles_seleccionados <- perfiles_costos[
+  perfil %in% c(
+    "Sexo",
+    "Grupo de edad",
+    "Cirugía",
+    "Internación",
+    "Unidad predominante"
+  )
+]
+
+tabla(
+  perfiles_seleccionados,
+  "Costo observado bajo diferentes perfiles",
+  digitos = 2
+)
+```
+
+La internación muestra la diferencia más marcada: la mediana es cercana a 9.147 unidades monetarias entre quienes presentan internación y 470 entre los tres beneficiarios sin ella. Debido al tamaño mínimo del segundo grupo, el contraste ilustra el peso de la atención hospitalaria, pero no permite una comparación estable.
+
+Los hombres tienen una media de costo considerablemente mayor que las mujeres, aunque sus medianas son cercanas; la diferencia proviene principalmente de valores extremos masculinos. Algo similar ocurre en los grupos de 60–74 y 75 años o más: sus medias superan 28.000 unidades, mientras que las medianas permanecen alrededor de 9.400 y 10.900. La atención especializada presenta el mayor costo promedio y mediano entre las unidades con tamaño suficiente, pero cuenta con solo 30 beneficiarios. En consecuencia, para comparar perfiles deben priorizarse medianas, rangos intercuartílicos y tamaños de grupo, no únicamente promedios.
+
+# Conclusiones
+
+1. Se identificaron 306 beneficiarios con K80 entre 653.631 personas.
+2. Los casos K80 presentan mayor edad, predominio femenino, mayor utilización hospitalaria, más procedimientos y costos acumulados superiores.
+3. El Random Forest ofrece una excelente capacidad de ordenamiento global, pero sensibilidad baja.
+4. El análisis con CID observado muestra que la disponibilidad diagnóstica afecta fuertemente el desempeño.
+5. La regresión lognormal mejora la estimación económica frente a la línea base, aunque conserva incertidumbre elevada para casos extremos.
+6. UCI, imagenología, procedimientos biliares, cirugía y urgencias se asocian con mayores costos.
+7. Los resultados sirven para caracterización y priorización, no para diagnóstico clínico ni estimación individual definitiva.
+8. La intensidad de utilización explica simultáneamente buena parte de la clasificación y del costo, lo que sugiere que los modelos describen principalmente la trayectoria asistencial asociada con K80.
+
+# Respuestas a las preguntas orientadoras
+
+## ¿Qué tan bien se identificó a los beneficiarios?
+
+El modelo principal alcanzó ROC-AUC elevado, pero solo identificó 7 de 47 casos en prueba. Por tanto, ordena bien el riesgo, pero no recupera adecuadamente todos los positivos bajo el umbral escogido.
+
+## ¿Qué variables parecen más relacionadas con la enfermedad?
+
+La intensidad y composición de la utilización: proporción y número de exámenes, procedimientos, consultas, unidad predominante y disponibilidad de información. Edad y sexo aportan información adicional, pero menor que la utilización.
+
+## ¿Qué tan confiable es el modelo?
+
+Es útil como herramienta de priorización dentro de esta base. No es suficientemente sensible para descartar enfermedad ni está validado externamente. Su confiabilidad disminuye al restringir la cohorte a beneficiarios con CID observado.
+
+## ¿Qué limitaciones tiene la base?
+
+CID altamente faltante, posible subregistro, inconsistencias entre transacciones, costos extremos, falta de identificador único de episodio, representación geográfica no poblacional y ausencia de historia clínica externa.
+
+## ¿Qué limitaciones tiene la estrategia de modelamiento?
+
+Agregación de toda la historia, posible información posterior al diagnóstico, pocos positivos, muestreo de negativos para entrenamiento, pocos casos en validación y prueba de costos, y ausencia de validación externa.
+
+## ¿Qué mejoras podrían realizarse?
+
+Definir una fecha índice, usar únicamente información previa al primer K80, validar en otro periodo o institución, mejorar la cobertura de CID, construir episodios hospitalarios, incorporar códigos TUSS clínicamente validados, calibrar probabilidades y evaluar modelos con mayor sensibilidad.
+
+
+# Reproducibilidad y estructura de entrega
+
+## Archivos de código
+
+La carpeta `scripts/` incluye:
+
+| Archivo | Función |
+|---|---|
+| `00_diagnostico_K80_por_bloques.R` | Explora CID y construye la etiqueta inicial. |
+| `01_crear_particiones_k80.R` | Crea entrenamiento, validación y prueba. |
+| `02_construir_variables_K80_final.R` | Limpia, agrega y construye variables por beneficiario. |
+| `03_modelamiento_K80.R` | Entrena, compara e interpreta clasificadores. |
+| `04_modelamiento_costos_K80.R` | Ajusta y evalúa los modelos económicos. |
+
+El archivo `Taller_3.R` ejecuta el pipeline en orden. La base original debe ubicarse en:
+
+```text
+data/raw/db_2026.csv
+```
+
+Para reproducir:
+
+```r
+source("Taller_3.R")
+rmarkdown::render("taller_3.Rmd")
+```
+
+## Archivos de entrega
+
+La carpeta personal debe contener:
+
+- código reproducible;
+- Rmd;
+- HTML generado;
+- README;
+- resultados y métricas;
+- figuras;
+- modelos o salidas necesarias;
+- `.gitignore`;
+- archivos dentro de la carpeta personal del estudiante.
+
+La entrega se realiza mediante pull request al repositorio de la clase.
+
+
+# Referencias
+
+- Organización Mundial de la Salud. *ICD-10 Browser*.  
+  https://icd.who.int/browse10/2019/en
+
+- Organización Mundial de la Salud. *International Classification of Diseases*.  
+  https://www.who.int/standards/classifications/classification-of-diseases
+
+- Agência Nacional de Saúde Suplementar. *Padrão TISS y tablas relacionadas*.  
+  https://www.gov.br/ans/pt-br/assuntos/prestadores/padrao-para-troca-de-informacao-de-saude-suplementar-2013-tiss/padrao-tiss-tabelas-relacionadas

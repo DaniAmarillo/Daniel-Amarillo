@@ -1,0 +1,32 @@
+{
+  "umbral_0.5": {
+    "modelo": "RandomForest_final_umbral_0.5",
+    "umbral": 0.5,
+    "PR_AUC": 0.7159,
+    "ROC_AUC": 0.987,
+    "F1": 0.6506,
+    "Recall": 0.648,
+    "Precision": 0.6532,
+    "Accuracy": 0.9996
+  },
+  "umbral_optimo_f1": {
+    "modelo": "RandomForest_final_umbral_optimo_F1",
+    "umbral": 0.6723,
+    "PR_AUC": 0.7159,
+    "ROC_AUC": 0.987,
+    "F1": 0.682,
+    "Recall": 0.592,
+    "Precision": 0.8043,
+    "Accuracy": 0.9996
+  },
+  "umbral_recall_0.80": {
+    "modelo": "RandomForest_final_recall_0.80",
+    "umbral": 0.1664,
+    "PR_AUC": 0.7159,
+    "ROC_AUC": 0.987,
+    "F1": 0.463,
+    "Recall": 0.8,
+    "Precision": 0.3257,
+    "Accuracy": 0.9988
+  }
+}

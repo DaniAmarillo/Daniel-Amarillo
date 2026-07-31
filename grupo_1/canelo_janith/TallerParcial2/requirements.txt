@@ -1,0 +1,6 @@
+# Dependencias mínimas para que la app CORRA en Streamlit Cloud.
+# El dashboard y el scraping en modo API (Crossref) funcionan solo con esto;
+# sqlite3 forma parte de la librería estándar de Python.
+streamlit>=1.40
+pandas>=2.0
+plotly>=5.20

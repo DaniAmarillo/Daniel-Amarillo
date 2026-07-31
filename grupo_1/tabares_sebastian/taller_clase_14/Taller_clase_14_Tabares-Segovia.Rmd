@@ -1,0 +1,376 @@
+---
+title: "Taller_clase_14"
+author: "Sebastian Tabares Segovia"
+date: "2026-06-30"
+output: html_document
+---
+
+# Ejercicios de práctica - Clase 14
+
+## Dataset: Heart Disease Cleveland
+
+En este ejercicio se trabaja con el conjunto de datos **Heart Disease Cleveland**, el cual contiene información clínica de pacientes y una variable respuesta asociada con la presencia o ausencia de enfermedad cardíaca. El objetivo es ajustar árboles de decisión y comparar el desempeño de un árbol sin poda frente a un árbol podado.
+
+## 1. Cargar el dataset y revise valores faltantes
+
+```{r}
+# Paquetes necesarios
+library(rpart) #Construye el arbol de decisión
+library(rpart.plot) #Nos ayuda a visualizarlo (el arbol de decision)
+library(caret) #Caja de herramienta de machine learning
+```
+
+```{r}
+# Cargar el dataset Heart Disease Cleveland
+url <- paste0(
+  "https://archive.ics.uci.edu/ml/",
+  "machine-learning-databases/heart-disease/",
+  "processed.cleveland.data"
+)
+
+heart <- read.csv(
+  url,
+  header = FALSE,
+  na.strings = "?"
+)
+```
+
+```{r}
+# Asignar nombres a las variables
+names(heart) <- c(
+  "age", "sex", "cp", "trestbps", "chol", "fbs",
+  "restecg", "thalach", "exang", "oldpeak", "slope",
+  "ca", "thal", "target"
+)
+
+# Revisar las primeras filas
+head(heart)
+```
+
+```{r}
+# Revisar estructura del dataset
+str(heart)
+```
+
+```{r}
+# Revisar valores faltantes por variable
+colSums(is.na(heart))
+```
+
+```{r}
+# Revisar número total de valores faltantes
+sum(is.na(heart))
+```
+
+```{r}
+# Porcentaje de valores faltantes respecto al total de observaciones
+sum(is.na(heart)) / nrow(heart) * 100
+```
+
+## Interpretación
+
+El conjunto de datos fue cargado correctamente desde el repositorio de UCI. Durante la revisión de la calidad de la información se encontró que la mayoría de las variables no presentan valores faltantes. Sin embargo, las variables ca (número de vasos principales coloreados por fluoroscopia) y thal (resultado de la prueba de talio) contienen 4 y 2 valores faltantes, respectivamente, para un total de 6 observaciones incompletas.
+
+Dado que únicamente 6 de las 303 observaciones presentan información incompleta (aproximadamente el 2 % de la base de datos), en los siguientes análisis se eliminarán estos registros utilizando la función na.omit(). Esta decisión permite trabajar con un conjunto de datos completamente limpio sin afectar de manera importante el tamaño de la muestra ni la representatividad de los datos.
+
+
+
+
+### Preparación de la variable respuesta
+
+El conjunto de datos original codifica la variable respuesta (`target`) en **cinco categorías**, donde el valor **0** indica ausencia de enfermedad cardíaca y los valores **1, 2, 3 y 4** representan distintos grados de presencia de la enfermedad.
+
+Sin embargo, el objetivo de este ejercicio consiste en construir un árbol de **clasificación binaria**, diferenciando únicamente entre pacientes con y sin enfermedad cardíaca. Por esta razón, la variable respuesta se transforma en dos categorías:
+
+- **No:** ausencia de enfermedad cardíaca (`target = 0`).
+- **Sí:** presencia de enfermedad cardíaca (`target > 0`).
+
+Posteriormente, la variable se convierte al tipo `factor`, ya que este es el formato requerido por los modelos de clasificación en R.
+
+
+```{r}
+# Transformar la variable respuesta a una clasificación binaria
+heart$target <- ifelse(heart$target == 0, "No", "Si")
+heart$target <- factor(heart$target)
+
+# Verificar la distribución de la nueva variable respuesta
+table(heart$target)
+```
+
+Y posteriormente limpiamos los datos incompletos
+
+```{r}
+# Eliminar observaciones con información incompleta
+heart_limpio <- na.omit(heart)
+
+# Dimensiones del conjunto de datos limpio
+dim(heart_limpio)
+```
+
+## 2. Divida el conjunto de datos en 80 % para entrenamiento y 20 % para prueba
+
+Antes de ajustar un modelo predictivo, es necesario separar el conjunto de datos en dos subconjuntos. El primero, denominado **conjunto de entrenamiento**, se utiliza para construir el árbol de decisión, mientras que el segundo, conocido como **conjunto de prueba**, permite evaluar el desempeño del modelo sobre observaciones que no fueron utilizadas durante el entrenamiento.
+
+En este ejercicio se emplea una partición del **80 % para entrenamiento** y **20 % para prueba**. La función `createDataPartition()` del paquete **caret** realiza esta división de manera estratificada, conservando aproximadamente la misma proporción de pacientes con y sin enfermedad cardíaca en ambos subconjuntos.
+
+
+
+```{r}
+set.seed(42)
+
+indice_train <- createDataPartition(
+  heart_limpio$target,
+  p = 0.80,
+  list = FALSE
+)
+
+train <- heart_limpio[indice_train, ]
+test  <- heart_limpio[-indice_train, ]
+```
+
+
+verificamos
+
+```{r}
+# Número de observaciones
+dim(train)
+dim(test)
+```
+
+```{r}
+# Proporción de la variable respuesta
+prop.table(table(train$target))
+prop.table(table(test$target))
+```
+
+### Interpretación
+
+Después de eliminar las observaciones con valores faltantes, el conjunto de datos quedó conformado por **297 pacientes**, de los cuales **238 (80 %)** fueron asignados al conjunto de entrenamiento y **59 (20 %)** al conjunto de prueba.
+
+Adicionalmente, se verificó la distribución de la variable respuesta en ambos subconjuntos. Se observa que aproximadamente el **54 %** de los pacientes no presentan enfermedad cardíaca, mientras que el **46 %** sí la presentan, tanto en el conjunto de entrenamiento como en el de prueba.
+
+Lo anterior confirma que la función `createDataPartition()` realizó una **partición estratificada**, preservando la distribución de la variable respuesta en ambos conjuntos. Esto es importante porque permite entrenar y evaluar el modelo bajo condiciones similares, evitando sesgos derivados de una distribución desbalanceada de las clases.
+
+
+## 3. Ajuste un árbol sin poda y registre el *accuracy* en entrenamiento y prueba
+
+Un árbol de decisión es un algoritmo de aprendizaje supervisado que clasifica las observaciones mediante una secuencia de reglas construidas a partir de las variables predictoras. En este primer modelo no se aplicará ningún tipo de poda, por lo que el algoritmo crecerá el árbol hasta donde lo permitan los criterios predeterminados del paquete rpart.
+
+El objetivo de este ejercicio es evaluar qué tan bien el árbol logra clasificar la presencia o ausencia de enfermedad cardíaca tanto sobre los datos utilizados para entrenarlo como sobre un conjunto independiente de prueba.
+
+
+```{r}
+# Ajustar árbol de decisión sin poda
+arbol <- rpart(
+  target ~ .,
+  data = train,
+  method = "class"
+)
+```
+
+
+A continuación lo graficamos
+
+```{r}
+rpart.plot(arbol,
+           type = 2,
+           extra = 104,
+           fallen.leaves = TRUE)
+```
+Hacemos la predicción sobre entrenamiento *train*
+
+```{r}
+pred_train <- predict(arbol,
+                      newdata = train,
+                      type = "class")
+
+pred_train
+```
+
+Predicciones sobre prueba *test*
+
+```{r}
+pred_test <- predict(arbol,
+                     newdata = test,
+                     type = "class")
+
+pred_test
+```
+
+Exactitud en entrenamiento
+
+```{r}
+confusionMatrix(pred_train, train$target)
+```
+
+Exactitud en preuba
+
+```{r}
+confusionMatrix(pred_test, test$target)
+```
+
+### Interpretación
+
+El árbol de decisión fue ajustado utilizando el conjunto de entrenamiento y posteriormente evaluado tanto sobre los datos de entrenamiento como sobre los datos de prueba.
+
+El modelo obtuvo una exactitud (**Accuracy**) de **84.87 %** en el conjunto de entrenamiento y de **83.05 %** en el conjunto de prueba. La diferencia entre ambos resultados es de apenas **1.82 puntos porcentuales**, lo que indica que el modelo mantiene un desempeño muy similar al enfrentarse a datos no utilizados durante el entrenamiento. Esto sugiere que el árbol presenta una buena capacidad de generalización y no muestra evidencia importante de sobreajuste.
+
+Adicionalmente, el coeficiente **Kappa** fue de **0.693** para entrenamiento y **0.657** para prueba, lo que corresponde a un buen nivel de concordancia entre las predicciones del modelo y los valores reales. En conjunto, estos resultados muestran que el árbol de decisión clasifica adecuadamente la presencia o ausencia de enfermedad cardíaca antes de aplicar cualquier procedimiento de poda.
+
+
+### 4. Podar el árbol utilizando el mejor valor de complejidad (CP)
+
+Los árboles de decisión pueden crecer excesivamente y ajustarse demasiado a los datos de entrenamiento, fenómeno conocido como sobreajuste **(overfitting)**. Para reducir este riesgo, se aplica un procedimiento de poda, que consiste en eliminar aquellas ramas cuya contribución al desempeño del modelo es mínima.
+
+El paquete *rpart* estima automáticamente distintos niveles de complejidad mediante validación cruzada. A partir de estos resultados se selecciona el valor del parámetro de complejidad (CP) que minimiza el error de validación cruzada, el cual será utilizado para obtener un árbol más simple y con mejor capacidad de generalización.
+
+
+Revisamos la tabla de complejidad:
+
+```{r}
+# Tabla de complejidad del árbol
+printcp(arbol)
+```
+Grafica de error de validacion cruzada
+
+```{r}
+plotcp(arbol)
+```
+Seleccionamos el CP optimo
+
+```{r}
+# Valor de CP que minimiza el error de validación cruzada
+cp_optimo <- arbol$cptable[
+  which.min(arbol$cptable[, "xerror"]),
+  "CP"
+]
+
+cp_optimo
+```
+
+Podamos el arbol
+
+```{r}
+arbol_podado <- prune(
+  arbol,
+  cp = cp_optimo
+)
+```
+
+
+Y lo visualizamos
+
+```{r}
+rpart.plot(
+  arbol_podado,
+  type = 2,
+  extra = 104,
+  fallen.leaves = TRUE
+)
+```
+Predicciones sobre entrenamiento *train*
+
+```{r}
+pred_train_podado <- predict(
+  arbol_podado,
+  newdata = train,
+  type = "class"
+)
+
+confusionMatrix(
+  pred_train_podado,
+  train$target
+)
+```
+Predicciones sobre prueba *test*
+
+```{r}
+pred_test_podado <- predict(
+  arbol_podado,
+  newdata = test,
+  type = "class"
+)
+
+confusionMatrix(
+  pred_test_podado,
+  test$target
+)
+```
+
+### Interpretación
+
+El procedimiento de poda se realizó utilizando el valor del parámetro de complejidad (**CP = 0.010**) obtenido mediante validación cruzada. Sin embargo, al comparar los resultados del árbol original con el árbol podado se observa que ambos presentan exactamente el mismo desempeño.
+
+El **Accuracy** fue de **84.87 %** en el conjunto de entrenamiento y de **83.05 %** en el conjunto de prueba para ambos modelos. Asimismo, el coeficiente **Kappa** permaneció constante en **0.693** para entrenamiento y **0.657** para prueba.
+
+Estos resultados indican que la poda no eliminó ninguna rama del árbol, ya que el modelo construido inicialmente ya correspondía al nivel de complejidad óptimo determinado por la validación cruzada. En consecuencia, el árbol original ya presentaba un buen equilibrio entre capacidad predictiva y complejidad, por lo que la poda no produjo mejoras adicionales.
+
+
+#Parte 2
+
+### a.¿Cuál es la variable raíz? ¿Tiene sentido médicamente?
+
+```{r}
+rpart.plot(arbol_podado)
+```
+
+
+
+La variable raíz del árbol es **thal**, correspondiente al resultado de la prueba de esfuerzo con talio (*Thallium Stress Test*). Esta variable es utilizada como la primera división porque proporciona la mayor capacidad para separar pacientes con y sin enfermedad cardíaca.
+
+Desde el punto de vista médico, esta elección tiene sentido, ya que la prueba de talio permite detectar alteraciones en el flujo sanguíneo hacia el corazón y constituye una de las herramientas diagnósticas más utilizadas para evaluar enfermedad coronaria. Por esta razón, resulta razonable que el árbol la considere como la variable más importante para iniciar el proceso de clasificación.
+
+### b. ¿Cuántas hojas tiene el árbol podado?
+
+```{r}
+sum(arbol_podado$frame$var == "<leaf>")
+```
+
+El árbol podado posee **6 hojas**, las cuales representan las reglas finales de clasificación utilizadas para predecir la presencia o ausencia de enfermedad cardíaca.
+
+
+### c. Extraiga la regla de la hoja con mayor cobertura
+
+
+
+```{r}
+# Extraer solo las hojas del árbol
+hojas <- arbol_podado$frame[arbol_podado$frame$var == "<leaf>", ]
+
+# Hoja con mayor cobertura
+hoja_mayor <- hojas[which.max(hojas$n), ]
+
+# Mostrar resultado
+knitr::kable(hoja_mayor)
+```
+
+
+La hoja con mayor cobertura contiene **93 observaciones**, lo que corresponde aproximadamente al **39 %** del conjunto de entrenamiento. Esta hoja clasifica a los pacientes en la categoría **No**, es decir, ausencia de enfermedad cardíaca.
+
+La regla asociada a esta hoja es:
+
+**Si `thal < 5` y `ca < 1`, entonces el modelo clasifica al paciente como `No`.**
+
+Esta regla indica que los pacientes con valores bajos en la prueba de talio y con bajo número de vasos principales coloreados por fluoroscopia tienden a ser clasificados como pacientes sin enfermedad cardíaca.
+
+### d. ¿Qué variable tiene mayor importancia según el árbol?
+
+```{r}
+# Importancia de las variables
+arbol_podado$variable.importance
+
+
+# Importancia ordenada de mayor a menor
+sort(arbol_podado$variable.importance, decreasing = TRUE)
+```
+
+
+### Interpretación
+
+La variable con mayor importancia en el árbol de decisión fue **thal** (31.69), lo que indica que fue la característica que más contribuyó a reducir la impureza durante la construcción del modelo. Este resultado es consistente con la estructura del árbol, ya que **thal** corresponde a la variable utilizada en el nodo raíz, siendo la primera división realizada sobre la totalidad de las observaciones.
+
+En segundo y tercer lugar se ubicaron **cp** (25.36) y **thalach** (19.63), lo que evidencia que el tipo de dolor torácico y la frecuencia cardíaca máxima alcanzada durante el ejercicio también aportan una cantidad importante de información para clasificar a los pacientes según la presencia o ausencia de enfermedad cardíaca.
+
+Posteriormente aparecen **exang** (12.91), **oldpeak** (10.49), **sex** (9.13) y **ca** (6.41), las cuales contribuyen en menor medida al proceso de clasificación. Finalmente, las variables **chol** (2.18), **trestbps** (1.95), **slope** (1.86) y **age** (0.95) presentan una importancia reducida, indicando que su aporte al desempeño del árbol fue limitado.
+
+En conclusión, el árbol de decisión se basa principalmente en variables directamente relacionadas con la evaluación clínica y funcional del corazón, siendo **thal**, **cp** y **thalach** los predictores más relevantes para identificar la presencia de enfermedad cardíaca en este conjunto de datos.

@@ -1,0 +1,7 @@
+﻿analisis,conjunto,n,positivos
+Principal,Entrenamiento usado,10914,214
+Principal,Validación,98043,45
+Principal,Prueba,98047,47
+Sensibilidad CID observado,Entrenamiento usado,13265,214
+Sensibilidad CID observado,Validación,2841,45
+Sensibilidad CID observado,Prueba,2845,47

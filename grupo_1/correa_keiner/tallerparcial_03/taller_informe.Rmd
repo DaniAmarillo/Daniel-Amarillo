@@ -1,0 +1,464 @@
+---
+title: "Taller 3 - Minería de Datos"
+subtitle: "Predicción de ITU (Infección del Tracto Urinario) a partir de datos de utilización de servicios de salud"
+author: "Keiner Felipe Correa Leguizamón"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+```
+
+# 1. Introducción y objetivo
+
+Este trabajo desarrolla un análisis completo de minería de datos aplicado a una
+base real de utilización de servicios de salud, con el fin de identificar
+beneficiarios con **ITU (Infección del Tracto Urinario)**, entrenar y comparar
+modelos predictivos, interpretar los resultados y estimar el costo esperado
+asociado a la enfermedad.
+
+**Enfermedad seleccionada:** ITU (Infección del Tracto Urinario)
+**Códigos CID utilizados:** N39.0 (ITU sitio no especificado), N30
+(cistitis), N10 (pielonefritis aguda), N11 (nefritis túbulo-intersticial
+crónica), N12 (nefritis no especificada aguda o crónica).
+
+Fuente de referencia para los códigos: OMS, ICD-10 Browser
+(https://icd.who.int/browse10/2019/en).
+
+Todo el código reproducible está en `taller_3.R` 
+
+```{r cargar-resultados}
+variables_beneficiario <- readRDS("data/variables_beneficiario.rds")
+resultados_modelos     <- readRDS("data/resultados_modelos.rds")
+modelo_costo           <- readRDS("data/modelo_costo.rds")
+io                      <- readRDS("data/informe_objetos.rds")
+```
+
+# 2. Calidad de datos
+
+La base presentó un 88.6% de valores faltantes en `CID`, lo que llevó a una
+decisión metodológica clave: la variable objetivo `itu` se construyó
+exclusivamente a partir de las transacciones con `CID` no faltante, pero las
+variables predictoras a nivel de beneficiario se calcularon sobre la base
+completa, para no subestimar la
+utilización y el costo real de cada paciente. Otras variables con alto
+porcentaje de faltantes son `DESC_ESPECIALIDADE` (73.2%), `PORTE_ANESTESICO`
+(45.0%), y `TIPO_UNIDADE_PREST_HOSPITALAR` / `UF_CNES_PREST_HOSPITALAR`
+(28.8% cada una).
+
+Otros problemas identificados y su tratamiento:
+
+- **Sexo inconsistente:** `r io$inconsistencias_sexo_n` beneficiarios con más
+  de un valor de `SEXO_BENEFICIARIO` en distintas transacciones — se resolvió
+  con la moda (el valor más frecuente) por beneficiario.
+- **Fechas inválidas:** `r format(io$fechas_invalidas_total, big.mark = ".")`
+  registros con `DT_UTILIZACAO` anterior a `DT_NASCIMENTO_BENEFICIARIO` o
+  fechas futuras (`r io$fechas_invalidas_tipo$n[io$fechas_invalidas_tipo$tipo_error == "uso_antes_nacer"]`
+  del primer tipo, `r io$fechas_invalidas_tipo$n[io$fechas_invalidas_tipo$tipo_error == "uso_futuro"]`
+  del segundo) — se marcaron como `NA` en vez de eliminar la fila completa,
+  para no perder el resto de la información del registro.
+- **Valores de `VALOR_UTILIZACAO` ≤ 0:** `r format(io$valores_invalidos_n, big.mark = ".")`
+  registros — se recodificaron como `NA` (un costo de utilización no puede
+  ser negativo o cero) antes de aplicar la transformación logarítmica.
+- **Valores extremos:** detectados con criterio IQR sobre `log(VALOR_UTILIZACAO)`
+  (la variable tiene cola pesada), con un umbral de
+  \$`r format(round(io$umbral_extremo), big.mark = ".")`. Se marcaron
+  (variable `es_valor_extremo`), no se eliminaron, para permitir su uso como
+  señal en el modelamiento.
+- **Categorías con muchos faltantes** (`PORTE_ANESTESICO`,
+  `UF_CNES_PREST_HOSPITALAR`, `TIPO_UNIDADE_PREST_HOSPITALAR`): imputadas con
+  una categoría explícita ("No_aplica" / "Desconocido") en vez de eliminarse,
+  para no perder información de las demás variables del registro.
+- **Edades fuera de rango (< 0 o > 110 años):** `r io$n_edad_invalida`
+  beneficiarios, recodificados como `NA` e imputados con la mediana en la
+  tabla de modelamiento.
+
+Tras la limpieza, la base contiene `r format(io$n_filas, big.mark = ".")`
+transacciones correspondientes a `r format(io$n_beneficiarios, big.mark = ".")`
+beneficiarios únicos.
+
+```{r na-summary}
+io$na_summary %>%
+  slice_max(pct_na, n = 10) %>%
+  knitr::kable(col.names = c("Variable", "N° NA", "% NA"))
+```
+
+# 3. Construcción de la variable objetivo
+
+La variable objetivo `itu` se construyó a nivel de `CHAVE_FUNCIONAL`: un
+beneficiario recibe la etiqueta 1 si tiene al menos una transacción con un
+código CID en el conjunto `{N39.0, N30, N10, N11, N12}`, y 0 en caso
+contrario.
+
+```{r cid-codigos}
+io$cid_codigos_itu %>%
+  knitr::kable(col.names = c("Código CID", "N° transacciones"),
+               caption = "Códigos de ITU encontrados en la base (sobre transacciones con CID no faltante)")
+```
+
+El código más frecuente es, con amplio margen, `N390` (ITU de sitio no
+especificado), consistente con lo esperado en un diagnóstico registrado en
+atención primaria/urgencias sin mayor precisión etiológica.
+
+```{r distribucion-objetivo}
+variables_beneficiario %>%
+  count(itu) %>%
+  mutate(pct = round(100 * n / sum(n), 3)) %>%
+  knitr::kable(col.names = c("ITU", "N° beneficiarios", "%"))
+```
+
+La prevalencia observada es extremadamente baja
+(**`r round(100 * io$prevalencia, 3)`%**, `r io$n_personas_itu` beneficiarios
+de `r format(io$n_beneficiarios, big.mark = ".")`), lo que condicionó
+fuertemente la elección de métricas de evaluación en la sección de
+modelamiento: con esta prevalencia, un modelo sin ningún poder predictivo
+tendría un PR-AUC de referencia (piso) de aproximadamente
+**`r round(io$prevalencia, 5)`**.
+
+# 4. Construcción de variables y análisis descriptivo
+
+Las variables a nivel de beneficiario incluyen conteos de procedimientos,
+utilizaciones y especialidades, proporciones de internación y urgencias,
+costo total y promedio (con transformación logarítmica), edad, sexo, tipo de
+beneficiario, y dos señales específicas de la enfermedad seleccionada:
+`tuvo_urologia` (visita a urología/nefrología) y `tuvo_examen_orina`
+(procedimiento relacionado con urocultura/urinálisis).
+
+Se analizaron **`r format(nrow(variables_beneficiario), big.mark = ".")`
+beneficiarios**, que en conjunto registran
+**`r format(sum(variables_beneficiario$n_utilizaciones), big.mark = ".")`
+utilizaciones** (fechas únicas de atención) y
+**`r format(sum(variables_beneficiario$n_procedimientos), big.mark = ".")`
+procedimientos**.
+
+**Perfil por sexo y tipo de beneficiario.** La proporción de ITU es algo mayor
+en mujeres 0.07% vs. 0.06% en hombres y en el grupo "Titular" frente a
+"Dependiente", aunque las diferencias son pequeñas dado el tamaño reducido de
+la clase positiva:
+
+```{r sexo-tipo}
+variables_beneficiario %>%
+  count(SEXO_BENEFICIARIO, itu) %>%
+  group_by(SEXO_BENEFICIARIO) %>%
+  mutate(pct = round(100 * n / sum(n), 3)) %>%
+  knitr::kable(col.names = c("Sexo", "ITU", "N", "%"))
+
+variables_beneficiario %>%
+  count(tipo_beneficiario_grp, itu) %>%
+  group_by(tipo_beneficiario_grp) %>%
+  mutate(pct = round(100 * n / sum(n), 3)) %>%
+  knitr::kable(col.names = c("Tipo de beneficiario", "ITU", "N", "%"))
+```
+
+El hallazgo descriptivo más claro es la diferencia de edad, uso de servicios
+y costo entre ambos grupos. Los beneficiarios con ITU son en promedio
+20 años mayores, usan muchos más servicios y cuestan, en promedio, cerca de
+17 veces más que el resto:
+
+```{r perfil-edad-costo}
+variables_beneficiario %>%
+  group_by(itu) %>%
+  summarise(
+    edad_media   = round(mean(edad, na.rm = TRUE), 1),
+    procedimientos_media = round(mean(n_procedimientos), 1),
+    costo_medio  = round(mean(costo_total), 0)
+  ) %>%
+  knitr::kable(col.names = c("ITU", "Edad media", "Procedimientos (media)", "Costo total medio ($)"))
+```
+
+```{r edad-densidad, fig.height=3.2}
+ggplot(variables_beneficiario, aes(x = edad, fill = factor(itu))) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribución de edad según diagnóstico de ITU",
+       x = "Edad", fill = "ITU") +
+  theme_minimal()
+```
+
+**Distribución por estado/región del prestador hospitalario.** La variable
+`UF_CNES_PREST_HOSPITALAR` identifica el estado donde se ubica el prestador
+(28.8% de las transacciones originales no tenían esta información, imputada
+como "Desconocido"). Entre los beneficiarios con ITU, la distribución por
+estado no muestra una concentración geográfica marcada distinta a la del
+resto de la población — consistente con que la ITU es una condición común y
+no asociada a un factor regional específico:
+
+```{r estado-itu}
+io$estado_itu %>%
+  knitr::kable(col.names = c("Estado (UF)", "N° beneficiarios con ITU"),
+               caption = "Estados con más beneficiarios con ITU (top 10)")
+```
+
+**Especialidades más consultadas por beneficiarios con ITU.** Sin contar los
+registros sin especialidad informada, predominan la atención de urgencias y
+medicina general/clínica — coherente con una enfermedad que suele diagnosticarse
+y tratarse en atención de urgencias o primaria, no en consulta especializada:
+
+```{r top-especialidades}
+io$top_especialidades_itu %>%
+  filter(!is.na(DESC_ESPECIALIDADE)) %>%
+  slice_head(n = 10) %>%
+  knitr::kable(col.names = c("Especialidad", "N° transacciones"))
+```
+
+# 5. Modelamiento predictivo
+
+Se entrenaron y compararon cuatro modelos de clasificación: regresión
+logística ponderada, Random Forest (con muestreo estratificado), Gradient
+Boosting y XGBoost — todos compensando el desbalance de clases mediante pesos
+o muestreo, y evaluados sobre un conjunto de test que preserva la proporción
+real de la población (no balanceado artificialmente).
+
+La partición fue **70% entrenamiento / 15% validación / 15% test**
+(`r format(io$train_n, big.mark = ".")` / `r format(io$val_n, big.mark = ".")` /
+`r format(io$test_n, big.mark = ".")` beneficiarios). El peso asignado a la
+clase positiva en la logística y en XGBoost (`scale_pos_weight`) fue
+**`r round(io$peso_si, 2)`**, el cociente entre negativos y positivos en
+entrenamiento. El umbral de decisión de cada modelo se optimizó por F1 sobre
+el conjunto de **validación**, y se aplicó después sobre test:
+
+```{r umbrales}
+io$umbrales %>%
+  mutate(across(where(is.numeric), ~round(., 3))) %>%
+  knitr::kable(col.names = c("Modelo", "Umbral óptimo (F1 en validación)", "F1 (validación)"))
+```
+
+```{r resultados-modelos}
+resultados_modelos %>%
+  arrange(desc(pr_auc)) %>%
+  mutate(across(where(is.numeric), ~ round(., 3))) %>%
+  knitr::kable()
+```
+
+**Métrica principal:** dada la prevalencia extrema
+(`r round(100 * io$prevalencia, 3)`%), la métrica principal es PR-AUC,
+comparada contra el piso teórico de un modelo sin poder predictivo
+(≈`r round(io$prevalencia, 5)`). El mejor modelo en PR-AUC es **XGBoost**
+(PR-AUC ≈ 0.089), que representa aproximadamente
+`r round(max(resultados_modelos$pr_auc) / io$prevalencia)` veces ese piso
+— evidencia de que el modelo capta una señal real, aunque el valor absoluto
+de la métrica parezca bajo. El accuracy de todos los modelos
+supera 98% de forma casi trivial (basta con predecir "No" casi siempre), y
+debe interpretarse en relación con el piso teórico de PR-AUC en vez de en
+términos absolutos.
+
+**Elección de modelo principal.** Random Forest tiene el mejor ROC-AUC
+(0.992) y un PR-AUC muy cercano al de XGBoost (0.082 vs. 0.089). Se
+selecciona Random Forest como modelo principal para la interpretación porque ofrece el mejor balance global sensibilidad/especificidad
+sin sacrificar tanto la especificidad como XGBoost. XGBoost se reporta como
+modelo de comparación: logra el PR-AUC más alto y una sensibilidad
+marcadamente mayor (0.69 vs. 0.48 de RF), un trade-off relevante si el
+objetivo de negocio prioriza detectar más casos reales de ITU sobre minimizar
+falsas alarmas. GBM, pese a tener el mejor F1 (0.210), es el modelo con menor
+sensibilidad de los tres modelos de árboles (0.31): su umbral óptimo
+resultó muy bajo (0.08), lo que sugiere que sus probabilidades predichas
+están poco calibradas para esta clase tan rara.
+
+# 6. Interpretación de resultados
+
+**Importancia de variables (Random Forest).** Las variables más influyentes
+son, en orden: `prop_internaciones`, `costo_log`, `tuvo_examen_orina`,
+`edad` y `rango_dias`:
+
+```{r importancia-rf, fig.height=4}
+io$importancia_rf %>%
+  mutate(variable = fct_reorder(variable, MeanDecreaseGini)) %>%
+  ggplot(aes(x = variable, y = MeanDecreaseGini)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Importancia de variables — Random Forest",
+       x = NULL, y = "MeanDecreaseGini") +
+  theme_minimal()
+```
+
+Esto tiene sentido clínico: las formas más graves de ITU, como la
+pielonefritis (N10-N12), suelen requerir hospitalización, lo que explica el
+peso de `prop_internaciones` y `costo_log`. La edad es consistente con el
+perfil descriptivo en la sección 4 (58.6 vs. 38.3 años en promedio). Sin
+embargo, `tuvo_examen_orina` es una señal del proceso clínico, y `rango_dias` puede reflejar sesgo por tiempo
+de observación más que riesgo real.
+
+Los odds ratios de la regresión logística apuntan en la misma dirección:
+`prop_internaciones` tiene el efecto más fuerte por lejos (OR ≈ 712), seguido
+de `tuvo_examen_orina` (OR ≈ 5.8) y `prop_urgencias` (OR ≈ 3.6):
+
+```{r coef-logit}
+io$coef_logit %>%
+  mutate(across(where(is.numeric), ~round(., 4))) %>%
+  select(term, estimate, p.value) %>%
+  knitr::kable(col.names = c("Variable", "Odds ratio", "p-valor"),
+               caption = "Coeficientes de la logística (ordenados por magnitud del efecto)")
+```
+
+**Comparación entre modelos.** El trade-off central es sensibilidad vs.
+especificidad: Random Forest y GBM son más conservadores (mayor
+especificidad, menor sensibilidad), mientras que XGBoost y la logística
+detectan más casos reales de ITU a costa de más falsos positivos. GBM, en
+particular, quedó con la sensibilidad más baja de los modelos de árboles
+(0.31) pese a la optimización de umbral en validación, lo que sugiere que su
+score no discrimina tan bien en la cola de probabilidades bajas donde vive la
+mayoría de los positivos reales.
+
+**Análisis de errores (Random Forest, test).** Los falsos positivos son, en
+promedio, los beneficiarios de mayor edad de las tres categorías (64.8 años),
+más incluso que los verdaderos positivos; los falsos negativos son más
+jóvenes que los aciertos con ITU pero más viejos que el promedio general
+(47.3 años):
+
+```{r analisis-errores}
+io$test_con_pred_resumen %>%
+  mutate(across(where(is.numeric), ~round(., 2))) %>%
+  knitr::kable(col.names = c("Grupo", "N", "Edad media", "Costo medio ($)",
+                             "Prop. internaciones", "% con examen de orina"))
+```
+
+Esto sugiere que el modelo confunde ITU con "paciente mayor con
+hospitalización severa en general"  comparte el perfil de edad y de
+internación con otras enfermedades graves, y probablemente detecta mejor los
+casos donde además hay una urocultura/urinálisis registrado (predictor que,
+como se discute abajo, es consecuencia de la sospecha clínica y no un factor
+de riesgo previo).
+
+**Sesgos y limitaciones:**
+
+- La variable objetivo depende del subregistro del CID: solo el 11.4% de las
+  transacciones tienen CID informado, por lo que la prevalencia real de ITU
+  es casi con certeza mayor a la observada (0.064%).
+- `rango_dias` como variable importante sugiere sesgo por tiempo de
+  observación: a más historial en la base, más oportunidad de que quede
+  registrado un diagnóstico.
+- `tuvo_examen_orina` es un predictor "río abajo" del proceso clínico (pedir
+  una urocultura ya refleja sospecha médica de ITU), lo que puede limitar la
+  generalización del modelo a contextos donde ese detalle no se registre.
+- Se evaluó ROSE como estrategia adicional de balanceo, pero no resultó
+  compatible con las variables categóricas del modelo sin trabajo adicional
+  de codificación; se optó por mantener class weights y muestreo
+  estratificado (sampsize/strata), técnicas estándar y más fáciles de
+  justificar metodológicamente.
+
+# 7. Estimación del costo asociado a ITU
+
+El costo promedio por beneficiario es notablemente mayor en el grupo con ITU
+($`r format(round(io$costo_por_grupo$costo_medio[io$costo_por_grupo$itu == "Si"]), big.mark = ".")`
+frente a
+$`r format(round(io$costo_por_grupo$costo_medio[io$costo_por_grupo$itu == "No"]), big.mark = ".")`
+en el grupo sin ITU):
+
+```{r costo-por-grupo}
+io$costo_por_grupo %>%
+  mutate(across(where(is.numeric), ~round(., 1))) %>%
+  knitr::kable(col.names = c("ITU", "N", "Costo medio ($)", "Costo mediana ($)","Desv. estándar", "Percentil 90"))
+```
+
+```{r costo-boxplot, fig.height=3.5}
+variables_beneficiario %>%
+  mutate(itu = factor(itu, levels = c(0, 1), labels = c("No", "Si"))) %>%
+  ggplot(aes(x = itu, y = costo_total)) +
+  geom_boxplot(fill = c("#90A4AE", "#6A1B9A")) +
+  scale_y_log10() +
+  labs(title = "Costo total por beneficiario según diagnóstico de ITU",
+       x = "ITU", y = "Costo total (log10)") +
+  theme_minimal()
+```
+
+Sin embargo, esta brecha se explica en gran parte por la mayor utilización de
+servicios (internaciones, urgencias, número de utilizaciones) del grupo con
+ITU, y no por un efecto independiente del diagnóstico en sí. Un modelo GLM
+Gamma (log-link) que controla por edad, sexo, tipo de beneficiario y variables
+de utilización muestra que, una vez controlado por esto, el coeficiente de
+`itu` deja de ser significativo (p ≈ 0.77) y su magnitud cae a
+prácticamente 1 (ligeramente por debajo):
+
+```{r coef-costo}
+io$coef_costo %>%
+  mutate(across(where(is.numeric), ~round(., 4))) %>%
+  select(term, estimate, p.value) %>%
+  knitr::kable(col.names = c("Variable", "Efecto multiplicativo", "p-valor"),
+               caption = "Modelo de costo (GLM Gamma, log-link) — efectos controlando por utilización")
+```
+
+En contraste, un modelo simple sin controlar por utilización (solo edad, sexo,
+tipo de beneficiario e ITU) sí muestra un efecto ITU enorme y significativo
+(`r round(io$efecto_itu_simple$estimate, 1)`x el costo esperado,
+p `r ifelse(io$efecto_itu_simple$p.value < 0.001, "< 0.001", paste("=", round(io$efecto_itu_simple$p.value, 3)))`):
+
+```{r efecto-itu-simple}
+io$efecto_itu_simple %>%
+  mutate(across(where(is.numeric), ~round(., 3))) %>%
+  select(term, estimate, conf.low, conf.high, p.value) %>%
+  knitr::kable(col.names = c("Variable", "Efecto multiplicativo", "IC 95% inf.", "IC 95% sup.", "p-valor"))
+```
+
+**Interpretación:** el diagnóstico de ITU en sí mismo no encarece
+adicionalmente la atención una vez que se sabe cuántas internaciones,
+urgencias y utilizaciones tuvo el beneficiario — el costo elevado observado
+en la sección descriptiva refleja que los pacientes con ITU (sobre todo
+formas graves como pielonefritis) *usan más servicios*, y es ese mayor uso,
+no la etiqueta diagnóstica per se, lo que explica el costo. Esto es
+consistente con el hallazgo de la sección 6: el perfil predictor más fuerte
+para detectar ITU es también el perfil predictor más fuerte del costo
+(`prop_internaciones`, `n_internaciones`).
+
+Los perfiles predichos bajo un beneficiario "tipo" (edad y demás variables en
+su mediana/moda) confirman esto — el costo esperado es prácticamente el
+mismo con y sin ITU:
+
+```{r perfiles-itu}
+io$perfiles_itu %>%
+  mutate(costo_esperado = round(costo_esperado, 2)) %>%
+  knitr::kable(col.names = c("ITU", "Costo esperado ($)"))
+```
+
+# 8. Conclusiones, limitaciones y trabajos futuros
+
+**¿Qué tan bien se logró identificar a los beneficiarios asociados a ITU?**
+De forma moderada pero real: el mejor modelo (XGBoost) alcanza un PR-AUC
+≈`r round(max(resultados_modelos$pr_auc), 3)`, cerca de
+`r round(max(resultados_modelos$pr_auc) / io$prevalencia)` veces el piso
+teórico de un modelo sin poder predictivo (≈`r round(io$prevalencia, 5)`).
+El ROC-AUC de todos los modelos es alto (>0.93), pero bajo una prevalencia
+tan extrema esta métrica es engañosamente optimista; el PR-AUC —bajo en
+términos absolutos, pero claramente por encima del piso— es la lectura
+correcta del desempeño real.
+
+**¿Qué variables parecen estar más relacionadas con la enfermedad?**
+`prop_internaciones`, `costo_log`, `tuvo_examen_orina`, `edad` y
+`rango_dias` (sección 6). De estas, la edad es el único factor de riesgo
+claramente pre-existente; el resto son en gran medida reflejo del proceso de
+atención (internación, sospecha clínica) más que factores de riesgo previos.
+
+**¿Qué tan confiable es el modelo construido?** Con solo
+`r io$n_personas_itu` casos positivos sobre
+`r format(io$n_beneficiarios, big.mark = ".")` beneficiarios, las métricas de
+test (especialmente sensibilidad y F1) tienen incertidumbre considerable: un
+puñado de casos mal o bien clasificados cambia las métricas de forma notoria.
+El modelo es razonablemente confiable para *priorizar* beneficiarios de mayor
+riesgo relativo, no para un diagnóstico individual definitivo.
+
+**¿Qué limitaciones tiene la base de datos?** El subregistro de CID (88.6% de
+transacciones sin diagnóstico) implica que la etiqueta `itu` probablemente
+subestima la prevalencia real. La base cubre solo la utilización dentro del
+plan de salud analizado, y `rango_dias` sugiere un sesgo por tiempo de
+observación: quienes llevan más tiempo en la base tienen más oportunidad de
+que se registre un diagnóstico.
+
+**¿Qué limitaciones tiene la estrategia de modelamiento utilizada?** La clase
+positiva extremadamente pequeña (419 casos) limita la robustez de las
+métricas de test y hace sensibles los resultados a la partición específica
+usada. ROSE no fue viable con las variables categóricas del modelo sin
+recodificación adicional, por lo que se usaron class weights y muestreo
+estratificado como alternativa estándar.
+
+**¿Qué mejoras podrían realizarse en un trabajo futuro?** Validación cruzada
+estratificada para métricas más robustas y con intervalos de incertidumbre;
+incorporar variables de texto de `DESCRICAO_PROCEDIMENTO` (p. ej. vía NLP
+simple) como señal adicional menos dependiente del CID; y explorar una
+ventana temporal explícita (predecir ITU futura con historial pasado) para
+reducir el sesgo de `rango_dias` y la posible fuga de información de
+variables como `tuvo_examen_orina`.
+

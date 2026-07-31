@@ -1,0 +1,4 @@
+﻿particion,n_beneficiarios,n_k80,n_controles_con_otro_cid,prevalencia_k80_pct
+entrenamiento,13265,214,13051,1.61326799849227
+validacion,2841,45,2796,1.58394931362196
+prueba,2845,47,2798,1.65202108963093

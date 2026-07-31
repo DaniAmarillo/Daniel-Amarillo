@@ -1,0 +1,241 @@
+consulta,estrategia,posicion,paper_id,titulo,puntaje,relevante
+C1,bm25,1,18,HexHex: Highspeed Extraction of Hexahedral Meshes,21.38679,True
+C1,bm25,2,19,TetWeave: Isosurface Extraction using On-The-Fly Delaunay Tetrahedral Grids for Gradient-Based Mesh Optimization,10.65631,True
+C1,bm25,3,132,Direct Rendering of Intrinsic Triangulations,7.95362,False
+C1,bm25,4,12,Dynamic Mesh Processing on the GPU,4.24629,False
+C1,bm25,5,175,IMLS-Splatting: Efficient Mesh Reconstruction from Multi-view Images via Point Representation,4.10825,True
+C1,bm25,6,149,NeurCross: A Neural Approach to Computing Cross Fields for Quad Mesh Generation,4.08952,True
+C1,bm25,7,28,Single Edge Collapse Quad-Dominant Mesh Reduction,3.79532,True
+C1,bm25,8,182,Piecewise Ruled Approximation for Freeform Mesh Surfaces,3.777,False
+C1,bm25,9,88,"Exact Predicates, Exact Constructions and Combinatorics for Mesh CSG.",3.75299,False
+C1,bm25,10,78,Simplifying Textured Triangle Meshes in the Wild,3.61705,True
+C1,lsa,1,18,HexHex: Highspeed Extraction of Hexahedral Meshes,0.79219,True
+C1,lsa,2,19,TetWeave: Isosurface Extraction using On-The-Fly Delaunay Tetrahedral Grids for Gradient-Based Mesh Optimization,0.78717,True
+C1,lsa,3,88,"Exact Predicates, Exact Constructions and Combinatorics for Mesh CSG.",0.6294,False
+C1,lsa,4,132,Direct Rendering of Intrinsic Triangulations,0.6227,False
+C1,lsa,5,78,Simplifying Textured Triangle Meshes in the Wild,0.54387,True
+C1,lsa,6,28,Single Edge Collapse Quad-Dominant Mesh Reduction,0.53753,True
+C1,lsa,7,175,IMLS-Splatting: Efficient Mesh Reconstruction from Multi-view Images via Point Representation,0.53458,True
+C1,lsa,8,32,Rectangular Surface Parameterization,0.51894,False
+C1,lsa,9,79,Fast Galerkin Multigrid Method for Unstructured Meshes,0.44991,False
+C1,lsa,10,154,Optimal r-Adaptive In-Timestep Remeshing for Elastodynamics,0.44923,True
+C1,tfidf,1,18,HexHex: Highspeed Extraction of Hexahedral Meshes,0.31738,True
+C1,tfidf,2,19,TetWeave: Isosurface Extraction using On-The-Fly Delaunay Tetrahedral Grids for Gradient-Based Mesh Optimization,0.26237,True
+C1,tfidf,3,132,Direct Rendering of Intrinsic Triangulations,0.19839,False
+C1,tfidf,4,175,IMLS-Splatting: Efficient Mesh Reconstruction from Multi-view Images via Point Representation,0.10972,True
+C1,tfidf,5,12,Dynamic Mesh Processing on the GPU,0.09794,False
+C1,tfidf,6,149,NeurCross: A Neural Approach to Computing Cross Fields for Quad Mesh Generation,0.09475,True
+C1,tfidf,7,182,Piecewise Ruled Approximation for Freeform Mesh Surfaces,0.07634,False
+C1,tfidf,8,88,"Exact Predicates, Exact Constructions and Combinatorics for Mesh CSG.",0.07629,False
+C1,tfidf,9,154,Optimal r-Adaptive In-Timestep Remeshing for Elastodynamics,0.076,True
+C1,tfidf,10,28,Single Edge Collapse Quad-Dominant Mesh Reduction,0.07516,True
+C1,hibrido,1,18,HexHex: Highspeed Extraction of Hexahedral Meshes,0.03279,True
+C1,hibrido,2,19,TetWeave: Isosurface Extraction using On-The-Fly Delaunay Tetrahedral Grids for Gradient-Based Mesh Optimization,0.03226,True
+C1,hibrido,3,132,Direct Rendering of Intrinsic Triangulations,0.0315,False
+C1,hibrido,4,88,"Exact Predicates, Exact Constructions and Combinatorics for Mesh CSG.",0.03037,False
+C1,hibrido,5,175,IMLS-Splatting: Efficient Mesh Reconstruction from Multi-view Images via Point Representation,0.03031,True
+C1,hibrido,6,28,Single Edge Collapse Quad-Dominant Mesh Reduction,0.03008,True
+C1,hibrido,7,12,Dynamic Mesh Processing on the GPU,0.02971,False
+C1,hibrido,8,78,Simplifying Textured Triangle Meshes in the Wild,0.02967,True
+C1,hibrido,9,149,NeurCross: A Neural Approach to Computing Cross Fields for Quad Mesh Generation,0.02904,True
+C1,hibrido,10,154,Optimal r-Adaptive In-Timestep Remeshing for Elastodynamics,0.02837,True
+C2,bm25,1,179,VR-Doh: Hands-on 3D Modeling in Virtual Reality,8.35107,False
+C2,bm25,2,71,A Highly-Efficient Hybrid Simulation System for Flight Controller Design and Evaluation of Unmanned Aerial Vehicles,8.32169,False
+C2,bm25,3,177,A Deep Learning-based Virtual Oculoplastic Surgery Simulator,5.48202,False
+C2,bm25,4,168,Creating Fluid-Interactive Virtual Agents by an Efficient Simulator with Local-domain Control,5.45372,True
+C2,bm25,5,31,ViSA: Physics-based Virtual Stunt Actors for Ballistic Stunts,5.09661,True
+C2,bm25,6,72,CFC: Simulating Character-Fluid Coupling using a Two-Level World Model,4.62364,True
+C2,bm25,7,147,Order Matters: Learning Element Ordering for Graphic Design Generation,4.34233,False
+C2,bm25,8,87,NESI: Neural Explicit-Shape-Intersection-Based Geometry Representation,4.23531,False
+C2,bm25,9,186,WishGI: Lightweight Static Global Illumination Baking via Spherical Harmonics Fitting,3.68244,False
+C2,bm25,10,106,TokenVerse: Versatile Multi-concept Personalization in Token Modulation Space,3.30661,False
+C2,lsa,1,31,ViSA: Physics-based Virtual Stunt Actors for Ballistic Stunts,0.70738,True
+C2,lsa,2,177,A Deep Learning-based Virtual Oculoplastic Surgery Simulator,0.65593,False
+C2,lsa,3,30,PhysicsFC: Learning User-Controlled Skills for a Physics-Based Football Player Controller,0.61515,True
+C2,lsa,4,168,Creating Fluid-Interactive Virtual Agents by an Efficient Simulator with Local-domain Control,0.58141,True
+C2,lsa,5,179,VR-Doh: Hands-on 3D Modeling in Virtual Reality,0.51911,False
+C2,lsa,6,200,Policy-Space Diffusion for Physics-Based Character Animation,0.48244,True
+C2,lsa,7,166,Learning to Assemble with Alternative Plans,0.42402,False
+C2,lsa,8,161,CAST: Component-Aligned 3D Scene Reconstruction from an RGB Image,0.42234,False
+C2,lsa,9,71,A Highly-Efficient Hybrid Simulation System for Flight Controller Design and Evaluation of Unmanned Aerial Vehicles,0.41723,False
+C2,lsa,10,167,Designing Pin-pression Gripper and Learning its Dexterous Grasping with Online In-hand Adjustment,0.40494,False
+C2,tfidf,1,179,VR-Doh: Hands-on 3D Modeling in Virtual Reality,0.16569,False
+C2,tfidf,2,177,A Deep Learning-based Virtual Oculoplastic Surgery Simulator,0.12896,False
+C2,tfidf,3,31,ViSA: Physics-based Virtual Stunt Actors for Ballistic Stunts,0.12431,True
+C2,tfidf,4,168,Creating Fluid-Interactive Virtual Agents by an Efficient Simulator with Local-domain Control,0.10221,True
+C2,tfidf,5,72,CFC: Simulating Character-Fluid Coupling using a Two-Level World Model,0.09354,True
+C2,tfidf,6,147,Order Matters: Learning Element Ordering for Graphic Design Generation,0.0844,False
+C2,tfidf,7,87,NESI: Neural Explicit-Shape-Intersection-Based Geometry Representation,0.08306,False
+C2,tfidf,8,186,WishGI: Lightweight Static Global Illumination Baking via Spherical Harmonics Fitting,0.05941,False
+C2,tfidf,9,167,Designing Pin-pression Gripper and Learning its Dexterous Grasping with Online In-hand Adjustment,0.05807,False
+C2,tfidf,10,106,TokenVerse: Versatile Multi-concept Personalization in Token Modulation Space,0.05732,False
+C2,hibrido,1,177,A Deep Learning-based Virtual Oculoplastic Surgery Simulator,0.032,False
+C2,hibrido,2,179,VR-Doh: Hands-on 3D Modeling in Virtual Reality,0.03178,False
+C2,hibrido,3,31,ViSA: Physics-based Virtual Stunt Actors for Ballistic Stunts,0.03178,True
+C2,hibrido,4,168,Creating Fluid-Interactive Virtual Agents by an Efficient Simulator with Local-domain Control,0.03125,True
+C2,hibrido,5,71,A Highly-Efficient Hybrid Simulation System for Flight Controller Design and Evaluation of Unmanned Aerial Vehicles,0.03062,False
+C2,hibrido,6,30,PhysicsFC: Learning User-Controlled Skills for a Physics-Based Football Player Controller,0.02903,True
+C2,hibrido,7,161,CAST: Component-Aligned 3D Scene Reconstruction from an RGB Image,0.02859,False
+C2,hibrido,8,72,CFC: Simulating Character-Fluid Coupling using a Two-Level World Model,0.02814,True
+C2,hibrido,9,200,Policy-Space Diffusion for Physics-Based Character Animation,0.02781,True
+C2,hibrido,10,167,Designing Pin-pression Gripper and Learning its Dexterous Grasping with Online In-hand Adjustment,0.02762,False
+C3,bm25,1,24,Arenite: A Physics-based Sandstone Simulator,7.78542,True
+C3,bm25,2,107,Adaptive Phase-Field-FLIP for Very Large Scale Two-Phase Fluid Simulation,5.86491,True
+C3,bm25,3,140,Neurally Integrated Finite Elements for Differentiable Elasticity on Evolving Domains,5.32046,True
+C3,bm25,4,203,Reliable Iterative Dynamics: A Versatile Method for Fast and Robust Simulation,4.98736,True
+C3,bm25,5,30,PhysicsFC: Learning User-Controlled Skills for a Physics-Based Football Player Controller,4.98683,True
+C3,bm25,6,41,Diffuse-CLoC: Guided Diffusion for Physics-based Character Look-ahead Control,4.80218,True
+C3,bm25,7,54,C5D: Sequential Continuous Convex Collision Detection Using Cone Casting,4.75771,True
+C3,bm25,8,31,ViSA: Physics-based Virtual Stunt Actors for Ballistic Stunts,4.70372,True
+C3,bm25,9,200,Policy-Space Diffusion for Physics-Based Character Animation,4.62157,True
+C3,bm25,10,155,Augmented Vertex Block Descent,4.44125,True
+C3,lsa,1,24,Arenite: A Physics-based Sandstone Simulator,0.77083,True
+C3,lsa,2,168,Creating Fluid-Interactive Virtual Agents by an Efficient Simulator with Local-domain Control,0.64774,False
+C3,lsa,3,31,ViSA: Physics-based Virtual Stunt Actors for Ballistic Stunts,0.55798,True
+C3,lsa,4,30,PhysicsFC: Learning User-Controlled Skills for a Physics-Based Football Player Controller,0.54307,True
+C3,lsa,5,25,CK-MPM: A Compact-Kernel Material Point Method,0.52042,True
+C3,lsa,6,54,C5D: Sequential Continuous Convex Collision Detection Using Cone Casting,0.51892,True
+C3,lsa,7,107,Adaptive Phase-Field-FLIP for Very Large Scale Two-Phase Fluid Simulation,0.51264,True
+C3,lsa,8,140,Neurally Integrated Finite Elements for Differentiable Elasticity on Evolving Domains,0.50279,True
+C3,lsa,9,200,Policy-Space Diffusion for Physics-Based Character Animation,0.48644,True
+C3,lsa,10,203,Reliable Iterative Dynamics: A Versatile Method for Fast and Robust Simulation,0.48589,True
+C3,tfidf,1,24,Arenite: A Physics-based Sandstone Simulator,0.22734,True
+C3,tfidf,2,107,Adaptive Phase-Field-FLIP for Very Large Scale Two-Phase Fluid Simulation,0.1976,True
+C3,tfidf,3,54,C5D: Sequential Continuous Convex Collision Detection Using Cone Casting,0.15156,True
+C3,tfidf,4,155,Augmented Vertex Block Descent,0.13115,True
+C3,tfidf,5,31,ViSA: Physics-based Virtual Stunt Actors for Ballistic Stunts,0.1203,True
+C3,tfidf,6,25,CK-MPM: A Compact-Kernel Material Point Method,0.11902,True
+C3,tfidf,7,30,PhysicsFC: Learning User-Controlled Skills for a Physics-Based Football Player Controller,0.11462,True
+C3,tfidf,8,41,Diffuse-CLoC: Guided Diffusion for Physics-based Character Look-ahead Control,0.09615,True
+C3,tfidf,9,140,Neurally Integrated Finite Elements for Differentiable Elasticity on Evolving Domains,0.09124,True
+C3,tfidf,10,200,Policy-Space Diffusion for Physics-Based Character Animation,0.08826,True
+C3,hibrido,1,24,Arenite: A Physics-based Sandstone Simulator,0.03279,True
+C3,hibrido,2,107,Adaptive Phase-Field-FLIP for Very Large Scale Two-Phase Fluid Simulation,0.03105,True
+C3,hibrido,3,30,PhysicsFC: Learning User-Controlled Skills for a Physics-Based Football Player Controller,0.03101,True
+C3,hibrido,4,140,Neurally Integrated Finite Elements for Differentiable Elasticity on Evolving Domains,0.03058,True
+C3,hibrido,5,31,ViSA: Physics-based Virtual Stunt Actors for Ballistic Stunts,0.03058,True
+C3,hibrido,6,54,C5D: Sequential Continuous Convex Collision Detection Using Cone Casting,0.03008,True
+C3,hibrido,7,203,Reliable Iterative Dynamics: A Versatile Method for Fast and Robust Simulation,0.02991,True
+C3,hibrido,8,25,CK-MPM: A Compact-Kernel Material Point Method,0.02947,True
+C3,hibrido,9,200,Policy-Space Diffusion for Physics-Based Character Animation,0.02899,True
+C3,hibrido,10,41,Diffuse-CLoC: Guided Diffusion for Physics-based Character Look-ahead Control,0.02885,True
+C4,bm25,1,13,Sphere Carving: Bounding Volumes for Signed Distance Fields,30.31254,True
+C4,bm25,2,6,Synchronized Tracing of Primitive-based Implicit Volumes,20.46357,True
+C4,bm25,3,68,INF-3DP: Implicit Neural Fields for Collision-Free Multi-Axis 3D Printing,9.98906,False
+C4,bm25,4,130,Don't Splat your Gaussians: Volumetric Ray-Traced Primitives for Modeling and Rendering Scattering and Emissive Media,8.79532,False
+C4,bm25,5,161,CAST: Component-Aligned 3D Scene Reconstruction from an RGB Image,5.92318,False
+C4,bm25,6,61,Practical Gaussian Process Implicit Surfaces with Sparse Convolutions,5.59222,True
+C4,bm25,7,19,TetWeave: Isosurface Extraction using On-The-Fly Delaunay Tetrahedral Grids for Gradient-Based Mesh Optimization,5.55262,False
+C4,bm25,8,59,NeuVAS: Neural Implicit Surfaces for Variational Shape Modeling,5.33515,True
+C4,bm25,9,98,Frame-Free Representation of Polarized Light for Resolving Stokes Vector Singularities,5.19529,False
+C4,bm25,10,198,A Neural Particle Level Set Method for Dynamic Interface Tracking,5.10667,True
+C4,lsa,1,13,Sphere Carving: Bounding Volumes for Signed Distance Fields,0.9684,True
+C4,lsa,2,6,Synchronized Tracing of Primitive-based Implicit Volumes,0.91646,True
+C4,lsa,3,68,INF-3DP: Implicit Neural Fields for Collision-Free Multi-Axis 3D Printing,0.44908,False
+C4,lsa,4,198,A Neural Particle Level Set Method for Dynamic Interface Tracking,0.38402,True
+C4,lsa,5,87,NESI: Neural Explicit-Shape-Intersection-Based Geometry Representation,0.33491,False
+C4,lsa,6,185,Stochastic Preconditioning for Neural Field Optimization,0.33242,False
+C4,lsa,7,98,Frame-Free Representation of Polarized Light for Resolving Stokes Vector Singularities,0.31666,False
+C4,lsa,8,88,"Exact Predicates, Exact Constructions and Combinatorics for Mesh CSG.",0.31184,False
+C4,lsa,9,59,NeuVAS: Neural Implicit Surfaces for Variational Shape Modeling,0.27354,True
+C4,lsa,10,61,Practical Gaussian Process Implicit Surfaces with Sparse Convolutions,0.27209,True
+C4,tfidf,1,13,Sphere Carving: Bounding Volumes for Signed Distance Fields,0.55897,True
+C4,tfidf,2,6,Synchronized Tracing of Primitive-based Implicit Volumes,0.3378,True
+C4,tfidf,3,68,INF-3DP: Implicit Neural Fields for Collision-Free Multi-Axis 3D Printing,0.17067,False
+C4,tfidf,4,161,CAST: Component-Aligned 3D Scene Reconstruction from an RGB Image,0.1152,False
+C4,tfidf,5,130,Don't Splat your Gaussians: Volumetric Ray-Traced Primitives for Modeling and Rendering Scattering and Emissive Media,0.09376,False
+C4,tfidf,6,19,TetWeave: Isosurface Extraction using On-The-Fly Delaunay Tetrahedral Grids for Gradient-Based Mesh Optimization,0.08678,False
+C4,tfidf,7,198,A Neural Particle Level Set Method for Dynamic Interface Tracking,0.08554,True
+C4,tfidf,8,59,NeuVAS: Neural Implicit Surfaces for Variational Shape Modeling,0.07915,True
+C4,tfidf,9,61,Practical Gaussian Process Implicit Surfaces with Sparse Convolutions,0.07643,True
+C4,tfidf,10,181,Designing 3D Anisotropic Frame Fields with Odeco Tensors,0.06278,False
+C4,hibrido,1,13,Sphere Carving: Bounding Volumes for Signed Distance Fields,0.03279,True
+C4,hibrido,2,6,Synchronized Tracing of Primitive-based Implicit Volumes,0.03226,True
+C4,hibrido,3,68,INF-3DP: Implicit Neural Fields for Collision-Free Multi-Axis 3D Printing,0.03175,False
+C4,hibrido,4,198,A Neural Particle Level Set Method for Dynamic Interface Tracking,0.02991,True
+C4,hibrido,5,130,Don't Splat your Gaussians: Volumetric Ray-Traced Primitives for Modeling and Rendering Scattering and Emissive Media,0.02951,False
+C4,hibrido,6,61,Practical Gaussian Process Implicit Surfaces with Sparse Convolutions,0.02944,True
+C4,hibrido,7,98,Frame-Free Representation of Polarized Light for Resolving Stokes Vector Singularities,0.02942,False
+C4,hibrido,8,59,NeuVAS: Neural Implicit Surfaces for Variational Shape Modeling,0.0292,True
+C4,hibrido,9,161,CAST: Component-Aligned 3D Scene Reconstruction from an RGB Image,0.02908,False
+C4,hibrido,10,185,Stochastic Preconditioning for Neural Field Optimization,0.02848,False
+C5,bm25,1,72,CFC: Simulating Character-Fluid Coupling using a Two-Level World Model,8.86097,False
+C5,bm25,2,22,Controllable Complex Freezing Dynamics Simulation on Thin Films,6.27454,False
+C5,bm25,3,53,A Versatile Quaternion-Based Constrained Rigid Body Dynamics,5.63307,False
+C5,bm25,4,51,Putting Rigid Bodies to Rest,5.54511,False
+C5,bm25,5,203,Reliable Iterative Dynamics: A Versatile Method for Fast and Robust Simulation,5.17237,False
+C5,bm25,6,204,StiffGIPC: Advancing GPU IPC for Stiff Affine-Deformable Simulation,4.98388,True
+C5,bm25,7,9,Inverse Geometric Locomotion,4.69663,False
+C5,bm25,8,121,A Monte Carlo Rendering Framework for Simulating Optical Heterodyne Detection,4.05573,False
+C5,bm25,9,138,SpotLessSplats: Ignoring Distractors in 3D Gaussian Splatting,3.4987,False
+C5,bm25,10,168,Creating Fluid-Interactive Virtual Agents by an Efficient Simulator with Local-domain Control,3.41067,False
+C5,lsa,1,72,CFC: Simulating Character-Fluid Coupling using a Two-Level World Model,0.83017,False
+C5,lsa,2,53,A Versatile Quaternion-Based Constrained Rigid Body Dynamics,0.752,False
+C5,lsa,3,155,Augmented Vertex Block Descent,0.68179,False
+C5,lsa,4,51,Putting Rigid Bodies to Rest,0.61386,False
+C5,lsa,5,22,Controllable Complex Freezing Dynamics Simulation on Thin Films,0.58813,False
+C5,lsa,6,7,"Unified Pressure, Surface Tension and Friction for SPH Fluids",0.57273,False
+C5,lsa,7,203,Reliable Iterative Dynamics: A Versatile Method for Fast and Robust Simulation,0.55546,False
+C5,lsa,8,77,Painless Differentiable Rotation Dynamics,0.46396,False
+C5,lsa,9,204,StiffGIPC: Advancing GPU IPC for Stiff Affine-Deformable Simulation,0.40433,True
+C5,lsa,10,99,Viscous Vortex Dynamics on Surfaces,0.40068,False
+C5,tfidf,1,72,CFC: Simulating Character-Fluid Coupling using a Two-Level World Model,0.18406,False
+C5,tfidf,2,51,Putting Rigid Bodies to Rest,0.12736,False
+C5,tfidf,3,53,A Versatile Quaternion-Based Constrained Rigid Body Dynamics,0.1142,False
+C5,tfidf,4,22,Controllable Complex Freezing Dynamics Simulation on Thin Films,0.11314,False
+C5,tfidf,5,9,Inverse Geometric Locomotion,0.09181,False
+C5,tfidf,6,204,StiffGIPC: Advancing GPU IPC for Stiff Affine-Deformable Simulation,0.08312,True
+C5,tfidf,7,203,Reliable Iterative Dynamics: A Versatile Method for Fast and Robust Simulation,0.0778,False
+C5,tfidf,8,121,A Monte Carlo Rendering Framework for Simulating Optical Heterodyne Detection,0.07739,False
+C5,tfidf,9,24,Arenite: A Physics-based Sandstone Simulator,0.07008,False
+C5,tfidf,10,138,SpotLessSplats: Ignoring Distractors in 3D Gaussian Splatting,0.06315,False
+C5,hibrido,1,72,CFC: Simulating Character-Fluid Coupling using a Two-Level World Model,0.03279,False
+C5,hibrido,2,53,A Versatile Quaternion-Based Constrained Rigid Body Dynamics,0.032,False
+C5,hibrido,3,22,Controllable Complex Freezing Dynamics Simulation on Thin Films,0.03151,False
+C5,hibrido,4,51,Putting Rigid Bodies to Rest,0.03125,False
+C5,hibrido,5,203,Reliable Iterative Dynamics: A Versatile Method for Fast and Robust Simulation,0.03031,False
+C5,hibrido,6,204,StiffGIPC: Advancing GPU IPC for Stiff Affine-Deformable Simulation,0.02964,True
+C5,hibrido,7,155,Augmented Vertex Block Descent,0.02886,False
+C5,hibrido,8,99,Viscous Vortex Dynamics on Surfaces,0.02744,False
+C5,hibrido,9,168,Creating Fluid-Interactive Virtual Agents by an Efficient Simulator with Local-domain Control,0.02727,False
+C5,hibrido,10,9,Inverse Geometric Locomotion,0.02727,False
+C6,bm25,1,86,Noise-Coded Illumination for Forensic and Photometric Video Analysis,8.89013,False
+C6,bm25,2,141,B4M: Breaking Low-Rank Adapter for Making Content-Style Customization,7.24335,False
+C6,bm25,3,168,Creating Fluid-Interactive Virtual Agents by an Efficient Simulator with Local-domain Control,6.76747,False
+C6,bm25,4,151,BANG: Dividing 3D Assets via Generative Exploded Dynamics,5.99328,True
+C6,bm25,5,56,Example-Based Feature Painting on Textures,5.81809,False
+C6,bm25,6,62,Generative Head-Mounted Camera Captures for Photorealistic Avatars,4.90429,False
+C6,bm25,7,102,IntrinsicEdit: Precise generative image manipulation in intrinsic space,4.81512,False
+C6,bm25,8,2,RNA: Relightable Neural Assets,4.63921,False
+C6,bm25,9,184,Dress-1-to-3: Single Image to Simulation-Ready 3D Outfit with Diffusion Prior and Differentiable Physics,4.14472,True
+C6,bm25,10,147,Order Matters: Learning Element Ordering for Graphic Design Generation,4.13098,False
+C6,lsa,1,106,TokenVerse: Versatile Multi-concept Personalization in Token Modulation Space,0.56889,False
+C6,lsa,2,151,BANG: Dividing 3D Assets via Generative Exploded Dynamics,0.5541,True
+C6,lsa,3,161,CAST: Component-Aligned 3D Scene Reconstruction from an RGB Image,0.5513,True
+C6,lsa,4,102,IntrinsicEdit: Precise generative image manipulation in intrinsic space,0.54067,False
+C6,lsa,5,86,Noise-Coded Illumination for Forensic and Photometric Video Analysis,0.53753,False
+C6,lsa,6,74,LEGO®-Maker: Autoregressive Image-Conditioned LEGO® Model Creation,0.53043,True
+C6,lsa,7,141,B4M: Breaking Low-Rank Adapter for Making Content-Style Customization,0.51721,False
+C6,lsa,8,127,DesignManager: An Agent-Powered Copilot for Designers to Integrate AI Design Tools into Creative Workflows,0.49126,False
+C6,lsa,9,184,Dress-1-to-3: Single Image to Simulation-Ready 3D Outfit with Diffusion Prior and Differentiable Physics,0.47618,True
+C6,lsa,10,120,Collaborative On-Sensor Array Cameras,0.44183,False
+C6,tfidf,1,86,Noise-Coded Illumination for Forensic and Photometric Video Analysis,0.18846,False
+C6,tfidf,2,141,B4M: Breaking Low-Rank Adapter for Making Content-Style Customization,0.15931,False
+C6,tfidf,3,168,Creating Fluid-Interactive Virtual Agents by an Efficient Simulator with Local-domain Control,0.11125,False
+C6,tfidf,4,151,BANG: Dividing 3D Assets via Generative Exploded Dynamics,0.10729,True
+C6,tfidf,5,62,Generative Head-Mounted Camera Captures for Photorealistic Avatars,0.09069,False
+C6,tfidf,6,56,Example-Based Feature Painting on Textures,0.08885,False
+C6,tfidf,7,102,IntrinsicEdit: Precise generative image manipulation in intrinsic space,0.08802,False
+C6,tfidf,8,147,Order Matters: Learning Element Ordering for Graphic Design Generation,0.07321,False
+C6,tfidf,9,2,RNA: Relightable Neural Assets,0.07145,False
+C6,tfidf,10,24,Arenite: A Physics-based Sandstone Simulator,0.06868,False
+C6,hibrido,1,86,Noise-Coded Illumination for Forensic and Photometric Video Analysis,0.03178,False
+C6,hibrido,2,151,BANG: Dividing 3D Assets via Generative Exploded Dynamics,0.03175,True
+C6,hibrido,3,141,B4M: Breaking Low-Rank Adapter for Making Content-Style Customization,0.03105,False
+C6,hibrido,4,102,IntrinsicEdit: Precise generative image manipulation in intrinsic space,0.03055,False
+C6,hibrido,5,161,CAST: Component-Aligned 3D Scene Reconstruction from an RGB Image,0.02996,True
+C6,hibrido,6,56,Example-Based Feature Painting on Textures,0.02947,False
+C6,hibrido,7,74,LEGO®-Maker: Autoregressive Image-Conditioned LEGO® Model Creation,0.02904,True
+C6,hibrido,8,184,Dress-1-to-3: Single Image to Simulation-Ready 3D Outfit with Diffusion Prior and Differentiable Physics,0.02899,True
+C6,hibrido,9,62,Generative Head-Mounted Camera Captures for Photorealistic Avatars,0.02831,False
+C6,hibrido,10,127,DesignManager: An Agent-Powered Copilot for Designers to Integrate AI Design Tools into Creative Workflows,0.02769,False

@@ -1,0 +1,407 @@
+---
+title: "Taller_clase_16"
+author: "Sebastian Tabares Segovia"
+date: "2026-07-01"
+output: html_document
+---
+
+# Ejercicio de práctica - Clase 16
+
+## Pregunta
+
+Clasificar si el agua de un municipio colombiano cumple la norma, es decir, si es **apta** o **no apta** para consumo humano, con base en variables fisicoquímicas simuladas: **turbiedad (NTU)**, **pH**, **coliformes (UFC/100 mL)**, **DBO (mg/L)**, **población** y **altitud (msnm)**.
+
+## Contexto
+
+En este ejercicio se simula una base de datos correspondiente a **600 municipios colombianos**, donde cada observación representa un municipio con información relacionada con la calidad del agua. El objetivo es construir un modelo de clasificación que permita predecir si el agua de un municipio puede considerarse **apta** o **no apta** para consumo humano.
+
+La variable respuesta es `apta`, una variable binaria que toma el valor **1** cuando el agua cumple simultáneamente con los criterios de calidad definidos en la simulación, y **0** cuando al menos uno de estos criterios no se cumple.
+
+## Criterios usados para definir agua apta
+
+Para este ejercicio, el agua se considera **apta** cuando cumple todas las siguientes condiciones:
+
+| Variable | Criterio usado | Interpretación |
+|---|---:|---|
+| Turbiedad | `< 5 NTU` | El agua presenta baja cantidad de partículas suspendidas. |
+| pH | `> 6.5` y `< 8.5` | El agua se encuentra dentro de un rango aceptable de acidez/alcalinidad. |
+| Coliformes | `< 100 UFC/100 mL` | Baja contaminación microbiológica simulada. |
+| DBO | `< 5 mg/L` | Baja carga de materia orgánica biodegradable. |
+
+Las variables **población** y **altitud** se incluyen como variables adicionales del municipio. Aunque no hacen parte directa de la regla usada para construir `apta`, pueden ser evaluadas por los modelos como posibles predictores.
+
+## Generación de los datos
+
+```{r}
+set.seed(42)
+
+n <- 600
+
+df <- data.frame(
+  turbiedad  = rexp(n, 0.1),
+  pH         = rnorm(n, 7.2, 0.8),
+  coliformes = rpois(n, 80),
+  DBO        = rexp(n, 0.2),
+  poblacion  = sample(5000:500000, n, replace = TRUE),
+  altitud    = runif(n, 100, 3000)
+)
+
+df$apta <- as.integer(
+  df$turbiedad < 5 &
+  df$pH > 6.5 &
+  df$pH < 8.5 &
+  df$coliformes < 100 &
+  df$DBO < 5
+)
+```
+
+## Explicación del código
+
+El comando `set.seed(42)` fija la semilla del generador de números aleatorios, garantizando que los datos simulados sean reproducibles. Esto significa que cualquier persona que ejecute el mismo código obtendrá exactamente la misma base de datos.
+
+Se generan **600 observaciones** mediante `n <- 600`. Luego se construye el data frame `df`, que contiene variables relacionadas con la calidad del agua y características generales del municipio.
+
+La variable `apta` se construye a partir de una regla lógica. Para que el agua sea clasificada como apta (`apta = 1`), debe cumplir simultáneamente todas las condiciones: turbiedad menor a 5 NTU, pH entre 6.5 y 8.5, coliformes menores a 100 UFC/100 mL y DBO menor a 5 mg/L. Si alguna de estas condiciones no se cumple, el agua se clasifica como no apta (`apta = 0`).
+
+```{r}
+head(df)
+```
+
+```{r}
+str(df)
+```
+
+```{r}
+table(df$apta)
+prop.table(table(df$apta))
+```
+
+### Interpretación inicial
+
+La base simulada permite representar un problema de clasificación binaria aplicado a calidad del agua en municipios colombianos. En este caso, el objetivo no es estimar un valor continuo, sino predecir una categoría: si el agua es **apta** o **no apta**.
+
+Esta estructura es adecuada para aplicar modelos de clasificación como árboles de decisión, Random Forest o Gradient Boosting, ya que se cuenta con variables predictoras numéricas y una variable respuesta binaria.
+
+## (a) Entrenar árbol de decisión, Random Forest y XGBoost. Comparar accuracy, F1 y AUC en validación cruzada de 5 pliegues.
+
+
+```{r}
+# Paquetes necesarios
+library(caret)
+library(rpart)
+library(randomForest)
+library(xgboost)
+library(pROC)
+```
+
+
+
+Antes de entrenar, convertimos apta en factor:
+
+```{r}
+# Convertir la variable respuesta en factor
+df$apta <- factor(
+  ifelse(df$apta == 1, "Apta", "No_apta"),
+  levels = c("Apta", "No_apta")
+)
+
+# Revisar distribución de la variable respuesta
+table(df$apta)
+prop.table(table(df$apta))
+```
+
+Ahora configuramos la validación cruzada:
+
+
+
+```{r}
+# Control de entrenamiento con validación cruzada de 5 pliegues
+set.seed(42)
+
+control_cv <- trainControl(  
+  method = "cv", #Acá ponemos el método de validación cruzada
+  number = 5,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,
+  savePredictions = "final"
+)
+```
+
+
+
+### Modelo 1: Árbol de decisión
+
+```{r}
+set.seed(42)
+
+modelo_arbol <- train(
+  apta ~ .,
+  data = df,
+  method = "rpart",
+  trControl = control_cv,
+  metric = "ROC"
+)
+
+modelo_arbol
+```
+
+
+Entrenamos Random Forest:
+
+### Modelo 2: Random Forest
+
+
+```{r}
+set.seed(42)
+
+modelo_rf <- train(
+  apta ~ .,
+  data = df,
+  method = "rf",
+  trControl = control_cv,
+  metric = "ROC",
+  ntree = 200
+)
+
+modelo_rf
+```
+
+
+Entrenamos XGBoost:
+
+### Modelo 3: XGBoost
+
+
+
+
+```{r, warning=FALSE, message=FALSE}
+
+
+# Modelo 3: XGBoost, y con warning y message false, de lo contrario nos llenariamos de spam
+set.seed(42)
+
+modelo_xgb <- train(
+  apta ~ .,
+  data = df,
+  method = "xgbTree",
+  trControl = control_cv,
+  metric = "ROC",
+  verbose = FALSE
+)
+
+modelo_xgb
+```
+
+
+### Interpretación
+
+El modelo XGBoost fue entrenado mediante validación cruzada de 5 pliegues evaluando múltiples combinaciones de hiperparámetros. El criterio de selección fue maximizar el área bajo la curva ROC (AUC).
+
+El mejor modelo obtuvo un ROC cercano a **0.997**, utilizando únicamente **50 árboles**, una profundidad máxima de **2**, `eta = 0.3`, `colsample_bytree = 0.8` y `subsample = 0.75`.
+
+Este resultado indica una capacidad predictiva sobresaliente para diferenciar municipios con agua apta y no apta para consumo humano.
+
+El excelente desempeño se explica porque la variable respuesta fue generada a partir de reglas explícitas sobre turbiedad, pH, coliformes y DBO. En un escenario real sería esperable obtener valores de AUC menores debido a la presencia de ruido y relaciones más complejas entre las variables.
+
+
+```{r}
+# Comparar modelos mediante validación cruzada
+resultados <- resamples(list(
+  Arbol = modelo_arbol,
+  Random_Forest = modelo_rf,
+  XGBoost = modelo_xgb
+))
+
+summary(resultados)
+```
+
+## Interpetración
+
+Los tres modelos fueron evaluados mediante una validación cruzada de **5 pliegues**, comparando su desempeño utilizando el **área bajo la curva ROC (AUC)**, la **sensibilidad** y la **especificidad**.
+
+En cuanto al **AUC (ROC)**, el árbol de decisión obtuvo un promedio de **0.9784**, mientras que el **Random Forest** alcanzó **0.9992** y **XGBoost** obtuvo **0.9966**. Estos resultados indican que los tres modelos presentan una excelente capacidad para diferenciar entre municipios con agua apta y no apta para consumo; sin embargo, el **Random Forest** fue el modelo con el mejor desempeño, seguido muy de cerca por XGBoost.
+
+Respecto a la **sensibilidad**, los tres modelos obtuvieron exactamente el mismo valor promedio (**0.9619**), lo que indica que identifican correctamente cerca del **96 %** de los municipios cuya agua realmente es apta para consumo humano.
+
+En relación con la **especificidad**, el árbol de decisión presentó un promedio de **0.9777**, mientras que el **Random Forest** alcanzó **0.9959** y **XGBoost** **0.9919**. Esto muestra que los modelos de ensamblado clasifican con mayor precisión los municipios cuya agua no es apta para consumo.
+
+En conjunto, los resultados evidencian que los métodos de ensamblado (**Random Forest** y **XGBoost**) superan al árbol de decisión individual, obteniendo mayores valores de AUC y especificidad. Entre ellos, **Random Forest** presentó el mejor desempeño general durante la validación cruzada, aunque la diferencia con XGBoost es muy pequeña. Esto sugiere que ambos algoritmos son altamente efectivos para este problema de clasificación.
+
+
+## (b) Aplicar early stopping en XGBoost con 20 rondas de paciencia. Registrar el número óptimo de árboles.
+
+
+```{r}
+# Convertir variables categóricas en variables dummy
+x <- model.matrix(apta ~ ., data = df)[, -1]
+
+# Convertir la variable respuesta a formato numérico
+y <- ifelse(df$apta == "Apta", 1, 0)
+
+# Crear objeto DMatrix
+datos <- xgb.DMatrix(
+  data = x,
+  label = y
+)
+
+# Fijar semilla
+set.seed(42)
+
+# Validación cruzada con Early Stopping
+cv_xgb <- xgb.cv(
+  data = datos,
+  objective = "binary:logistic",
+  eval_metric = "auc",
+  nrounds = 500,
+  nfold = 5,
+  early_stopping_rounds = 20,
+  max_depth = 2,
+  eta = 0.3,
+  subsample = 0.75,
+  colsample_bytree = 0.8,
+  verbose = 0
+)
+
+# Número óptimo de árboles
+cv_xgb$best_iteration
+```
+
+### Interpretación
+
+El procedimiento de **early stopping** determinó que el número óptimo de árboles para el modelo XGBoost fue de **49**.
+
+Aunque inicialmente se permitió entrenar hasta **500 árboles**, el algoritmo detectó que el desempeño del modelo dejó de mejorar después de la iteración 49. Al no observar mejoras durante las **20 rondas de paciencia** especificadas mediante `early_stopping_rounds = 20`, el entrenamiento se detuvo automáticamente.
+
+Este resultado muestra una de las principales ventajas de XGBoost: el modelo es capaz de determinar automáticamente cuándo continuar agregando árboles deja de aportar mejoras significativas. De esta forma se evita el sobreajuste, se reduce el tiempo de entrenamiento y se obtiene un modelo más eficiente sin sacrificar capacidad predictiva.
+
+Es interesante observar que, en el punto (a), **caret** había seleccionado como mejor modelo uno con aproximadamente **50 árboles** (`nrounds = 50`), mientras que mediante **early stopping** se obtuvo un número óptimo de **49 árboles**. La diferencia de una sola iteración indica que ambos procedimientos llegaron prácticamente a la misma solución, lo que aumenta la confianza en que alrededor de **50 árboles** constituye el tamaño adecuado del modelo para este conjunto de datos.
+
+
+## (c) Comparar feature importance entre RF (impureza) y XGBoost (ganancia). ¿Coinciden las variables más importantes?
+
+```{r}
+# Importancia de variables en Random Forest
+importance(modelo_rf$finalModel)
+
+# Gráfico de importancia
+varImpPlot(modelo_rf$finalModel)
+```
+
+```{r}
+# Importancia de variables en XGBoost
+imp_xgb <- xgb.importance(
+  model = modelo_xgb$finalModel
+)
+
+imp_xgb
+
+# Gráfico
+xgb.plot.importance(imp_xgb)
+```
+
+
+
+### Interpretación
+
+La importancia de variables obtenida mediante **Random Forest** (reducción de impureza Gini) y **XGBoost** (ganancia) muestra resultados muy similares.
+
+En ambos modelos, las tres variables más importantes fueron:
+
+1. Turbiedad.
+2. DBO.
+3. pH.
+
+Este resultado es consistente con la forma en que fue construido el conjunto de datos, ya que la variable respuesta (`apta`) depende directamente de estas variables para determinar si el agua cumple o no con las condiciones de calidad.
+
+Las variables **coliformes**, **altitud** y especialmente **población** tuvieron una importancia considerablemente menor en ambos modelos. En particular, la población prácticamente no aportó información para la clasificación, lo cual era esperable porque esta variable no participa en la regla utilizada para generar la variable `apta`.
+
+Aunque ambos modelos coincidieron en el orden general de importancia, los valores asignados son diferentes porque utilizan criterios distintos:
+
+- **Random Forest** mide la importancia mediante la reducción de impureza (índice de Gini) producida por cada variable a lo largo del bosque.
+- **XGBoost** utiliza la **ganancia (Gain)**, que representa cuánto disminuye la función de pérdida cuando una variable es utilizada para realizar una partición.
+
+En conclusión, ambos modelos identificaron las mismas variables relevantes para la clasificación, lo que proporciona evidencia de que las variables fisicoquímicas principales son las que realmente determinan si el agua es apta para el consumo.
+
+## (d) Construir un stacking básico con árbol + RF como modelos base y regresión logística como meta-modelo. Comparar con los modelos individuales.
+
+### Paso 1. Obtener las probabilidades predichas por los modelos base
+
+```{r}
+# Predicciones probabilísticas del árbol
+pred_arbol <- predict(
+  modelo_arbol,
+  newdata = df,
+  type = "prob"
+)
+
+# Predicciones probabilísticas del Random Forest
+pred_rf <- predict(
+  modelo_rf,
+  newdata = df,
+  type = "prob"
+)
+```
+
+
+```{r}
+pred_arbol
+pred_rf
+```
+
+
+### Paso 2. Construir el nuevo conjunto de datos
+
+```{r}
+# Dataset para el meta-modelo
+stack_data <- data.frame(
+  Arbol = pred_arbol$Apta,
+  RF = pred_rf$Apta,
+  apta = df$apta
+)
+
+head(stack_data)
+```
+
+### Paso 3. Entrenar el meta-modelo
+
+```{r}
+# Meta-modelo: Regresión logística
+modelo_stack <- train(
+  apta ~ .,
+  data = stack_data,
+  method = "glm",
+  family = binomial,
+  trControl = control_cv,
+  metric = "ROC"
+)
+
+modelo_stack
+```
+### Paso 4. Comparar todos los modelos
+
+
+```{r}
+# Comparación final
+comparacion_final <- resamples(list(
+  Arbol = modelo_arbol,
+  Random_Forest = modelo_rf,
+  XGBoost = modelo_xgb,
+  Stacking = modelo_stack
+))
+
+summary(comparacion_final)
+```
+### Interpretacion
+
+
+Al comparar los cuatro modelos se observa una mejora progresiva en el desempeño predictivo.
+
+El **árbol de decisión** fue el modelo con menor rendimiento, obteniendo un ROC promedio de **0.9784**. Aunque este resultado es bastante alto, su capacidad predictiva fue inferior a la de los métodos de ensamble.
+
+El **Random Forest** mejoró considerablemente el desempeño, alcanzando un ROC promedio de **0.9992**, además de una sensibilidad promedio de **0.962** y una especificidad cercana a **0.996**. Esto confirma que combinar múltiples árboles reduce la varianza y mejora la capacidad de generalización del modelo.
+
+Por su parte, **XGBoost** obtuvo un ROC promedio de **0.9966**, con valores de sensibilidad y especificidad muy similares a los del Random Forest, mostrando nuevamente que los métodos de boosting producen modelos altamente precisos.
+
+Finalmente, el **Stacking** obtuvo un desempeño perfecto en los cinco pliegues de validación cruzada, alcanzando un **ROC = 1.000**, **Sensibilidad = 1.000** y **Especificidad = 1.000**. Esto indica que el meta-modelo logró combinar las fortalezas del árbol de decisión y del Random Forest para clasificar correctamente todas las observaciones evaluadas durante la validación cruzada.
+
+No obstante, este resultado debe interpretarse con precaución. En este ejercicio el conjunto de datos fue generado mediante una regla determinística relativamente sencilla, por lo que los modelos base ya presentaban un desempeño casi perfecto. Además, el stacking fue construido utilizando las predicciones sobre el mismo conjunto de datos empleado para el entrenamiento de los modelos base, lo que puede producir una estimación demasiado optimista del desempeño. En aplicaciones reales, el stacking debe entrenarse utilizando predicciones **Out-of-Fold (OOF)** para evitar fuga de información (*data leakage*) y obtener una evaluación más realista de su capacidad predictiva.

@@ -1,0 +1,84 @@
+﻿variable,coeficiente,importancia_absoluta,analisis,modelo
+prop_examenes,-2.38772480495142,2.38772480495142,Principal,Regresión logística regularizada
+prop_urgencias,-1.77352330177916,1.77352330177916,Principal,Regresión logística regularizada
+prop_consultas,-1.65845095675378,1.65845095675378,Principal,Regresión logística regularizada
+prop_terapias,-1.11502692046665,1.11502692046665,Principal,Regresión logística regularizada
+estado_predominantePR,0.95441328958619,0.95441328958619,Principal,Regresión logística regularizada
+log_n_procedimientos,0.795500519362695,0.795500519362695,Principal,Regresión logística regularizada
+estado_predominantePE,-0.717106490499556,0.717106490499556,Principal,Regresión logística regularizada
+log_n_consultas,0.695810603725178,0.695810603725178,Principal,Regresión logística regularizada
+unidad_predominanteHOSPITAL,0.667046722244068,0.667046722244068,Principal,Regresión logística regularizada
+estado_predominanteMT,-0.641019440017418,0.641019440017418,Principal,Regresión logística regularizada
+log_n_terapias,-0.493859023561516,0.493859023561516,Principal,Regresión logística regularizada
+sexoF,0.315664555530763,0.315664555530763,Principal,Regresión logística regularizada
+tipo_beneficiarioOTROS,-0.304903139562699,0.304903139562699,Principal,Regresión logística regularizada
+log_dias_observacion,0.0946755840243406,0.0946755840243406,Principal,Regresión logística regularizada
+edad,0,0,Principal,Regresión logística regularizada
+log_n_examenes,0,0,Principal,Regresión logística regularizada
+log_n_urgencias,0,0,Principal,Regresión logística regularizada
+prop_unidad_faltante,0,0,Principal,Regresión logística regularizada
+prop_especialidad_faltante,0,0,Principal,Regresión logística regularizada
+sexo_inconsistente,0,0,Principal,Regresión logística regularizada
+tipo_beneficiario_inconsistente,0,0,Principal,Regresión logística regularizada
+sexoM,0,0,Principal,Regresión logística regularizada
+sexoSIN INFORMACION,0,0,Principal,Regresión logística regularizada
+sexoOTROS,0,0,Principal,Regresión logística regularizada
+tipo_beneficiarioSIN INFORMACION,0,0,Principal,Regresión logística regularizada
+tipo_beneficiarioTITULAR,0,0,Principal,Regresión logística regularizada
+estado_predominanteCE,0,0,Principal,Regresión logística regularizada
+estado_predominanteDF,0,0,Principal,Regresión logística regularizada
+estado_predominanteGO,0,0,Principal,Regresión logística regularizada
+estado_predominanteMG,0,0,Principal,Regresión logística regularizada
+estado_predominanteMS,0,0,Principal,Regresión logística regularizada
+estado_predominantePA,0,0,Principal,Regresión logística regularizada
+estado_predominanteRJ,0,0,Principal,Regresión logística regularizada
+estado_predominanteRS,0,0,Principal,Regresión logística regularizada
+estado_predominanteSC,0,0,Principal,Regresión logística regularizada
+estado_predominanteSIN INFORMACION,0,0,Principal,Regresión logística regularizada
+estado_predominanteSP,0,0,Principal,Regresión logística regularizada
+estado_predominanteOTROS,0,0,Principal,Regresión logística regularizada
+unidad_predominanteDIAGNOSTICO,0,0,Principal,Regresión logística regularizada
+unidad_predominanteDOMICILIARIO,0,0,Principal,Regresión logística regularizada
+unidad_predominanteOTROS,0,0,Principal,Regresión logística regularizada
+unidad_predominanteSIN INFORMACION,0,0,Principal,Regresión logística regularizada
+unidad_predominanteURGENCIAS,0,0,Principal,Regresión logística regularizada
+prop_consultas,-1.12398503403649,1.12398503403649,Sensibilidad CID observado,Regresión logística regularizada
+prop_terapias,-0.787643405167459,0.787643405167459,Sensibilidad CID observado,Regresión logística regularizada
+sexoF,0.503640779141039,0.503640779141039,Sensibilidad CID observado,Regresión logística regularizada
+log_n_terapias,-0.473798280000743,0.473798280000743,Sensibilidad CID observado,Regresión logística regularizada
+log_n_consultas,0.439059775485579,0.439059775485579,Sensibilidad CID observado,Regresión logística regularizada
+estado_predominantePE,-0.213039429776505,0.213039429776505,Sensibilidad CID observado,Regresión logística regularizada
+prop_examenes,-0.0741613681493676,0.0741613681493676,Sensibilidad CID observado,Regresión logística regularizada
+unidad_predominanteHOSPITAL,0.0535289665846701,0.0535289665846701,Sensibilidad CID observado,Regresión logística regularizada
+log_n_procedimientos,0.0392304577204933,0.0392304577204933,Sensibilidad CID observado,Regresión logística regularizada
+edad,0,0,Sensibilidad CID observado,Regresión logística regularizada
+log_n_examenes,0,0,Sensibilidad CID observado,Regresión logística regularizada
+log_n_urgencias,0,0,Sensibilidad CID observado,Regresión logística regularizada
+log_dias_observacion,0,0,Sensibilidad CID observado,Regresión logística regularizada
+prop_urgencias,0,0,Sensibilidad CID observado,Regresión logística regularizada
+prop_unidad_faltante,0,0,Sensibilidad CID observado,Regresión logística regularizada
+prop_especialidad_faltante,0,0,Sensibilidad CID observado,Regresión logística regularizada
+sexo_inconsistente,0,0,Sensibilidad CID observado,Regresión logística regularizada
+tipo_beneficiario_inconsistente,0,0,Sensibilidad CID observado,Regresión logística regularizada
+sexoM,0,0,Sensibilidad CID observado,Regresión logística regularizada
+sexoSIN INFORMACION,0,0,Sensibilidad CID observado,Regresión logística regularizada
+sexoOTROS,0,0,Sensibilidad CID observado,Regresión logística regularizada
+tipo_beneficiarioOTROS,0,0,Sensibilidad CID observado,Regresión logística regularizada
+tipo_beneficiarioSIN INFORMACION,0,0,Sensibilidad CID observado,Regresión logística regularizada
+tipo_beneficiarioTITULAR,0,0,Sensibilidad CID observado,Regresión logística regularizada
+estado_predominanteGO,0,0,Sensibilidad CID observado,Regresión logística regularizada
+estado_predominanteMG,0,0,Sensibilidad CID observado,Regresión logística regularizada
+estado_predominanteMS,0,0,Sensibilidad CID observado,Regresión logística regularizada
+estado_predominantePR,0,0,Sensibilidad CID observado,Regresión logística regularizada
+estado_predominanteRJ,0,0,Sensibilidad CID observado,Regresión logística regularizada
+estado_predominanteRS,0,0,Sensibilidad CID observado,Regresión logística regularizada
+estado_predominanteSC,0,0,Sensibilidad CID observado,Regresión logística regularizada
+estado_predominanteSIN INFORMACION,0,0,Sensibilidad CID observado,Regresión logística regularizada
+estado_predominanteSP,0,0,Sensibilidad CID observado,Regresión logística regularizada
+estado_predominanteOTROS,0,0,Sensibilidad CID observado,Regresión logística regularizada
+unidad_predominanteATENCION_PRIMARIA,0,0,Sensibilidad CID observado,Regresión logística regularizada
+unidad_predominanteDIAGNOSTICO,0,0,Sensibilidad CID observado,Regresión logística regularizada
+unidad_predominanteDOMICILIARIO,0,0,Sensibilidad CID observado,Regresión logística regularizada
+unidad_predominanteOTROS,0,0,Sensibilidad CID observado,Regresión logística regularizada
+unidad_predominanteSIN INFORMACION,0,0,Sensibilidad CID observado,Regresión logística regularizada
+unidad_predominanteURGENCIAS,0,0,Sensibilidad CID observado,Regresión logística regularizada

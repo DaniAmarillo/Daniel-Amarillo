@@ -1,0 +1,10 @@
+metrica,valor
+costo_min,-27537.23
+costo_q1,4.4894480716218235
+costo_mediana,17.356383593171604
+costo_q3,73.35425168763894
+costo_max,628388.67
+limite_inferior_iqr,-98.80775735240384
+limite_superior_iqr,176.6514571116646
+n_costos_negativos,3001.0
+n_outliers_superiores_iqr,690963.0

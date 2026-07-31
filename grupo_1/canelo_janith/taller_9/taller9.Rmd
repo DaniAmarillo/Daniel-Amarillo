@@ -1,0 +1,197 @@
+---
+title: "Análisis estadístico de notas por programa"
+author: "JOhan Canelo"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      fig.align = "center", fig.width = 7, fig.height = 4.5)
+library(tidyverse)
+library(FSA)
+theme_set(theme_minimal())
+```
+
+# Descripción del dataset
+
+```{r datos}
+set.seed(2025)
+n <- 400
+
+estudiantes <- tibble(
+  id         = 1:n,
+  programa   = sample(c("Estadística","Sistemas","Economía","Matemáticas"),
+                      n, replace = TRUE, prob = c(.3,.3,.25,.15)),
+  semestre   = sample(1:10, n, replace = TRUE),
+  sexo       = sample(c("Mujer","Hombre"), n, replace = TRUE),
+  nota_final = round(rnorm(n, mean = 3.5, sd = 0.7), 1) |> pmin(5) |> pmax(0),
+  horas_sem  = round(rnorm(n, mean = 18, sd = 5)),
+  beca       = sample(c("Sí","No"), n, replace = TRUE, prob = c(.3,.7))
+)
+```
+
+El conjunto tiene `r nrow(estudiantes)` observaciones y `r ncol(estudiantes)` variables: dos numéricas continuas (`nota_final`, `horas_sem`), una discreta (`semestre`) y tres categóricas (`programa`, `sexo`, `beca`).
+
+```{r estructura}
+tibble(
+  variable = names(estudiantes),
+  tipo     = map_chr(estudiantes, ~ class(.x)[1]),
+  faltantes = map_int(estudiantes, ~ sum(is.na(.x))),
+  distintos = map_int(estudiantes, n_distinct)
+)
+
+count(estudiantes, programa)
+```
+
+No hay valores faltantes en ninguna columna. Los tamaños por programa son desbalanceados (entre 70 y 119), lo cual conviene tener presente al comparar potencias entre grupos.
+
+# Normalidad
+
+```{r shapiro}
+estudiantes |>
+  group_by(programa) |>
+  summarise(
+    W       = shapiro.test(nota_final)$statistic,
+    p_valor = shapiro.test(nota_final)$p.value
+  )
+```
+
+Con $\alpha = 0.05$ no se rechaza la normalidad en ningún programa. El p-valor más bajo es el de Matemáticas ($p \approx 0.13$), que además es el grupo más pequeño, así que es el candidato natural para inspección gráfica.
+
+```{r qq}
+estudiantes |>
+  filter(programa == "Matemáticas") |>
+  ggplot(aes(sample = nota_final)) +
+  stat_qq() +
+  stat_qq_line(color = "red") +
+  labs(title = "QQ-plot de nota_final — Matemáticas",
+       x = "Cuantiles teóricos", y = "Cuantiles muestrales")
+```
+
+Los puntos siguen la recta de referencia en el centro de la distribución, con desviaciones leves en ambas colas. El patrón escalonado se debe a que las notas están redondeadas a un decimal, no a una violación real del supuesto.
+
+**Conclusión.** Los datos son compatibles con normalidad.
+
+# Estadísticos robustos y sesgo
+
+```{r robustos}
+estudiantes |>
+  group_by(programa) |>
+  summarise(
+    media           = mean(nota_final),
+    mediana         = median(nota_final),
+    media_recortada = mean(nota_final, trim = 0.1),
+    mad             = mad(nota_final),
+    sd              = sd(nota_final),
+    cv              = sd(nota_final) / mean(nota_final),
+    asimetria       = (mean(nota_final) - median(nota_final)) / sd(nota_final)
+  )
+```
+
+La mayor discrepancia entre media y media recortada aparece en Sistemas, pero la diferencia es de centésimas: recortar el 10% de cada cola no mueve el centro, lo que indica que no hay observaciones extremas con influencia sobre la media.
+
+El coeficiente de asimetría de Pearson es prácticamente cero en los cuatro programas. Economía queda ligeramente negativo (cola izquierda apenas más larga), Estadística esencialmente simétrico, y Matemáticas y Sistemas ligeramente positivos, con Sistemas como el mayor de los cuatro. En todos los casos la magnitud está muy por debajo del umbral habitual de $|0.5|$, así que las distribuciones se pueden tratar como simétricas.
+
+La MAD y la desviación estándar son del mismo orden aquí, lo cual es esperable bajo normalidad (la MAD de `mad()` ya viene escalada por $1.4826$ para ser consistente con $\sigma$). Reportaría la MAD en lugar de la desviación estándar cuando haya atípicos o colas pesadas, ya que su punto de ruptura es del 50% frente al $1/n$ de la desviación estándar; una sola observación aberrante basta para inflar la $\sigma$ arbitrariamente.
+
+# Valores atípicos
+
+```{r outliers-tabla}
+detectar_outliers <- function(x) {
+  q1  <- quantile(x, 0.25); q3 <- quantile(x, 0.75)
+  iqr <- q3 - q1
+  z   <- (x - mean(x)) / sd(x)
+  tibble(
+    valor       = x,
+    outlier_iqr = x < (q1 - 1.5 * iqr) | x > (q3 + 1.5 * iqr),
+    outlier_z   = abs(z) > 3
+  )
+}
+
+estudiantes |>
+  group_by(programa) |>
+  reframe(detectar_outliers(nota_final)) |>
+  summarise(n_iqr = sum(outlier_iqr), n_z = sum(outlier_z), .by = programa)
+```
+
+Ambos criterios coinciden: cero atípicos en todos los programas. El criterio $Z$ falla con muestras pequeñas por dos razones: primero, porque $\bar{x}$ y $s$ se calculan con el propio atípico dentro, de modo que un valor extremo infla $s$ y se enmascara a sí mismo; segundo, porque el $Z$ muestral está acotado por $(n-1)/\sqrt{n}$, así que con $n \le 10$ ningún punto puede superar el umbral de 3, por lejos que esté.
+
+```{r outliers-plot}
+estudiantes |>
+  mutate(
+    q1 = quantile(nota_final, .25),
+    q3 = quantile(nota_final, .75),
+    outlier_iqr = nota_final < q1 - 1.5*(q3-q1) | nota_final > q3 + 1.5*(q3-q1),
+    .by = programa
+  ) |>
+  ggplot(aes(programa, nota_final)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(data = ~ filter(.x, outlier_iqr), color = "red", size = 2) +
+  labs(title = "Outliers detectados por el criterio IQR",
+       x = "Programa", y = "Nota final")
+```
+
+No hay puntos rojos, consistente con la tabla. No eliminaría ninguna observación: ningún criterio marcó nada y, aun si lo hubiera hecho, descartar puntos solo por caer fuera de un umbral automático sesga las estimaciones de dispersión. La eliminación se justifica cuando hay evidencia de error de medición o de registro, no por la sola posición del valor.
+
+# Correlación entre horas de estudio y nota
+
+```{r correlacion}
+estudiantes |>
+  group_by(programa) |>
+  summarise(
+    r_pearson  = cor(horas_sem, nota_final, method = "pearson"),
+    r_spearman = cor(horas_sem, nota_final, method = "spearman"),
+    p_pearson  = cor.test(horas_sem, nota_final, method = "pearson")$p.value,
+    p_spearman = cor.test(horas_sem, nota_final, method = "spearman")$p.value
+  ) |>
+  mutate(p_pearson_bonf = pmin(1, 4 * p_pearson))
+```
+
+Estadística ($r = 0.29$, $p = 0.001$) y Matemáticas ($r = 0.33$, $p = 0.005$) presentan correlación positiva significativa; Economía y Sistemas no ($p = 0.84$ y $p = 0.52$). Pearson y Spearman coinciden en los cuatro casos en cuanto a la decisión, lo que descarta que las asociaciones detectadas dependan de la métrica o de unos pocos puntos influyentes.
+
+En Estadística Spearman ($0.35$) supera a Pearson ($0.29$), lo que sugiere una relación monótona pero no exactamente lineal, o bien la presencia de observaciones que se alejan de la recta en los extremos y castigan a Pearson. En Matemáticas ocurre lo contrario ($0.30$ frente a $0.33$), compatible con una relación lineal limpia.
+
+```{r dispersogramas, fig.height=5}
+ggplot(estudiantes, aes(horas_sem, nota_final)) +
+  geom_point(alpha = .5) +
+  geom_smooth(method = "lm", se = TRUE, color = "steelblue") +
+  facet_wrap(~ programa) +
+  labs(title = "Nota final frente a horas de estudio semanales",
+       x = "Horas semanales", y = "Nota final")
+```
+
+Vale la pena una advertencia: `horas_sem` y `nota_final` se simularon de forma independiente, así que la correlación poblacional es exactamente cero en los cuatro programas. Los dos resultados significativos son falsos positivos de esta realización particular del generador. Es una ilustración directa del problema de comparaciones múltiples: con cuatro pruebas a $\alpha = 0.05$ la probabilidad de al menos un falso positivo sube a $1 - 0.95^4 \approx 0.19$. Con corrección de Bonferroni, Estadística ($p_{adj} = 0.005$) sigue siendo significativa y Matemáticas ($p_{adj} = 0.019$) también, lo cual muestra que la corrección reduce pero no elimina el riesgo de concluir de más a partir de una sola muestra.
+
+# Comparación de grupos y tamaño del efecto
+
+```{r kruskal}
+kw <- kruskal.test(nota_final ~ programa, data = estudiantes)
+kw
+
+H <- unname(kw$statistic)
+k <- n_distinct(estudiantes$programa)
+N <- nrow(estudiantes)
+eta2 <- (H - k + 1) / (N - k)
+eta2
+```
+
+El estadístico es $H = 1.09$ con 3 grados de libertad y $p = 0.78$, muy por encima de cualquier nivel de significancia usual. No hay evidencia de que la distribución de notas difiera entre programas; en términos del problema, el programa al que pertenece un estudiante no aporta información sobre su nota final.
+
+El $\eta^2$ resulta negativo, lo cual ocurre cuando $H < k - 1$, es decir cuando la variabilidad entre grupos es incluso menor que la esperada bajo la hipótesis nula. Por convención se trunca a 0: el efecto es nulo, muy por debajo del umbral de 0.06 para un efecto pequeño. El resultado es coherente con el diseño, donde las notas se generaron de una misma normal para todos los programas.
+
+```{r dunn}
+dunnTest(nota_final ~ programa, data = estudiantes, method = "bonferroni")
+```
+
+Estrictamente el post-hoc no procede al no haberse rechazado la hipótesis global, y se incluye solo para verificar consistencia. Ninguna comparación por pares alcanza significancia tras la corrección de Bonferroni, lo que confirma el resultado del test global.
+
+# Conclusión
+
+Las notas son compatibles con normalidad en los cuatro programas, no presentan asimetría apreciable ni valores atípicos bajo ninguno de los dos criterios evaluados, y los estimadores clásicos y robustos coinciden hasta centésimas. El test de Kruskal-Wallis no detecta diferencias entre programas ($p = 0.78$) y el tamaño del efecto es nulo, resultado confirmado por el post-hoc de Dunn.
+
+La única señal aparente del análisis, la correlación entre horas de estudio y nota en Estadística y Matemáticas, es un artefacto de la muestra simulada: sabemos por construcción que ambas variables son independientes. Esto ilustra el punto metodológico central del taller, que es que la significancia estadística en una de varias pruebas simultáneas no basta para afirmar una asociación, y que conocer el mecanismo generador de los datos es lo que permite distinguir un hallazgo de un falso positivo.

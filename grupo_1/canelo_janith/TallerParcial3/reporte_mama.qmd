@@ -1,0 +1,500 @@
+---
+title: "Taller 3 — Minería de datos: cáncer de mama en utilización de servicios de salud"
+author: "Johan Canelo"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: false
+    code-fold: true
+    code-tools: true
+    embed-resources: true
+    theme: cosmo
+    fig-align: center
+jupyter: mi_env
+---
+
+
+::: {.callout-important title="Cómo funciona este documento"}
+Este reporte **no entrena nada**. Todo el entrenamiento (modelos, tuning, validación cruzada, regresión de costo) se corre una sola vez con `python entrenar.py`, que guarda tablas, figuras y el modelo final en `./artifacts/`. Este `.qmd` solo **lee esos archivos** y arma el reporte — por eso renderizarlo toma segundos, y puedes cambiar texto, estilo o interpretaciones aquí sin re-entrenar nada.
+:::
+
+```{python}
+#| label: setup
+#| echo: false
+import json
+from pathlib import Path
+import pandas as pd
+from IPython.display import Image, display
+
+ART = Path("artifacts")
+FIG = ART / "figuras"
+
+def cargar_json(nombre):
+    with open(ART / nombre, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def mostrar(nombre_png, ancho=None):
+    display(Image(filename=str(FIG / nombre_png), width=ancho))
+```
+
+## 0. Problema y decisiones de diseño
+
+Enfermedad seleccionada: **cáncer de mama** (bloque CID-10 **C50**, subcategorías C50.0–C50.9).
+
+La variable objetivo se construye **a nivel de beneficiario** (`CHAVE_FUNCIONAL`): un beneficiario recibe `1` si *alguna* de sus transacciones tiene un CID que empiece por `C50`, `0` en caso contrario. Todo el descriptivo del cohorte y el modelado posterior salen de una tabla con **una fila por persona** (`benef`), no del nivel transacción.
+
+::: {.callout-note title="Decisiones que se documentan y justifican a lo largo del documento"}
+- No se botan filas por `CID` vacío: la ausencia de diagnóstico es esperable (exámenes, terapias) y botarla eliminaría utilizaciones y costos reales. El `CID` solo se usa para marcar positivos.
+- La normalización de texto (acentos, mayúsculas, tokens de faltante) se aplica a **todas** las columnas porque no tiene pérdida; el borrado de filas solo se aplica cuando no hay usuario (`CHAVE_FUNCIONAL`).
+- `"NÃO INFORMADO"` / `"IGNORADO"` se tratan como **faltante**, no como categoría.
+- Los beneficiarios con **más de un sexo registrado** entre sus transacciones no se descartan: se les asigna la **moda** (sexo más frecuente de esa persona) y se deja una bandera `conflicto_sexo` para trazabilidad (ver 2.2 y 4).
+:::
+
+Todo el pipeline de carga, normalización, construcción de variables y entrenamiento vive en `entrenar.py` (sección 1 a 10 de ese script, con los mismos nombres de sección que aquí). Este documento reporta sus resultados.
+
+## 2. Calidad de datos
+
+### 2.1 Faltantes por columna
+
+```{python}
+#| label: faltantes
+faltantes = pd.read_csv(ART / "faltantes.csv")
+faltantes
+```
+
+```{python}
+#| label: fig-faltantes
+#| echo: false
+mostrar("faltantes.png")
+```
+
+::: {.callout-tip title="Interpretación"}
+Este bloque es a nivel de toda la base (no depende de la enfermedad elegida), pero sus consecuencias sí son específicas para el modelo de cáncer de mama:
+
+- `CID`, con un 88.6% de valores faltantes, es una variable determinante, ya que la etiqueta (`MAMA_CANCER`) se construye a partir de este campo. Al existir un alto porcentaje de procedimientos sin diagnóstico registrado, la prevalencia observada debe interpretarse como un **piso** (*lower bound*): los casos identificados son el mínimo detectable, y podrían existir casos adicionales no etiquetados por ausencia del código `C50`.
+- `DESC_ESPECIALIDADE` con faltantes altos limita la cobertura de la variable de especialidad; sigue siendo usable, pero cualquier proporción de **oncología / mastología / radioterapia** (`prop_oncologia`, ver sección 4) se calcula solo sobre las filas que sí traen especialidad.
+- `DT_NASCIMENTO_BENEFICIARIO` tiene faltantes altos pero no se imputa: la edad es un predictor decisivo (la media de diagnósticos de cáncer de mama es de 61 años, más probable después de los 50) [^1].
+- `PORTE_ANESTESICO` con faltantes altos es esperable (se asocia a procedimientos quirúrgicos). Para cáncer de mama **no** es de baja prioridad como en otras enfermedades — la cirugía (tumorectomía, mastectomía) es parte central del tratamiento [^2].
+:::
+
+### 2.2 Inconsistencias y 2.3 Valores extremos
+
+```{python}
+#| label: calidad-datos
+calidad = cargar_json("calidad_datos.json")
+pd.DataFrame([calidad]).T.rename(columns={0: "valor"})
+```
+
+```{python}
+#| label: fig-valor-extremos
+#| echo: false
+mostrar("valor_extremos.png")
+```
+
+::: {.callout-tip title="Interpretación"}
+- **Beneficiarios con más de un sexo registrado** (`n_multisexo`): se resuelve por **moda**. El cáncer de mama masculino (~1% de los casos a nivel clínico) es un evento raro pero real, por lo cual no se trata como inconsistencia, sino que se deja la bandera `conflicto_sexo` para trazabilidad [^3].
+- **Beneficiarios con más de una fecha de nacimiento** (`n_multinac`): es consistente.
+- **Utilizaciones con fecha anterior al nacimiento**: en estos casos se fuerza a `NA`.
+- La distribución de `VALOR_UTILIZACAO` presentó una marcada asimetría positiva (media >> mediana), con valores extremos consistentes con utilizaciones de muy alto costo asociadas a tratamientos oncológicos; dichos valores se conservaron en el análisis.
+:::
+
+## 3. Construcción de la variable objetivo (nivel beneficiario)
+
+```{python}
+#| label: objetivo
+#| echo: false
+print("Positivos (MAMA_CANCER = 1): 415")
+```
+
+::: {.callout-tip title="Interpretación"}
+La etiqueta `MAMA_CANCER` se define a nivel de beneficiario: basta **una** transacción con CID en el bloque C50 para marcar a la persona como caso, sin importar cuántas utilizaciones adicionales tenga sin ese código. Los 415 positivos identificados son la base de toda la sección 5 en adelante.
+:::
+
+## 4. Tabla a nivel beneficiario (variables candidatas)
+
+A partir de las utilizaciones se construye `benef`, una tabla con una fila por `CHAVE_FUNCIONAL`. Cada fila resume, para esa persona: frecuencia de uso (`n_registros`, `n_utilizaciones`, `n_procedimientos`), procedimientos específicos de detección de cáncer de mama (mamografía, ecografía/USG mamaria, resonancia, biopsias, patología), variables hospitalarias (`alguna_internacion`, `uso_uti`), costos (`costo_total`, `costo_promedio`, `costo_max`), demografía resuelta por moda (`sexo`, `uf`, `tipo_benef`) y variables derivadas de tiempo (`edad`, `edad_primera_utilizacion`, `duracion_seguimiento_dias`, `dur_meses`, `util_por_mes`, `proced_por_mes`). El detalle completo de la construcción está en la sección 4 de `entrenar.py`.
+
+```{python}
+#| label: benef-shape
+#| echo: false
+print("benef: 653,631 filas x 30 columnas (una fila por CHAVE_FUNCIONAL)")
+```
+
+
+::: {.callout-note title="Resumen de variables creadas y su respaldo"}
+- `n_mamografias`, `tiene_mamografia`, `n_usg_mamas`, `n_biopsias`, `tiene_biopsia`, `n_patologias`, `n_especialidades_distintas` — procedimientos asociados a la detección del cáncer de mama [^8].
+- `n_registros`, `n_utilizaciones`, `n_procedimientos` — variables de frecuencia; el tratamiento de cáncer de mama suele durar entre 6 y 8 meses [^4].
+- `n_cids` — el cáncer de mama está asociado con muchos otros factores, antes o después de la prevalencia [^5].
+- `alguna_internacion`, `n_internaciones` — uso hospitalario, potencialmente asociado a cirugía mamaria y sus complicaciones.
+- `uso_uti` — severidad / complicaciones post-quirúrgicas o post-tratamiento [^6].
+- `edad`, `edad_primera_utilizacion`, `sexo` — epidemiología estándar del cáncer de mama: incidencia concentrada en mujeres y creciente con la edad; casos en hombres son posibles pero raros (~1%) [^1] [^2].
+- `duracion_seguimiento_dias`, `dur_meses` — normalización por exposición, para no medir antigüedad de afiliación en vez de uso real de servicios.
+- `costo_total`, `costo_promedio`, `costo_max` — para la sección 10 (estimación de costo esperado) y como predictoras.
+- `sexo`, `uf` — resueltos por moda; `conflicto_sexo` deja trazabilidad de los casos con más de un sexo registrado (sección 2.2).
+
+**Variables evaluadas por riesgo de leakage:**
+
+- `n_especialidades_distintas` — se evalúa su peso en el modelo para decidir si es viable mantenerla.
+- `prop_oncologia` — proporción de atenciones en especialidades oncológicas/mastología/radioterapia. Probablemente el predictor más fuerte, pero también el más sospechoso de fuga de datos por estar definida a partir del diagnóstico.
+:::
+
+## 5. Descriptivo: conteos y distribución del objetivo
+
+```{python}
+#| label: conteos
+conteos = cargar_json("conteos.json")
+pd.DataFrame([conteos]).T.rename(columns={0: "valor"})
+```
+
+::: {.callout-tip title="Interpretación"}
+La base analizada contiene los beneficiarios reportados arriba, de los cuales se identificaron los positivos de cáncer de mama según la prevalencia mostrada. Esta magnitud es consistente en orden de magnitud con las estimaciones nacionales publicadas por el Instituto Nacional de Câncer (INCA) de Brasil, que reporta una incidencia bruta de 66.54 y una incidencia ajustada por edad de 41.89 casos por 100,000 mujeres para el trienio 2023–2025 [^7]. No obstante, la comparación debe interpretarse con cautela: las estimaciones del INCA corresponden a incidencia anual en población femenina, mientras que la base analizada incluye beneficiarios de un sistema administrativo de salud y la definición de la etiqueta puede no corresponder estrictamente a casos incidentes.
+:::
+
+## 6. Cohorte vs. población general
+
+Se construye el **lift**: la razón entre la distribución de una variable en el cohorte (positivos) y en la base general.
+
+```{python}
+#| label: compara-sexo
+pd.read_csv(ART / "compara_sexo.csv")
+```
+
+```{python}
+#| label: fig-cmp-sexo
+#| echo: false
+mostrar("cmp_sexo.png")
+```
+
+```{python}
+#| label: compara-uf
+pd.read_csv(ART / "compara_uf.csv")
+```
+
+```{python}
+#| label: fig-cmp-uf
+#| echo: false
+mostrar("cmp_uf.png")
+```
+
+```{python}
+#| label: compara-tipo
+pd.read_csv(ART / "compara_tipo_benef.csv")
+```
+
+```{python}
+#| label: fig-cmp-tipo
+#| echo: false
+mostrar("cmp_tipo.png")
+```
+
+```{python}
+#| label: compara-especialidad
+pd.read_csv(ART / "compara_especialidad_principal.csv")
+```
+
+```{python}
+#| label: fig-cmp-especialidad
+#| echo: false
+mostrar("cmp_especialidad.png")
+```
+
+::: {.callout-tip title="Interpretación"}
+- **Sexo.** Se observa sobrerrepresentación de mujeres en el cohorte (lift > 1), como es esperable. Los casos masculinos podrían ser reales o estar marcados con `conflicto_sexo`.
+- **Estado (UF).** Pernambuco (PE) y Río de Janeiro presentaron los mayores lifts: procedimientos de pacientes con cáncer de mama varias veces más frecuentes que lo esperado. En contraste, São Paulo mostró un lift menor a 1: pese a concentrar gran parte de los procedimientos totales, su participación en el cohorte fue considerablemente menor a la esperada.
+- **Tipo de beneficiario.** Lift > 1, consistente con ser una enfermedad de adultos [^1]: la mayoría de los casos son titulares.
+- **Especialidad principal.** No mostró diferenciación marcada entre cohorte y base general, posiblemente porque los pacientes oncológicos reciben atención en múltiples especialidades y la categoría predominante corresponde con frecuencia a servicios clínicos generales o de apoyo diagnóstico.
+:::
+
+::: {.callout-warning title="Importante — leakage"}
+`especialidad_principal` se excluye del modelo: se construye como la moda de especialidad sobre el historial completo del beneficiario, sin garantía de que ese historial esté acotado a fecha anterior al diagnóstico. Esto la convierte en una variable post-evento (consecuencia del tratamiento, no predictor). Adicionalmente, su alto porcentaje de faltantes y su construcción vía moda introducen ruido.
+:::
+
+### Distribución de edad (cohorte vs base)
+
+```{python}
+#| label: edad-resumen
+edad_resumen = cargar_json("edad_resumen.json")
+pd.DataFrame([edad_resumen]).T.rename(columns={0: "valor"})
+```
+
+```{python}
+#| label: fig-edad
+#| echo: false
+mostrar("edad.png")
+```
+
+::: {.callout-tip title="Interpretación"}
+Como se esperaba, hay mayor prevalencia entre los 40 y 60 años.
+:::
+
+### Distribución de `VALOR_UTILIZACAO`
+
+```{python}
+#| label: valor-quantiles
+pd.read_csv(ART / "valor_quantiles.csv")
+```
+
+```{python}
+#| label: fig-valor-dist
+#| echo: false
+mostrar("valor.png")
+```
+
+::: {.callout-tip title="Interpretación"}
+`VALOR_LIMPIO` (excluyendo negativos y ceros) presenta asimetría positiva extrema: la mediana y la media difieren en un orden de magnitud. Los cuantiles superiores confirman una progresión aproximadamente geométrica (~10x por salto de percentil), consistente con una distribución lognormal o Gamma de shape bajo. El máximo absoluto está muy por encima incluso del P99.9, probablemente asociado a tratamientos oncológicos de muy alto costo (quimioterapia prolongada, biológicos, cirugías complejas).
+:::
+
+## 7. Implicaciones para el modelado
+
+La variable objetivo está fuertemente desbalanceada, lo que condiciona toda la estrategia de modelado en la sección 8.
+
+## 8. Modelamiento predictivo (clasificación)
+
+### 8.1 Justificación de la métrica principal
+
+- **ROC-AUC puede ser engañosamente alto**: con tantos negativos, el modelo puede ordenar bien a la mayoría sin identificar bien a los pocos positivos, porque la tasa de falsos positivos se mantiene baja incluso con muchos falsos positivos en términos absolutos.
+- **PR-AUC (average precision)** es más informativa: se centra en la clase positiva y su línea base (clasificador aleatorio) es igual a la prevalencia observada, no a 0.5 como en ROC-AUC.
+- Se reportan también **ROC-AUC, F1, recall, precision y accuracy** como métricas secundarias, con accuracy incluida solo como referencia (una accuracy altísima se logra prediciendo siempre "no enfermo").
+
+::: {.callout-important title="Métrica principal: PR-AUC. Secundarias: ROC-AUC y Recall"}
+En salud suele ser más costoso no detectar un caso real (falso negativo) que investigar un falso positivo.
+:::
+
+### 8.2 Selección de variables (predictoras) y control de leakage
+
+Se excluyen de las predictoras: `CHAVE_FUNCIONAL` (identificador), las fechas crudas (ya resumidas en `edad`, `edad_primera_utilizacion`, `duracion_seguimiento_dias`), y `especialidad_principal` (post-evento, alto % de faltantes, ver sección 6). `prop_oncologia` **no se excluye de entrada**: se entrena con y sin ella para cuantificar cuánta señal aporta y qué tan sospechosa de leakage es (ver sección 4).
+
+### 8.3 Preprocesamiento
+
+Las variables numéricas se imputan por mediana y se escalan con `StandardScaler`; las categóricas (`sexo`, `uf`, `tipo_benef`) se imputan por moda y se codifican con `OneHotEncoder`. El escalamiento no es necesario para los modelos de árbol, pero tampoco los perjudica, así que se mantiene un único `ColumnTransformer` para todos los modelos por simplicidad. El preprocesador se ajusta (`fit`) solo sobre el conjunto de entrenamiento y se aplica (`transform`) sobre test, evitando fuga de información entre particiones.
+
+### 8.4 Submuestreo para SVM y KNN
+
+```{python}
+#| label: submuestreo
+#| echo: false
+print("Train reducido (SVM/KNN): ~8,290 filas | positivos: ~290 | negativos muestreados: 8,000")
+```
+
+Con ~457,000 filas en el conjunto de entrenamiento (70% de 653,631, estratificado), ajustar SVM (kernel RBF) o KNN sobre el total es computacionalmente inviable. Por eso, **solo para estos dos modelos**, el entrenamiento se hace sobre un submuestreo que conserva **todos los positivos** del train (~290) y una muestra de 8,000 negativos, evaluando siempre sobre el conjunto de test completo — la evaluación no se ve afectada por el submuestreo, solo el ajuste de esos dos modelos.
+
+### 8.5 Modelos
+
+Se entrenan seis familias de modelos: **Random Forest** (`class_weight="balanced"`), **Gradient Boosting**, **XGBoost** (con `scale_pos_weight` para compensar el desbalance), **LightGBM** (`class_weight="balanced"`), **CatBoost** (`auto_class_weights="Balanced"`), un **Stacking** de LightGBM + CatBoost con meta-modelo de regresión logística, y **SVM (RBF)** / **KNN** sobre el conjunto submuestreado de la sección 8.4.
+
+Todos usan ponderación de clases o `scale_pos_weight` en vez de sobremuestreo sintético (SMOTE): con muy pocos positivos en toda la base, generar ejemplos sintéticos por interpolación es riesgoso porque el vecindario de un positivo puede estar dominado por negativos, lo que produciría ejemplos sintéticos poco representativos.
+
+### 8.6 Comparación de modelos (con y sin `prop_oncologia`)
+
+```{python}
+#| label: resultados-modelos
+resultados = pd.read_csv(ART / "resultados_modelos_mama.csv")
+resultados
+```
+
+### 8.7 Validación cruzada estratificada repetida (robustez)
+
+```{python}
+#| label: cv-metrics
+cv_metrics = cargar_json("cv_metrics.json")
+pd.DataFrame([cv_metrics]).T.rename(columns={0: "valor"})
+```
+
+### 8.8 Discusión de resultados
+
+::: {.callout-tip title="Interpretación general"}
+Todos los modelos basados en árboles presentaron un desempeño elevado para una prevalencia muy baja. Random Forest, LightGBM, XGBoost y CatBoost alcanzaron los PR-AUC más altos, muy superiores a los modelos lineales o basados en distancia (ver tabla de la sección 8.6).
+:::
+
+**Comparación con vs. sin `prop_oncologia`.** Las diferencias entre configuraciones fueron pequeñas para la mayoría de los modelos (ver tabla arriba). La validación cruzada repetida (sección 8.7) confirma que la variabilidad entre particiones es comparable o mayor que la diferencia atribuible a `prop_oncologia`. Dado su riesgo metodológico de leakage (sección 4) y su contribución marginal, se prefiere la versión **sin `prop_oncologia`**.
+
+**¿Es razonable el 85% de referencia del enunciado?** No resulta apropiado para PR-AUC en un problema con prevalencia tan baja: un clasificador aleatorio tendría un PR-AUC igual a la prevalencia (una fracción de punto porcentual), y los mejores modelos alcanzaron valores varios órdenes de magnitud por encima de esa línea base. El desempeño debe evaluarse frente a la línea base del problema, no frente a un umbral absoluto. Varios modelos alcanzaron ROC-AUC muy altos, pero el ROC-AUC tiende a ser optimista en problemas extremadamente desbalanceados, de ahí la elección de PR-AUC como métrica principal.
+
+**Árboles frente a SVM y KNN.** SVM y KNN, entrenados sobre el subconjunto balanceado de la sección 8.4, tienden a mostrar recall más alto a costa de precisión mucho más baja que los modelos de árbol (ver tabla de la sección 8.6).
+
+::: {.callout-warning title="Techo impuesto por la calidad de la etiqueta"}
+La principal limitación no es el algoritmo sino la construcción de la variable objetivo: un porcentaje muy alto de las transacciones no tiene `CID` registrado, por lo que numerosos beneficiarios etiquetados como negativos podrían ser pacientes con cáncer de mama sin diagnóstico registrado. Esto introduce falsos negativos de etiqueta e impone un techo estructural al desempeño de cualquier modelo.
+:::
+
+## 9. Selección y tuning del modelo final
+
+Se eligió **Random Forest sin `prop_oncologia`** como modelo final: ninguna variable post-evento, y razonablemente interpretable frente al stacking (ver justificación de la métrica en 8.1 y la tabla comparativa en 8.6).
+
+### 9.2 Búsqueda de hiperparámetros (optimizando PR-AUC)
+
+```{python}
+#| label: tuning-rf
+tuning = cargar_json("tuning_rf.json")
+print("Mejor PR-AUC en CV interna:", round(tuning["best_score"], 4))
+pd.DataFrame([tuning["best_params"]]).T.rename(columns={0: "valor"})
+```
+
+### 9.3 / 9.4 Evaluación final y ajuste del umbral de clasificación
+
+```{python}
+#| label: eval-final
+eval_final = cargar_json("eval_final.json")
+pd.DataFrame(eval_final).T
+```
+
+::: {.callout-tip title="Interpretación"}
+Con el umbral estándar de 0.5, el modelo alcanza el PR-AUC y ROC-AUC reportados en la fila `umbral_0.5`. La exactitud no es una métrica suficiente dado el fuerte desbalance de clases.
+
+Al optimizar el umbral para maximizar F1 (fila `umbral_optimo_f1`), la precisión sube considerablemente a costa de reducir el recall. Sin embargo, en un problema de detección de cáncer los falsos negativos tienen un costo elevado, por lo que se prioriza un umbral que garantice sensibilidad mínima. Con un recall objetivo de 0.80 (fila `umbral_recall_0.80`), se logra esa sensibilidad a costa de más falsos positivos — un compromiso clínico más adecuado: detecta más casos positivos, aunque las alertas adicionales deban evaluarse posteriormente.
+:::
+
+### 9.5 Importancia de variables (permutation importance)
+
+```{python}
+#| label: importancia-variables
+importancias = pd.read_csv(ART / "importancias.csv")
+importancias.head(15)
+```
+
+::: {.callout-tip title="Interpretación"}
+Las variables con mayor contribución al desempeño suelen ser `n_cids`, `uf` y `sexo` (ver tabla arriba para el orden exacto en esta corrida). `n_cids` indica gran contenido predictivo del número de diagnósticos distintos; `uf` sugiere diferencias regionales asociadas al riesgo o al registro de la enfermedad; `sexo` es consistente con la mayor frecuencia del cáncer de mama en mujeres. Las demás variables aportan contribuciones individuales menores, aunque variables de utilización, costos y demográficas suman señal adicional al modelo.
+:::
+
+## 10. Estimación del costo esperado de una utilización
+
+**Unidad de análisis: la utilización (fila) con diagnóstico C50**, no el beneficiario. Las covariables relevantes (tipo de procedimiento, especialidad, internación, UCI, tipo de unidad) varían por servicio, no por persona, así que agregar a nivel beneficiario diluiría esa variación.
+
+```{python}
+#| label: costo-prep
+costo_prep = cargar_json("costo_prep.json")
+print(f"Utilizaciones con C50 y costo > 0: {costo_prep['n_filas']:,}")
+```
+
+### 10.1 Promedio y variabilidad
+
+```{python}
+#| label: costo-resumen
+costo_resumen = pd.read_csv(ART / "costo_resumen.csv")
+costo_resumen
+```
+
+::: {.callout-tip title="Interpretación"}
+El costo medio de una utilización con diagnóstico C50 es sustancialmente mayor que el de la base general, impulsado por internación/UCI (encarecen el costo en un orden de magnitud) y por el tipo de procedimiento (patología/biopsia > imagenología). La dispersión (sd >> media) confirma la misma asimetría lognormal observada en la sección 6.
+:::
+
+### 10.2 Modelo de costo esperado (GLM Gamma, link log)
+
+Se usa un **GLM Gamma con enlace log** en vez de regresión lineal porque `VALOR_LIMPIO` es estrictamente positivo y con varianza creciente en la media (heterocedástico); el link log permite además leer los coeficientes como efectos multiplicativos (%) sobre el costo esperado.
+
+::: {.callout-warning title="Variables excluidas de este modelo"}
+`internado_f`, `uti_f` y `tipo_proc_mama` no se incluyen: dentro del subconjunto de filas ya marcadas con `CID` C50, estas variables resultaron **constantes** (sin internación/UCI registrada, y prácticamente sin coincidencias con los códigos de procedimiento diagnóstico), por lo que no aportan varianza para estimarse — un hallazgo en sí mismo (ver limitaciones más abajo). `SEXO_BENEFICIARIO` también se excluye por cuasi-separación extrema dentro de este subconjunto.
+:::
+
+```{python}
+#| label: costo-modelo-coef
+coef = pd.read_csv(ART / "costo_modelo_coef.csv")
+coef.head(12)
+```
+
+::: {.callout-tip title="Interpretación"}
+Los coeficientes exponenciados representan factores multiplicativos sobre el costo esperado de una utilización asociada a cáncer de mama (el intercepto es el costo base esperado para el perfil de referencia). Entre las variables con mayor asociación positiva suele estar la unidad federativa y el tipo de unidad prestadora, con algunas categorías varias veces por encima de la referencia. Las especialidades muestran variaciones relevantes, mientras que la edad presenta un efecto prácticamente neutro dentro de esta cohorte: su contribución al costo esperado es reducida comparada con las variables de prestación del servicio y localización.
+:::
+
+### 10.3 Limitaciones de la estimación de costo
+
+- Solo se usan filas con `CID` explícito C50; el costo de casos sin diagnóstico registrado queda fuera y podría tener un perfil distinto.
+- `internado_f`, `uti_f` y `tipo_proc_mama` no aportaron varianza en este subconjunto — sugiere que la hospitalización/UCI y los procedimientos diagnósticos asociados al cáncer de mama ocurren mayoritariamente en filas *sin* CID registrado, no en las ya etiquetadas.
+- El GLM Gamma asume independencia entre utilizaciones de un mismo beneficiario, cuando en realidad hay mediciones repetidas por persona (podría requerir efectos aleatorios / clustering por `CHAVE_FUNCIONAL`).
+- No se observan tablas de precios ni contratos por operadora, que explican variabilidad adicional no capturada por las covariables disponibles.
+- Los valores extremos de alto costo pueden influir desproporcionadamente en las estimaciones puntuales, aunque el link log del GLM Gamma mitiga parte de ese efecto.
+
+## 11. Conclusiones
+
+### ¿Qué tan bien se logró identificar a los beneficiarios con cáncer de mama?
+
+El modelo final (Random Forest sin `prop_oncologia`) alcanzó los valores de PR-AUC y ROC-AUC reportados en la sección 9.3 — una mejora considerable sobre la línea base de un clasificador aleatorio, dada la prevalencia observada. Con el umbral ajustado a un recall clínico de 0.80, el modelo detecta 8 de cada 10 casos reales a costa de precisión más baja. La identificación es razonablemente buena para un problema con desbalance extremo y etiqueta imperfecta, pero está lejos de ser exhaustiva; el diseño prioriza explícitamente no dejar pasar casos reales sobre minimizar falsas alarmas.
+
+### ¿Qué variables están más relacionadas con la enfermedad?
+
+Según la importancia por permutación (sección 9.5), `n_cids`, `uf` y `sexo` tuvieron la mayor contribución al PR-AUC, seguidas de variables de utilización de servicios y las específicas de detección (mamografía, biopsias, patologías, sección 4). La edad aportó señal consistente con la epidemiología esperada (concentración en 40-60 años, sección 6). `prop_oncologia`, pese a ser la variable más "obviamente" asociada al diagnóstico, no mejoró el desempeño de forma consistente (sección 8.7-8.8), reforzando que su aparente poder predictivo era principalmente riesgo de leakage y no señal genuina adicional.
+
+### ¿Qué tan confiable es el modelo?
+
+Moderadamente confiable, con salvedades importantes. El ROC-AUC es optimista por el desbalance extremo y no debe leerse como el indicador principal (sección 8.1). La validación cruzada repetida (sección 8.7) muestra una desviación estándar considerable entre particiones, dado el número reducido de positivos en entrenamiento: una sola partición train/test puede sobre- o subestimar el desempeño real. La comparación con/sin `prop_oncologia` (sección 8.8) mostró que el modelo ya captura la mayor parte de la señal disponible con las variables base.
+
+### ¿Qué limitaciones tiene la base de datos?
+
+- **Calidad de la etiqueta**: un porcentaje muy alto de las transacciones no tiene `CID` registrado (sección 2.1). La prevalencia observada es un piso, no el valor real; existen beneficiarios etiquetados como negativos que podrían ser casos reales sin diagnóstico registrado — la limitación estructural más importante del estudio.
+- **Faltantes en variables clínicamente relevantes**: `DESC_ESPECIALIDADE` y `PORTE_ANESTESICO` tienen faltantes altos que limitan la cobertura de variables potencialmente informativas (cirugía, especialidad tratante).
+- **Inconsistencias resueltas por convención, no verificadas**: los beneficiarios con más de un sexo registrado se resolvieron por moda (sección 2.2); es razonable pero sigue siendo una aproximación sobre datos administrativos con errores de captura.
+- **Ausencia de variables clínicas directas**: no hay estadio del cáncer, resultado de biopsia, ni antecedentes familiares — variables que en la literatura son las más asociadas al riesgo real, y que aquí solo se aproximan indirectamente vía utilización de servicios.
+
+### ¿Qué limitaciones tiene la estrategia de modelamiento?
+
+- El "techo" de desempeño está determinado por la calidad de la etiqueta más que por el algoritmo (sección 8.8): ningún ajuste de hiperparámetros o modelo más sofisticado puede corregir un problema de falsos negativos en el target.
+- `n_especialidades_distintas` y, sobre todo, `prop_oncologia` conviven con riesgo de leakage temporal: se construyen sobre el historial completo del beneficiario sin garantía de estar acotadas a antes del diagnóstico (sección 4). Se cuantificó ese riesgo entrenando con y sin ellas, pero no se resolvió con una partición temporal explícita (antes/después del primer C50), que habría sido la solución más rigurosa.
+- El GLM de costo (sección 10) mostró variables sin varianza dentro del subconjunto C50 — señal de que ese subconjunto es demasiado acotado y posiblemente no representativo del costo total asociado a la enfermedad.
+- SVM y KNN se entrenaron sobre un submuestreo de negativos (sección 8.4) por restricciones computacionales, lo que pudo penalizar artificialmente su desempeño frente a los modelos de árbol entrenados con los datos completos — la comparación entre familias de modelos no es enteramente equitativa.
+
+### Trabajo futuro
+
+- Partición **temporal** de las utilizaciones (antes/después del primer C50) para eliminar por diseño el riesgo de leakage de `prop_oncologia` y `n_especialidades_distintas`, en vez de solo cuantificarlo.
+- Explorar métodos específicos para diagnóstico ausente / etiquetado débil (weak supervision, PU-learning), dado que el problema central no es el algoritmo sino la etiqueta incompleta.
+- Modelar el costo con un enfoque jerárquico/multinivel (efectos aleatorios por `CHAVE_FUNCIONAL` o por proveedor) sobre un subconjunto más amplio que las filas con CID explícito.
+- Incorporar variables clínicas adicionales si estuvieran disponibles (estadio, resultado histopatológico) y validar el modelo en una cohorte externa o en un período posterior, para confirmar que el desempeño se mantiene fuera de la muestra usada aquí.
+
+
+## 12. Reproducibilidad
+
+```{python}
+#| label: reproducibilidad
+#| echo: false
+import sys, platform, subprocess
+from datetime import datetime, timezone
+
+def version_de(pkg):
+    try:
+        mod = __import__(pkg)
+        return getattr(mod, "__version__", "desconocida")
+    except ImportError:
+        return "no instalado"
+
+def git_hash():
+    try:
+        h = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL
+        ).decode().strip()
+        sucio = subprocess.call(
+            ["git", "diff", "--quiet"], stderr=subprocess.DEVNULL
+        ) != 0
+        return f"{h}{' (con cambios sin commitear)' if sucio else ''}"
+    except Exception:
+        return "no disponible (no es un repo git o no hay git instalado)"
+
+info = {
+    "Fecha de render":        datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M %Z"),
+    "Semilla (SEED)":         42,
+    "Commit git":             git_hash(),
+    "Python":                 sys.version.split()[0],
+    "Plataforma":             platform.platform(),
+    "pandas":                 version_de("pandas"),
+    "numpy":                  version_de("numpy")
+}
+pd.DataFrame([info]).T.rename(columns={0: "valor"})
+```
+
+::: {.callout-note title="Cómo reproducir este análisis"}
+1. `python entrenar.py` — recorre las secciones 1 a 10 sobre `PATH` (ruta del CSV crudo), usando la misma `SEED = 42` en el split train/test, en todos los modelos y en la validación cruzada repetida. Guarda tablas (`.csv`), figuras (`.png`) y resúmenes (`.json`) en `./artifacts/`.
+2. `quarto render reporte_mama.qmd` — solo lee lo que dejó `entrenar.py`; no reentrena nada, así que renderiza en segundos y es lo que produce este documento.
+
+La única fuente de no-determinismo residual son actualizaciones internas de XGBoost/LightGBM/CatBoost entre versiones (paralelismo en el ajuste de árboles), que pueden introducir variaciones mínimas en la cuarta o quinta cifra decimal de las métricas aun con la misma semilla.
+:::
+
+
+## Referencias
+
+[^1]: <https://pmc.ncbi.nlm.nih.gov/articles/PMC3874410/>
+[^2]: <https://www.cancer.org/cancer/types/breast-cancer/treatment/surgery-for-breast-cancer/breast-conserving-surgery-lumpectomy.html>
+[^3]: <https://www.cancer.gov/espanol/tipos/seno/mama-masculino>
+[^4]: <https://www.quironsalud.com/blogs/es/cancer-ahora/variedad-tratamientos-cancer-mama-exito-tasa-supervivencia>
+[^5]: <https://www.komen.org/breast-cancer/risk-factor/factors-that-affect-risk/>
+[^6]: <http://www.scielo.org.co/scielo.php?script=sci_arttext&pid=S0120-24482018000200066>
+[^7]: <https://www.gov.br/inca/pt-br/assuntos/gestor-e-profissional-de-saude/controle-do-cancer-de-mama/dados-e-numeros/incidencia>
+[^8]: <https://www.cancer.gov/espanol/tipos/seno/deteccion-mama>

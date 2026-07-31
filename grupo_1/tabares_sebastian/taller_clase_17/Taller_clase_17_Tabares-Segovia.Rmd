@@ -1,0 +1,294 @@
+---
+title: "Taller_clase_17"
+author: "Sebastian Tabares Segovia"
+date: "2026-07-04"
+output: html_document
+---
+
+# Ejercicio de práctica - Clase 17
+
+## Enunciado
+
+El objetivo del ejercicio es clasificar si el agua de un municipio colombiano es **apta** o **no apta** para consumo humano, utilizando dos variables: **pH** y **turbiedad**.
+
+La clase se codifica de la siguiente manera:
+
+- **+1:** agua apta para consumo humano.
+- **-1:** agua no apta para consumo humano.
+
+Primero se analizará el problema mediante una aproximación tipo **SVM**, verificando si los datos son linealmente separables. Luego se aplicará **KNN con K = 3**, comparando las distancias sin escalar y con estandarización mediante z-score.
+
+## Datos del ejercicio
+
+```{r}
+datos <- data.frame(
+  Municipio = c("M1", "M2", "M3", "M4"),
+  pH = c(7.2, 6.1, 7.5, 5.8),
+  Turbiedad = c(1.2, 8.5, 0.8, 12.0),
+  Clase = c(1, -1, 1, -1)
+)
+
+nuevo <- data.frame(
+  Municipio = "Nuevo",
+  pH = 6.8,
+  Turbiedad = 3.5,
+  Clase = NA
+)
+```
+
+## Tabla de datos
+
+```{r}
+tabla_datos <- rbind(datos, nuevo)
+
+knitr::kable(
+  tabla_datos,
+  caption = "Datos de calidad del agua para municipios colombianos"
+)
+```
+
+## Datos para el análisis
+
+```{r}
+datos
+```
+
+```{r}
+nuevo
+```
+
+## Interpretación inicial
+
+El conjunto de datos contiene cuatro municipios con clase conocida y un municipio nuevo cuya clase se desea predecir. Las variables utilizadas son el **pH** y la **turbiedad**, ambas relacionadas con la calidad del agua.
+
+Los municipios con clase **+1** presentan valores de pH cercanos a la neutralidad y baja turbiedad, mientras que los municipios con clase **-1** presentan menor pH y mayor turbiedad. Por esta razón, inicialmente parece razonable pensar que los datos pueden separarse mediante una frontera lineal.
+
+
+## 1. SVM: verificación de separabilidad lineal
+
+Para verificar si los datos son linealmente separables, se propone un hiperplano candidato de la forma:
+
+\[
+w^Tx + b = 0
+\]
+
+En este caso se usa como frontera:
+
+\[
+pH - Turbiedad = 0
+\]
+
+es decir:
+
+\[
+w = (1,-1), \quad b = 0
+\]
+
+```{r}
+w <- c(1, -1)
+b <- 0
+
+datos$funcion_decision <- w[1] * datos$pH + w[2] * datos$Turbiedad + b
+
+datos$margen_funcional <- datos$Clase * datos$funcion_decision
+
+knitr::kable(datos)
+```
+
+## Interpretación
+
+El margen funcional se calcula como:
+
+\[
+\gamma_i = y_i(w^Tx_i + b)
+\]
+
+Si todos los márgenes funcionales son positivos, significa que el hiperplano clasifica correctamente todas las observaciones.
+
+```{r}
+all(datos$margen_funcional > 0)
+```
+
+Como todos los márgenes funcionales son positivos, los datos son linealmente separables mediante el hiperplano propuesto.
+
+## Margen geométrico
+
+El margen geométrico se obtiene dividiendo el margen funcional entre la norma del vector \(w\):
+
+\[
+\gamma_i^{geom} = \frac{y_i(w^Tx_i+b)}{||w||}
+\]
+
+```{r}
+norma_w <- sqrt(sum(w^2))
+
+datos$margen_geometrico <- datos$margen_funcional / norma_w
+
+knitr::kable(datos)
+```
+
+## Predicción del municipio nuevo
+
+```{r}
+nuevo$funcion_decision <- w[1] * nuevo$pH + w[2] * nuevo$Turbiedad + b
+
+nuevo$Prediccion <- ifelse(
+  nuevo$funcion_decision > 0,
+  "+1 Apta",
+  "-1 No apta"
+)
+
+knitr::kable(nuevo)
+```
+
+## Interpretación final del punto 1
+
+El hiperplano propuesto \(pH - Turbiedad = 0\) separa correctamente los cuatro municipios del conjunto de entrenamiento. Los municipios aptos quedan del lado positivo de la frontera, mientras que los municipios no aptos quedan del lado negativo.
+
+Para el municipio nuevo, la función de decisión toma un valor positivo, ya que:
+
+\[
+6.8 - 3.5 = 3.3
+\]
+
+Por lo tanto, el municipio nuevo se clasifica como **agua apta para consumo humano**, correspondiente a la clase **+1**.
+
+
+## 2. KNN con K = 3
+
+En este punto se aplica el método de **K vecinos más cercanos (KNN)** para clasificar el municipio nuevo. Se utilizará \(K = 3\), es decir, la predicción se realizará con base en las tres observaciones más cercanas.
+
+Primero se calculan las distancias euclidianas sin escalar las variables.
+
+```{r}
+datos$distancia_sin_escalar <- sqrt(
+  (datos$pH - nuevo$pH)^2 +
+  (datos$Turbiedad - nuevo$Turbiedad)^2
+)
+
+knitr::kable(datos)
+```
+
+## Orden de vecinos sin escalar
+
+```{r}
+vecinos_sin_escalar <- datos[order(datos$distancia_sin_escalar), ]
+
+knitr::kable(vecinos_sin_escalar)
+```
+
+## Predicción sin escalar
+
+```{r}
+knn_sin_escalar <- vecinos_sin_escalar[1:3, ]
+
+knitr::kable(knn_sin_escalar)
+
+table(knn_sin_escalar$Clase)
+```
+
+## Interpretación
+
+Sin escalar las variables, los tres vecinos más cercanos del municipio nuevo son los municipios con menor distancia euclidiana respecto a sus valores de pH y turbiedad. La predicción se obtiene por voto mayoritario entre esos tres vecinos.
+
+Como la clase que aparece con mayor frecuencia entre los tres vecinos más cercanos es **+1**, el municipio nuevo se clasifica como **apto para consumo humano**.
+
+
+
+## Estandarización mediante z-score
+
+Como el pH y la turbiedad se encuentran en escalas diferentes, ahora se estandarizan ambas variables utilizando el método del z-score.
+
+Primero se combinan los datos de entrenamiento con el municipio nuevo para que todos queden en la misma escala.
+
+```{r}
+datos_z <- rbind(
+  datos[, c("Municipio","pH","Turbiedad","Clase")],
+  data.frame(
+    Municipio = "Nuevo",
+    pH = nuevo$pH,
+    Turbiedad = nuevo$Turbiedad,
+    Clase = NA
+  )
+)
+
+datos_z
+```
+
+Posteriormente se estandarizan las variables numéricas.
+
+```{r}
+datos_z[, c("pH","Turbiedad")] <-
+scale(datos_z[, c("pH","Turbiedad")])
+
+knitr::kable(datos_z)
+```
+
+## Distancias con z-score
+
+Ahora se calculan nuevamente las distancias euclidianas utilizando las variables estandarizadas.
+
+```{r}
+nuevo_z <- datos_z[5, ]
+
+datos_z$distancia_z <- sqrt(
+  (datos_z$pH - nuevo_z$pH)^2 +
+  (datos_z$Turbiedad - nuevo_z$Turbiedad)^2
+)
+
+knitr::kable(datos_z)
+```
+
+## Orden de vecinos con z-score
+
+```{r}
+vecinos_z <- datos_z[1:4, ]
+
+vecinos_z <- vecinos_z[order(vecinos_z$distancia_z), ]
+
+knitr::kable(vecinos_z)
+```
+
+## Predicción con z-score
+
+```{r}
+knn_z <- vecinos_z[1:3, ]
+
+knitr::kable(knn_z)
+
+table(knn_z$Clase)
+```
+
+## Interpretación final del punto 2
+
+Al comparar los resultados obtenidos utilizando las variables originales y las variables estandarizadas mediante z-score, se observa que **el orden de los vecinos más cercanos no cambia**. En ambos casos, los municipios más próximos al nuevo municipio son M1, M3 y M2, respectivamente.
+
+Asimismo, la predicción del algoritmo KNN permanece igual después de la estandarización. Tanto con las variables originales como con las variables estandarizadas se obtiene una votación de **dos municipios pertenecientes a la clase +1 (agua apta)** y **un municipio perteneciente a la clase -1 (agua no apta)**.
+
+Por lo tanto, el municipio nuevo se clasifica como **apto para consumo humano (clase +1)** utilizando KNN con \(K = 3\).
+
+En este ejercicio, la estandarización mediante z-score únicamente modificó la magnitud de las distancias euclidianas, pero no alteró el orden de los vecinos ni la clasificación final del municipio nuevo.
+
+
+## 3. Selección del modelo para un problema de salud pública
+
+Para este problema elegiría el modelo basado en **SVM**, debido a que permite construir una frontera de decisión explícita entre municipios con agua apta y no apta para consumo humano. En este caso, el hiperplano propuesto permite separar correctamente las observaciones y clasificar el municipio nuevo como **apto**.
+
+Aunque KNN también produce la misma predicción, su decisión depende directamente de los vecinos más cercanos y puede verse afectada por la escala de las variables, la elección de \(K\) y la presencia de nuevos datos. En cambio, SVM busca una frontera de separación con el mayor margen posible, lo cual resulta más adecuado cuando se requiere una regla de decisión estable.
+
+En un contexto de **salud pública**, donde una mala clasificación puede tener consecuencias importantes, es preferible utilizar un modelo que ofrezca una frontera clara, interpretable y con buena capacidad de generalización. Por esta razón, para este ejercicio se seleccionaría **SVM** como modelo principal, complementándolo con análisis de sensibilidad y validación adicional si se trabajara con datos reales.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

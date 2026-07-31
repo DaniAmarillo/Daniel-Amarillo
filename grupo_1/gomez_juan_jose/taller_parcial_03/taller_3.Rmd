@@ -1,0 +1,279 @@
+---
+title: "Taller 3 — Predicción de neumonía y estimación de costos"
+subtitle: "Minería de Datos (2016325) · Universidad Nacional de Colombia"
+author: "Juan José Gómez García"
+date: "`r format(Sys.Date(), '%d de %B de %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    theme: flatly
+    df_print: kable
+---
+
+```{r setup, include=FALSE}
+library(knitr); library(data.table)
+# >>> AJUSTAR esta ruta a tu carpeta de salidas (la misma de los scripts 01-03)
+OUT <- "C:/Users/juanj/OneDrive/Desktop/salidas_taller3"
+opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,
+               fig.align = "center", out.width = "78%")
+
+benef <- readRDS(file.path(OUT, "datos_beneficiario.rds"))
+res   <- readRDS(file.path(OUT, "resultados_modelos.rds"))
+desc  <- readRDS(file.path(OUT, "descriptivo_raw.rds"))
+costo <- readRDS(file.path(OUT, "costo_resultados.rds"))
+
+# Escalares para el texto
+ntot  <- nrow(benef); npos <- sum(benef$y)
+prev  <- round(100 * npos / ntot, 3)
+auc_c <- round(res$auc_completo, 3); auc_b <- round(res$auc_basal, 3)
+mt    <- copy(res$metrics)
+cben  <- costo$granularidad[nivel == "beneficiario"]
+cutil <- costo$granularidad[nivel == "utilizacion"]
+uci1  <- costo$por_uti[any_uti == 1]; uci0 <- costo$por_uti[any_uti == 0]
+fmt <- function(x) format(round(x), big.mark = ".", decimal.mark = ",", scientific = FALSE)
+```
+
+# Introducción y selección de la enfermedad
+
+La base analizada contiene **`r fmt(desc$granularidad$valor[3])` transacciones** de atención en salud
+correspondientes a **`r fmt(ntot)` beneficiarios** durante el año 2026
+(`r as.character(desc$rango_fechas[1])` a `r as.character(desc$rango_fechas[2])`).
+Cada registro es una utilización o procedimiento, con su diagnóstico (CID-10), valor,
+prestador y atributos del beneficiario.
+
+La enfermedad objetivo es la **neumonía**, identificada por los códigos **CID-10 J12–J18**
+(J12 viral, J13–J15 bacterianas, J16 otros organismos, J17 en enfermedades clasificadas
+en otra parte, J18 organismo no especificado). Se excluyen deliberadamente J10–J11
+(influenza) y J20+ (bronquitis y otras infecciones respiratorias bajas), que no son neumonía.
+La expresión regular usada es `^J1[2-8]`, que captura los códigos con o sin punto decimal.
+
+# Construcción de la variable objetivo
+
+La etiqueta se define **a nivel de beneficiario**: `y = 1` si el beneficiario tiene al menos
+una transacción con un CID de neumonía (J12–J18), y `y = 0` en caso contrario.
+
+```{r target-code, echo=TRUE, eval=FALSE}
+dt[, pneu_flag := as.integer(grepl("^J1[2-8]", toupper(trimws(CID))))]
+target <- dt[, .(y = max(pneu_flag)), by = CHAVE_FUNCIONAL]
+```
+
+El resultado es una clase **extremadamente rara**: solo **`r npos` beneficiarios** de
+`r fmt(ntot)` tienen neumonía, una prevalencia del **`r prev` %** (aproximadamente 1 de cada
+1.590). Esta rareza condiciona todas las decisiones posteriores de modelado y evaluación.
+
+```{r target-plot, fig.height=2.6, out.width="55%"}
+tb <- table(benef$y)
+barplot(tb, col = c("#B0BEC5", "#6A1B9A"), names.arg = c("Sin neumonía (0)", "Neumonía (1)"),
+        main = "Distribución de la variable objetivo", ylab = "Beneficiarios", log = "y")
+text(c(0.7, 1.9), tb, labels = fmt(tb), pos = 3, xpd = TRUE)
+```
+
+# Preparación de los datos
+
+Se construyó una tabla a nivel de beneficiario (`r fmt(ntot)` × 27) agregando las
+`r fmt(desc$granularidad$valor[3])` transacciones. Decisiones principales:
+
+- **Sexo:** se normalizó `MASCULINO` → `M` y `Não Informado` → `NI`; ante beneficiarios con
+  sexo inconsistente entre transacciones se tomó la **moda**.
+- **Edad:** calculada desde la fecha de nacimiento a una fecha de referencia (2026-06-30);
+  valores imposibles se trataron como faltantes e imputaron con la mediana.
+- **Diagnóstico ausente:** el CID está ausente en el **`r desc$cid_ausente_pct` %** de las
+  transacciones (mayoritariamente el literal `"N/A"`). Esto **no afecta la etiqueta** —que solo
+  requiere la *presencia* de J12–J18— pero limita el uso del diagnóstico como predictor.
+- **Categóricas de alta cardinalidad** (UF, tipo de unidad, tipo de beneficiario) se agruparon
+  en las categorías más frecuentes más `Otros`/`NI`.
+- **Valor:** presenta valores negativos (reversiones/estornos) y una cola muy larga; para el
+  modelado se aplicó logaritmo firmado, y para el costo se trabajó con la escala original.
+
+# Análisis descriptivo
+
+**Faltantes por columna** (la base, salvo el diagnóstico, está bastante completa):
+
+```{r falt}
+kable(desc$faltantes, col.names = c("Columna", "% NA"))
+```
+
+**Códigos de neumonía presentes.** Dominan las neumonías de organismo no especificado
+(J18.x), como es típico en datos de reclamos:
+
+```{r pneu-codes}
+kable(head(desc$pneu_codigos, 10), col.names = c("CID", "Transacciones"))
+```
+
+**Perfil por clase.** Los beneficiarios con neumonía son marcadamente distintos: más mayores
+y con muchísima más hospitalización, UCI y costo. Nótese que la **edad** (63 vs 39 años) es un
+factor de riesgo clínicamente legítimo, mientras que las variables de internación/costo
+reflejan sobre todo el *tratamiento* de la enfermedad (ver §7):
+
+```{r perfil-clase}
+cc <- c("idade","n_filas","any_internado","any_uti","valor_total")
+pc <- benef[, lapply(.SD, function(z) round(mean(z), 2)), by = y, .SDcols = cc]
+kable(pc, col.names = c("y", "Edad", "N° proc.", "Internado (prop.)",
+                        "UCI (prop.)", "Costo total ($)"))
+```
+
+```{r edad-plot, fig.height=3}
+plot(density(benef[y==0]$idade), col = "#90A4AE", lwd = 2, main = "Distribución de edad por clase",
+     xlab = "Edad", ylim = c(0, 0.03))
+lines(density(benef[y==1]$idade), col = "#6A1B9A", lwd = 2)
+legend("topright", c("Sin neumonía", "Con neumonía"), col = c("#90A4AE", "#6A1B9A"),
+       lwd = 2, bty = "n")
+```
+
+# Modelamiento
+
+El diseño experimental cruza tres ejes:
+
+- **Dos conjuntos de variables.** El **modelo completo** usa todas las features (demográficas,
+  intensidad de uso, clínicas y de costo). El **modelo basal** usa *solo variables demográficas*
+  (edad, sexo, tipo de beneficiario, UF). La comparación entre ambos permite separar cuánto del
+  desempeño proviene de perfilar riesgo real y cuánto de detectar el episodio de tratamiento.
+- **Dos algoritmos:** regresión logística regularizada (`glmnet`) y `xgboost`.
+- **Dos estrategias de balanceo:** ponderación de clases (`scale_pos_weight` / pesos) y
+  submuestreo de la clase mayoritaria (1:10). No se usó SMOTE: con 411 positivos, generar
+  ejemplos sintéticos es poco confiable.
+
+La partición fue **estratificada 70/30** (`r res$split$train_pos` positivos en entrenamiento,
+`r res$split$test_pos` en prueba). Todas las métricas se calculan sobre el conjunto de prueba,
+que conserva la prevalencia real.
+
+**Métrica principal: ROC-AUC.** Se descarta el *accuracy*: con una prevalencia del `r prev` %,
+un clasificador que predice "todos sanos" alcanza un 99,9 % de acierto y es inútil. Se reportan
+además **PR-AUC** (apropiada para clases raras), **F1** con umbral óptimo, sensibilidad y
+especificidad.
+
+# Evaluación
+
+```{r metricas}
+disp <- mt[, .(Conjunto = featset, Modelo = algo, Balanceo = balance,
+               `ROC-AUC` = round(ROC_AUC, 3), `PR-AUC` = round(PR_AUC, 3),
+               F1 = round(F1, 3), Sens = round(sens, 3), Esp = round(esp, 3))]
+kable(disp)
+```
+
+```{r roc-pr, out.width="49%", fig.show="hold"}
+include_graphics(c(file.path(OUT, "roc_completo_vs_basal.png"),
+                   file.path(OUT, "pr_completo.png")))
+```
+
+Lectura de resultados:
+
+- **El modelo completo alcanza ROC-AUC ≈ `r auc_c`**, muy por encima del umbral de 0,85 pedido.
+  El modelo basal llega a **≈ `r auc_b`**: incluso solo con demografía (esencialmente la edad)
+  se rankea razonablemente el riesgo.
+- **Pero el PR-AUC del modelo completo es apenas ≈ `r round(max(mt[featset=="completo"]$PR_AUC),3)`.**
+  Este es el punto clave: bajo una rareza tan extrema, un ROC-AUC altísimo **esconde que la
+  precisión sigue siendo baja**. La curva Precision-Recall lo hace explícito.
+- **El balanceo casi no cambia el ROC-AUC** (ponderación ≈ submuestreo): balancear ayuda a la
+  optimización, no crea señal. Logística y xgboost dan resultados muy parecidos, lo que sugiere
+  que las relaciones son mayormente lineales.
+
+# Interpretación y análisis de errores
+
+**Importancia de variables (XGBoost).** El modelo se apoya de forma abrumadora en el conteo de
+internaciones y el costo:
+
+```{r imp, out.width="70%"}
+include_graphics(file.path(OUT, "importancia_xgb.png"))
+```
+
+```{r coef}
+kable(head(res$coeficientes, 10), col.names = c("Variable", "Coeficiente (glmnet)"),
+      caption = "Coeficientes estandarizados de la logística (top 10 por magnitud)")
+```
+
+La variable más importante es el número de internaciones, seguida del costo total y máximo.
+Estas variables **son consecuencia** de tener neumonía (son el tratamiento), no un factor de
+riesgo previo. La edad —el único factor de riesgo genuinamente pre-existente— aparece, pero con
+peso menor.
+
+**Análisis de errores (el hallazgo central).** Comparando falsos positivos (FP), verdaderos
+positivos (TP) y falsos negativos (FN) del modelo completo:
+
+```{r errores}
+pe <- res$perfil_errores[grupo != "TN"]
+kable(pe[, .(Grupo = grupo, n, Edad = round(idade,1),
+             `Internado` = round(any_internado,2), `UCI` = round(any_uti,2),
+             `Costo ($)` = round(valor_total))],
+      caption = "Perfil de aciertos y errores del modelo completo")
+```
+
+Los **falsos positivos y los verdaderos positivos tienen prácticamente el mismo perfil**:
+adultos mayores, casi todos hospitalizados, con alto costo y muchos procedimientos. El modelo
+**no puede distinguir un paciente con neumonía de cualquier otro paciente con una
+hospitalización grave**, porque lo único que los separa es el código diagnóstico —que es justo
+lo que se intenta predecir. Por eso el PR-AUC es bajo pese al ROC-AUC de `r auc_c`. Además, los
+falsos negativos son **más jóvenes**: el modelo, al apoyarse en edad y severidad, se pierde la
+neumonía en pacientes jóvenes.
+
+Esto responde de fondo a *"¿qué tan confiable es el modelo?"*: es excelente **ordenando** riesgo
+(ROC-AUC), pero pobre **identificando con precisión** casos individuales (PR-AUC/F1), y buena
+parte de su aparente poder es *fuga de información* del propio episodio de tratamiento.
+
+# Estimación de costos
+
+Considerando toda la atención de 2026 de los beneficiarios con neumonía, el costo es muy
+variable y sesgado a la derecha, por lo que la **mediana** es más representativa que la media:
+
+```{r costo-tabla}
+kable(costo$granularidad, caption = "Costo asociado a la neumonía por nivel de agregación ($)")
+```
+
+```{r costo-fig, out.width="49%", fig.show="hold"}
+include_graphics(c(file.path(OUT, "costo_distribucion.png"),
+                   file.path(OUT, "costo_por_uti.png")))
+```
+
+- **Costo por beneficiario:** mediana ≈ **\$`r fmt(cben$mediana)`**, media ≈ **\$`r fmt(cben$media)`**
+  (la brecha refleja la cola de casos muy costosos, hasta \$`r fmt(cben$max)`).
+- **Costo por utilización:** mediana ≈ **\$`r fmt(cutil$mediana)`**.
+- **El paso por UCI es el principal determinante:** mediana de **\$`r fmt(uci1$mediana)`** con UCI
+  frente a **\$`r fmt(uci0$mediana)`** sin UCI.
+
+Un modelo log-lineal del costo por perfil (edad, UCI, internación) confirma estos efectos de
+forma multiplicativa:
+
+```{r costo-modelo}
+kable(costo$modelo_coef, col.names = c("Término", "Coef.", "Efecto multiplicativo"),
+      caption = sprintf("Modelo log(costo) ~ perfil (R² = %.3f)", costo$modelo_r2))
+```
+
+# Conclusiones y limitaciones
+
+**Conclusiones.**
+
+1. Se puede predecir la presencia de neumonía con **ROC-AUC ≈ `r auc_c`**, superando ampliamente
+   el umbral pedido, pero la **precisión real es baja** (PR-AUC ≈
+   `r round(max(mt[featset=="completo"]$PR_AUC),3)`): con una clase al `r prev` %, el ROC-AUC por
+   sí solo da una imagen demasiado optimista.
+2. La **edad** es un factor de riesgo legítimo (el modelo basal, solo con demografía, alcanza
+   ROC-AUC ≈ `r auc_b`); el resto del poder predictivo proviene de variables que reflejan el
+   tratamiento.
+3. El costo asociado a la neumonía es alto y muy heterogéneo (mediana ≈ \$`r fmt(cben$mediana)`
+   por beneficiario), impulsado sobre todo por el paso por UCI.
+
+**Limitaciones.**
+
+- **Fuga de información (leakage) estructural.** La base cubre un único período y no permite
+  separar el *antes* del *después* del diagnóstico. Las features se construyen con las mismas
+  transacciones que definen la etiqueta, por lo que el modelo detecta en parte el episodio de
+  tratamiento y no solo el riesgo previo. El análisis de errores muestra que no logra separar la
+  neumonía de otras hospitalizaciones graves.
+- **Rareza y tamaño de la clase.** Con 411 positivos, las estimaciones (sobre todo PR-AUC y F1)
+  tienen incertidumbre apreciable; una validación cruzada estratificada ajustaría mejor los
+  intervalos.
+- **Calidad del diagnóstico.** El CID está ausente en el `r desc$cid_ausente_pct` % de las
+  transacciones, lo que probablemente subestima la prevalencia real de neumonía.
+
+**Trabajo futuro.** Definir una ventana temporal (predecir neumonía *futura* con historia
+*pasada*, eliminando el leakage); incorporar validación cruzada estratificada y calibración de
+probabilidades; y validar en un período o población independiente.
+
+# Apéndice: reproducibilidad
+
+El pipeline es completamente reproducible con tres scripts (ver `README.md`):
+`01_prep_features.R` (limpieza y construcción de la tabla de beneficiarios),
+`02_modelos.R` (modelado y evaluación) y `03_costo.R` (costos y descriptivo). Este documento
+solo **lee** los resultados guardados por esos scripts.

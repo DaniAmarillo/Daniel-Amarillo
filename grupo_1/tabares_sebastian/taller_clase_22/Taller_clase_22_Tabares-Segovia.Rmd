@@ -1,0 +1,230 @@
+---
+title: "Taller clase 22"
+author: "Sebastian Tabares Segovia"
+date: "2026-07-20"
+output: html_document
+---
+
+Utilizando los datos dados en el código esqueleto, responda las siguientes preguntas:
+
+```{r}
+library(tidyverse)
+
+# --- Simulación de los datos (no contamos con los datos reales) ---
+set.seed(123)
+plantillas <- c(
+  "El acueducto de {municipio} no funciona desde hace tres dias",
+  "La cobertura de agua en {municipio} ha mejorado mucho este año",
+  "Seguimos esperando que arreglen el alcantarillado en {municipio}",
+  "El servicio de agua en {municipio} llega sucio y con poca presion"
+)
+municipios_sim <- c("Quibdo", "Riohacha", "Monteria", "Yopal", "Florencia")
+
+comentarios <- tibble(
+  id = 1:200,
+  texto = map_chr(1:200, ~ str_replace(sample(plantillas, 1), "\\{municipio\\}", sample(municipios_sim, 1)))
+)
+
+# A partir de aquí: comentarios es su punto de partida.
+# Complete usted las cuatro tareas del ejercicio.
+```
+
+## Pregunta 1
+
+Normalice y tokenice los comentarios (minúsculas, sin tildes, sin puntuación) y elimine stopwords.
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(stringi)
+library(stopwords)
+
+stopwords_es <- tibble(
+  palabra = stopwords("es")
+)
+
+tokens <- comentarios |>
+  mutate(
+    texto = str_to_lower(texto),
+    texto = stri_trans_general(texto, "Latin-ASCII"),
+    texto = str_replace_all(texto, "[[:punct:]]", " ")
+  ) |>
+  unnest_tokens(palabra, texto) |>
+  anti_join(stopwords_es, by = "palabra")
+
+tokens |>
+  head(20) |>
+  knitr::kable(
+    caption = "Primeros tokens después de la normalización y eliminación de stopwords"
+  )
+```
+
+
+### Interpretación
+
+Se realizó el preprocesamiento de los comentarios mediante cuatro etapas: conversión de todo el texto a minúsculas, eliminación de tildes, eliminación de signos de puntuación y tokenización en palabras individuales. Posteriormente, se eliminaron las palabras vacías (*stopwords*) del idioma español.
+
+La tabla obtenida muestra que cada comentario quedó representado por los términos con contenido semántico relevante. Por ejemplo, en los primeros registros permanecen palabras como *cobertura*, *agua*, *monteria*, *mejorado* y *ano*, mientras que en otros comentarios aparecen términos como *acueducto*, *funciona*, *hace* y *tres*. En contraste, palabras frecuentes del lenguaje como artículos, preposiciones y conectores fueron eliminadas del conjunto de datos.
+
+En consecuencia, el corpus quedó preparado para las siguientes etapas del procesamiento de lenguaje natural, ya que cada comentario se representa mediante los términos informativos que aportan significado al análisis.
+
+
+## Pregunta 2
+
+
+Aplique POS tagging y reporte las 10 palabras más frecuentes que sean sustantivos.
+
+
+```{r}
+
+library(udpipe)
+
+modelo <- udpipe_download_model(language = "spanish")
+modelo <- udpipe_load_model(modelo$file_model)
+
+sustantivos_frecuentes <- udpipe_annotate(
+  modelo,
+  x = comentarios$texto,
+  doc_id = comentarios$id
+) |>
+  as.data.frame() |>
+  as_tibble() |>
+  filter(upos == "NOUN") |>
+  count(token, sort = TRUE) |>
+  slice_head(n = 10)
+
+sustantivos_frecuentes |>
+  rename(
+    Sustantivo = token,
+    Frecuencia = n
+  ) |>
+  knitr::kable(
+    caption = "Diez sustantivos más frecuentes identificados mediante POS tagging"
+  )
+```
+
+
+### Interpretación
+
+Se aplicó **POS tagging** para identificar la categoría gramatical de cada palabra y posteriormente se seleccionaron únicamente los sustantivos. A partir de estos se calcularon sus frecuencias de aparición en el conjunto de comentarios.
+
+Los resultados muestran que el sustantivo más frecuente es *agua*, con 98 apariciones, seguido por *acueducto* y *días*, ambos con 63 ocurrencias. También destacan *año* y *cobertura*, con 57 apariciones cada uno, así como *presión*, *servicio* y *alcantarillado*, que corresponden a conceptos directamente relacionados con la infraestructura y la prestación del servicio de agua.
+
+Finalmente, entre los sustantivos más frecuentes también aparecen nombres de municipios como *Riohacha* y *Yopal*, lo que indica que las referencias geográficas forman parte importante del contenido de los comentarios analizados.
+
+
+
+## Pregunta 3
+
+Use un gazetteer de municipios para detectar cuáles aparecen mencionados en cada comentario.
+
+```{r}
+gazetteer_municipios <- tibble(
+  municipio = municipios_sim,
+  municipio_normalizado = stri_trans_general(str_to_lower(municipios_sim), "Latin-ASCII")
+)
+
+municipios_detectados <- comentarios |>
+  mutate(
+    texto_normalizado = stri_trans_general(str_to_lower(texto), "Latin-ASCII")
+  ) |>
+  crossing(gazetteer_municipios) |>
+  filter(str_detect(texto_normalizado, str_c("\\b", municipio_normalizado, "\\b"))) |>
+  group_by(id, texto) |>
+  summarise(
+    Municipio = str_c(unique(municipio), collapse = ", "),
+    .groups = "drop"
+  )
+
+municipios_detectados |>
+  slice_head(n = 20) |>
+  knitr::kable(
+    caption = "Municipios detectados mediante el gazetteer en los primeros 20 comentarios"
+  )
+```
+
+
+### Interpretación
+
+Se utilizó un **gazetteer** compuesto por la lista de municipios disponibles para identificar automáticamente las menciones geográficas presentes en cada comentario. Para ello, tanto los textos como los nombres de los municipios fueron normalizados a minúsculas y sin tildes antes de realizar la búsqueda.
+
+Los resultados muestran que el procedimiento detectó correctamente el municipio mencionado en cada comentario. En los primeros registros se identifican municipios como *Monteria*, *Riohacha*, *Yopal*, *Quibdo* y *Florencia*, coincidiendo con el contenido de los textos originales.
+
+En consecuencia, el uso del gazetteer permitió asociar cada comentario con el municipio correspondiente, proporcionando una estrategia sencilla y efectiva para extraer entidades geográficas cuando se dispone de un listado previo de nombres de interés.
+
+
+
+## Punto 4
+
+Construya un modelo de bigramas sobre el texto normalizado y calcule su perplexity sobre un comentario nuevo.
+
+```{r}
+bigramas <- comentarios |>
+  mutate(
+    texto = str_to_lower(texto),
+    texto = stri_trans_general(texto, "Latin-ASCII"),
+    texto = str_replace_all(texto, "[[:punct:]]", " ")
+  ) |>
+  unnest_tokens(bigrama, texto, token = "ngrams", n = 2) |>
+  separate(bigrama, into = c("palabra1", "palabra2"), sep = " ") |>
+  filter(
+    !palabra1 %in% stopwords("es"),
+    !palabra2 %in% stopwords("es")
+  ) |>
+  count(palabra1, palabra2, name = "frecuencia") |>
+  group_by(palabra1) |>
+  mutate(probabilidad = frecuencia / sum(frecuencia)) |>
+  ungroup()
+
+comentario_nuevo <- "El servicio de agua en Monteria funciona correctamente"
+
+tokens_nuevo <- tibble(texto = comentario_nuevo) |>
+  mutate(
+    texto = str_to_lower(texto),
+    texto = stri_trans_general(texto, "Latin-ASCII"),
+    texto = str_replace_all(texto, "[[:punct:]]", " ")
+  ) |>
+  unnest_tokens(bigrama, texto, token = "ngrams", n = 2) |>
+  separate(bigrama, into = c("palabra1", "palabra2"), sep = " ") |>
+  filter(
+    !palabra1 %in% stopwords("es"),
+    !palabra2 %in% stopwords("es")
+  ) |>
+  left_join(
+    bigramas,
+    by = c("palabra1", "palabra2")
+  ) |>
+  mutate(
+    probabilidad = replace_na(probabilidad, 1e-6)
+  )
+
+perplexity <- exp(
+  -mean(log(tokens_nuevo$probabilidad))
+)
+
+tokens_nuevo |>
+  select(palabra1, palabra2, probabilidad) |>
+  knitr::kable(
+    digits = 6,
+    caption = "Bigramas del comentario nuevo"
+  )
+
+tibble(
+  Perplexity = perplexity
+) |>
+  knitr::kable(
+    digits = 4,
+    caption = "Perplexity del comentario nuevo"
+  )
+```
+
+### Interpretación
+
+Se construyó un modelo de bigramas a partir del texto previamente normalizado y se utilizó para estimar la probabilidad de las transiciones presentes en un comentario nuevo. Los únicos bigramas obtenidos después del preprocesamiento fueron *monteria → funciona* y *funciona → correctamente*.
+
+Ninguno de estos bigramas apareció en el corpus utilizado para entrenar el modelo. Por esta razón, ambos recibieron una probabilidad muy pequeña (\(1\times10^{-6}\)), correspondiente al valor asignado para evitar probabilidades iguales a cero en combinaciones no observadas.
+
+Como consecuencia, la *perplexity* calculada fue de \(1\times10^{6}\), un valor extremadamente alto. Este resultado indica que el modelo considera el comentario nuevo poco probable con respecto al corpus de entrenamiento, debido a que las secuencias de palabras que contiene no fueron observadas previamente. En este caso, el elevado valor de *perplexity* refleja la limitada capacidad predictiva del modelo frente a expresiones nuevas o ausentes en el conjunto de entrenamiento.
+
+
+
