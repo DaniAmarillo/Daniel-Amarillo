@@ -1,0 +1,16 @@
+consulta,estrategia,nombre_estrategia,Precision@5,MRR,tiempo_ms,top_ids,articulos_relevantes
+monetary policy transmission and bank lending,A,TF-IDF + similitud coseno (lexica),0.8,1.0,41.01,64 | 109 | 80 | 35 | 108,64 | 108 | 109 | 80 | 110 | 47 | 28 | 51 | 101
+monetary policy transmission and bank lending,B,LSA / Truncated SVD + similitud coseno (semantica latente),1.0,1.0,38.65,64 | 80 | 109 | 110 | 108,64 | 108 | 109 | 80 | 110 | 47 | 28 | 51 | 101
+monetary policy transmission and bank lending,C,"BM25 Okapi (lexica, ranking probabilistico)",0.8,1.0,39.46,64 | 109 | 108 | 35 | 80,64 | 108 | 109 | 80 | 110 | 47 | 28 | 51 | 101
+climate change and sustainable investing,A,TF-IDF + similitud coseno (lexica),0.8,1.0,37.94,105 | 103 | 23 | 75 | 93,105 | 103 | 23 | 75 | 77 | 21 | 116 | 5
+climate change and sustainable investing,B,LSA / Truncated SVD + similitud coseno (semantica latente),0.8,1.0,37.68,105 | 23 | 75 | 103 | 31,105 | 103 | 23 | 75 | 77 | 21 | 116 | 5
+climate change and sustainable investing,C,"BM25 Okapi (lexica, ranking probabilistico)",0.8,1.0,36.4,105 | 75 | 103 | 23 | 93,105 | 103 | 23 | 75 | 77 | 21 | 116 | 5
+corporate governance and shareholder voting,A,TF-IDF + similitud coseno (lexica),1.0,1.0,35.01,100 | 62 | 98 | 5 | 116,100 | 62 | 98 | 31 | 91 | 116 | 21 | 5 | 104
+corporate governance and shareholder voting,B,LSA / Truncated SVD + similitud coseno (semantica latente),1.0,1.0,36.28,100 | 62 | 98 | 91 | 21,100 | 62 | 98 | 31 | 91 | 116 | 21 | 5 | 104
+corporate governance and shareholder voting,C,"BM25 Okapi (lexica, ranking probabilistico)",1.0,1.0,34.44,100 | 62 | 98 | 5 | 116,100 | 62 | 98 | 31 | 91 | 116 | 21 | 5 | 104
+deposit insurance and bank runs,A,TF-IDF + similitud coseno (lexica),0.6,1.0,36.65,95 | 114 | 51 | 103 | 74,114 | 95 | 51 | 73 | 19 | 101 | 64
+deposit insurance and bank runs,B,LSA / Truncated SVD + similitud coseno (semantica latente),0.8,1.0,36.32,114 | 95 | 51 | 103 | 64,114 | 95 | 51 | 73 | 19 | 101 | 64
+deposit insurance and bank runs,C,"BM25 Okapi (lexica, ranking probabilistico)",0.8,1.0,35.03,114 | 95 | 64 | 103 | 51,114 | 95 | 51 | 73 | 19 | 101 | 64
+algorithmic trading and market liquidity,A,TF-IDF + similitud coseno (lexica),0.4,0.5,38.02,54 | 112 | 81 | 71 | 36,112 | 81 | 88 | 49 | 42 | 29 | 61 | 82 | 44 | 107
+algorithmic trading and market liquidity,B,LSA / Truncated SVD + similitud coseno (semantica latente),1.0,1.0,36.01,81 | 112 | 29 | 88 | 49,112 | 81 | 88 | 49 | 42 | 29 | 61 | 82 | 44 | 107
+algorithmic trading and market liquidity,C,"BM25 Okapi (lexica, ranking probabilistico)",0.4,0.5,35.57,54 | 112 | 81 | 71 | 36,112 | 81 | 88 | 49 | 42 | 29 | 61 | 82 | 44 | 107
