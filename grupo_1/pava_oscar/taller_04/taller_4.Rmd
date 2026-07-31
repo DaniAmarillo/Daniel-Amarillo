@@ -1,0 +1,408 @@
+---
+title: "Taller 4 — Sistema de Recuperación de Información sobre Frontiers in Plant Science"
+subtitle: "Minería de Datos"
+author: "Oscar Pava"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(DBI); library(RSQLite); library(dplyr); library(stringr)
+library(tm); library(Matrix); library(irlba); library(knitr)
+```
+
+# Objetivo
+
+**búsqueda y recuperación de información** que recibe una consulta en
+lenguaje natural y devuelve los artículos más relevantes de la base SQLite,
+comparando dos estrategias de recuperación: **BM25** (léxica, sobre la
+representación TF de dimensión original) y **LSA / Truncated SVD** (semántica,
+sobre una representación reducida). Todo el código de este documento es el que
+efectivamente usa la app Shiny (`search_functions.R`, `precompute_search.R`);
+no hay divergencia entre lo documentado aquí y lo implementado en la app.
+
+# Construcción del corpus
+
+```{r corpus}
+con    <- dbConnect(SQLite(), "frontiers_plant_science_2025.sqlite")
+papers <- dbReadTable(con, "papers")
+dbDisconnect(con)
+
+n_docs <- nrow(papers)
+tibble::tibble(
+  metrica = c("Artículos totales", "Sin título", "Sin resumen (abstract)",
+              "Sin autores", "Sin DOI", "Columna de keywords"),
+  valor = c(n_docs,
+            sum(is.na(papers$title) | papers$title == ""),
+            sum(is.na(papers$abstract) | papers$abstract == ""),
+            sum(is.na(papers$authors_raw) | papers$authors_raw == ""),
+            sum(is.na(papers$doi) | papers$doi == ""),
+            "no existe en esta base")
+) |> kable()
+```
+
+**Campos utilizados**: título y resumen (`abstract`). La base de datos
+producida por el scraper del Taller 2 no incluye una columna de palabras
+clave, por lo que este campo simplemente no se usa (no se inventa contenido
+para reemplazarlo, tal como exige el enunciado).
+
+**Valores faltantes**: solo 3 artículos carecen de resumen; para esos casos el
+artículo se indexa únicamente con su título, sin generar texto sintético.
+
+**Idioma**: los títulos y resúmenes de Frontiers están en inglés en su
+totalidad (es el idioma editorial de la revista). Por eso el pipeline de
+limpieza usa la lista de *stopwords* en inglés y las consultas de ejemplo de
+la Sección 6 se formulan en inglés — una consulta en español no compartiría
+vocabulario con el corpus y el ranking devolvería resultados vacíos o
+arbitrarios, independientemente de la estrategia usada.
+
+**Criterio de inclusión**: se conservan los 240 artículos; ninguno se excluye,
+porque incluso los que carecen de resumen aportan información útil a través
+del título.
+
+# Procesamiento del texto
+
+```{r preprocesamiento}
+limpiar_texto <- function(x) {
+  x <- tolower(x)
+  x <- str_replace_all(x, "<[^>]+>", " ")
+  x <- str_replace_all(x, "&[a-z]+;", " ")
+  x <- str_replace_all(x, "[^a-z\\s]", " ")
+  x <- str_replace_all(x, "\\s+", " ")
+  str_trim(x)
+}
+
+papers <- papers |> mutate(
+  title    = ifelse(is.na(title), "", title),
+  abstract = ifelse(is.na(abstract), "", abstract),
+  texto_original = str_trim(paste(title, abstract)),
+  texto_limpio   = limpiar_texto(texto_original)
+)
+
+corpus <- VCorpus(VectorSource(papers$texto_limpio))
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+corpus <- tm_map(corpus, stripWhitespace)
+
+dtm_raw <- DocumentTermMatrix(corpus, control = list(wordLengths = c(3, Inf)))
+dtm_raw
+```
+
+Decisiones tomadas y justificación:
+
+| Operación | ¿Se aplicó? | Justificación |
+|---|---|---|
+| Minúsculas | Sí | Evita tratar "CRISPR" y "crispr" como términos distintos |
+| Eliminación de HTML/entidades | Sí | El texto viene de un scraper web (`&amp;`, `&#39;`, etiquetas residuales) |
+| Eliminación de puntuación y números | Sí | Simplifica el vocabulario; los números aislados (años, IDs) no aportan al ranking temático |
+| Stopwords (inglés) | Sí | Reduce ruido de términos de alta frecuencia y bajo poder discriminante |
+| *Stemming* | **No** | Deformaría términos científicos precisos (*transcriptomic*, *genotype*, *phenotype*); en un corpus técnico especializado se prefiere conservar la forma exacta |
+| Lematización | No | Redundante frente a la decisión anterior y computacionalmente más costosa sin beneficio claro para este corpus |
+| N-gramas | Solo unigramas | Con 240 documentos, bigramas/trigramas dispararían la dimensión del vocabulario (matriz aún más dispersa) sin ganancia de señal demostrable |
+
+# Representación vectorial
+
+```{r vocabulario}
+dtm_sparse <- sparseMatrix(
+  i = dtm_raw$i, j = dtm_raw$j, x = dtm_raw$v,
+  dims = c(dtm_raw$nrow, dtm_raw$ncol), dimnames = list(NULL, colnames(dtm_raw))
+)
+
+df_terminos <- colSums(dtm_sparse > 0)
+vocab_ok    <- df_terminos >= 2 & df_terminos <= 0.90 * n_docs
+dtm_sparse  <- dtm_sparse[, vocab_ok]
+vocab       <- colnames(dtm_sparse)
+df_terminos <- df_terminos[vocab_ok]
+
+dim_original <- ncol(dtm_sparse)
+dl     <- rowSums(dtm_sparse)
+avgdl  <- mean(dl)
+dl_div <- ifelse(dl == 0, 1, dl)  # evita 0/0 si algún doc quedó sin vocabulario
+
+tibble::tibble(
+  metrica = c("Vocabulario original (antes del recorte)", "Vocabulario final",
+              "¿Matriz dispersa?", "Densidad de la matriz (%)"),
+  valor = c(ncol(dtm_raw), dim_original, "Sí (dgCMatrix)",
+            round(100 * length(dtm_sparse@x) / (nrow(dtm_sparse) * ncol(dtm_sparse)), 3))
+) |> kable()
+```
+
+Se descartan términos que aparecen en un solo documento (ruido / términos
+demasiado idiosincráticos) y términos presentes en más del 90 % de los
+artículos (poco discriminantes para un ranking). Esto controla el tamaño del
+vocabulario y mantiene la matriz manejable en memoria.
+
+Se construyen **dos representaciones** sobre esta misma matriz dispersa:
+
+```{r representaciones}
+# TF-IDF normalizado por longitud de documento (insumo del LSA)
+idf_tfidf    <- log(n_docs / df_terminos)
+tf_norm      <- dtm_sparse / dl_div
+tfidf_sparse <- tf_norm %*% Diagonal(x = idf_tfidf)
+dimnames(tfidf_sparse) <- list(NULL, vocab)
+
+# IDF estilo Okapi BM25 (se aplica sobre las frecuencias crudas en tiempo de consulta)
+idf_bm25 <- log((n_docs - df_terminos + 0.5) / (df_terminos + 0.5) + 1)
+```
+
+- **TF-IDF** (`tfidf_sparse`, `r n_docs` × `r dim_original`, dispersa): tf
+  normalizado por longitud de documento, multiplicado por `log(N/df)`. Es la
+  entrada del Truncated SVD.
+- **BM25**: no se materializa como matriz; el IDF de Okapi se guarda como
+  vector y el puntaje se calcula en el momento de la consulta directamente
+  sobre las frecuencias crudas (`dtm_sparse`) y la longitud de cada documento.
+
+Ventajas y limitaciones: ambas representaciones son dispersas y baratas de
+calcular; su limitación principal es que ignoran el orden de las palabras y
+no capturan sinónimos (dos artículos que hablan del mismo tema con
+vocabulario distinto no se relacionan) — esa limitación es precisamente la
+que motiva la segunda estrategia (LSA).
+
+# Tipo de recuperación e implementación de las dos estrategias
+
+## Estrategia 1 — BM25 (léxica, dimensión original)
+
+BM25 pondera la coincidencia de términos considerando su frecuencia en el
+documento, la frecuencia inversa de documento (IDF) y la longitud del
+documento relativa al promedio del corpus:
+
+$$\text{score}(q,d)=\sum_{t\in q} \text{idf}(t)\cdot\frac{tf_{t,d}\,(k_1+1)}{tf_{t,d}+k_1\left(1-b+b\dfrac{|d|}{\text{avgdl}}\right)}$$
+
+Un puntaje alto significa que el documento contiene varios términos de la
+consulta, con alta frecuencia relativa y sin ser artificialmente favorecido
+por ser un documento muy largo. Un documento que no comparte ningún término
+con la consulta obtiene puntaje 0 (recuperación puramente léxica: sin
+coincidencia de palabras, no hay relevancia).
+
+## Estrategia 2 — LSA / Truncated SVD (semántica, dimensión reducida)
+
+```{r svd}
+total_var <- sum(tfidf_sparse@x^2)
+svd_res   <- irlba(tfidf_sparse, nv = 200)
+var_explicada <- cumsum(svd_res$d^2) / total_var
+k_lsa <- which(var_explicada >= 0.80)[1]
+if (is.na(k_lsa)) k_lsa <- 200
+
+V_k <- svd_res$v[, 1:k_lsa, drop = FALSE]
+doc_vectors_lsa <- as.matrix(tfidf_sparse %*% V_k)
+
+tibble::tibble(
+  metrica = c("Dimensión original", "Dimensión final (k)",
+              "Varianza retenida (%)", "Criterio de selección de k"),
+  valor = c(dim_original, k_lsa, round(100 * var_explicada[k_lsa], 1),
+            "mínimo k tal que la varianza acumulada de valores singulares >= 80%")
+) |> kable()
+```
+
+Se aplica **Truncated SVD** con `irlba` directamente sobre la matriz TF-IDF
+dispersa (sin convertirla a densa), factorizando $A \approx U\Sigma V^T$. Los
+documentos se representan en el espacio reducido como $A\,V_k$ (equivalente a
+$U_k\Sigma_k$) y **la consulta se proyecta al mismo espacio multiplicando su
+propio vector TF-IDF por la misma matriz $V_k$** — esto es indispensable: sin
+esta proyección, consulta y documentos no serían comparables.
+
+```{r}
+cosine_sim <- function(q, M) {
+  num <- as.numeric(M %*% q)
+  den <- sqrt(rowSums(M^2)) * sqrt(sum(q^2))
+  den[den == 0] <- NA
+  num / den
+}
+```
+
+El ranking usa **similitud coseno** entre el vector de la consulta en el
+espacio latente y cada vector-documento en ese mismo espacio: un puntaje alto
+significa que la consulta y el documento apuntan "en la misma dirección"
+dentro de los `r k_lsa` ejes latentes, incluso si no comparten literalmente
+las mismas palabras (por eso puede capturar sinónimos o términos
+relacionados que BM25 no detecta).
+
+**Efecto de la reducción**: se conserva ~`r round(100*var_explicada[k_lsa],0)`%
+de la varianza de la matriz TF-IDF al pasar de `r dim_original` a `r k_lsa`
+dimensiones. Esto acelera el cálculo de similitud (una multiplicación
+matriz-vector de `r k_lsa` columnas en vez de `r dim_original`) y reduce el
+espacio en memoria de los vectores-documento, a costa de perder parte de la
+información léxica exacta (algo de la varianza restante, `r round(100*(1-var_explicada[k_lsa]),0)`%,
+se descarta).
+
+## Manejo de empates y comparabilidad de puntajes
+
+Los empates se resuelven por el orden estable que produce `order()` (el
+artículo que aparece primero en la tabla original queda primero). **Los
+puntajes de BM25 y de LSA no son comparables entre sí** (escalas y
+significados distintos: uno es una suma ponderada de coincidencias, el otro
+una similitud coseno acotada aproximadamente en $[-1,1]$); por eso la app los
+muestra en columnas separadas y nunca los mezcla en un único ranking. No se
+usan citas, descargas ni fecha como criterio de desempate: el enunciado pide
+explícitamente que el ranking principal no se base solo en esas variables.
+
+# Integración en la aplicación Shiny
+
+El corpus, el vocabulario, la matriz TF-IDF, el modelo SVD (`V_k`) y los
+vectores-documento reducidos se calculan **una sola vez** en
+`precompute_search.R` y se guardan en `search_index.rds`. `global.R` carga
+ese archivo al iniciar la app; `server.R` solo llama a `search_bm25()` /
+`search_lsa()` (definidas en `search_functions.R`) sobre el objeto ya
+calculado. Ninguna búsqueda del usuario reconstruye la matriz, reentrena el
+SVD ni vuelve a leer toda la base de datos — así se cumple el límite de 16 GB
+de RAM y se mantiene la respuesta interactiva. La interfaz permite elegir
+entre BM25, LSA o ver ambas estrategias lado a lado para la misma consulta,
+y elegir cuántos resultados mostrar (5, 10 o 20).
+
+# Evaluación de resultados
+
+```{r cargar_funciones}
+source("search_functions.R")
+search_index <- list(
+  metadatos = papers |> select(paper_id, title, authors_raw, publication_date,
+                                topic_label, doi, url, abstract),
+  vocab = vocab, dim_original = dim_original, n_docs = n_docs,
+  dtm_raw = dtm_sparse, dl = dl, avgdl = avgdl,
+  idf_bm25 = idf_bm25, idf_tfidf = idf_tfidf,
+  k_lsa = k_lsa, V_k = V_k, doc_vectors_lsa = doc_vectors_lsa
+)
+
+mostrar_resultados <- function(res, top = 5) {
+  if (!res$ok) { cat(res$msg); return(invisible(NULL)) }
+  res$results |> head(top) |>
+    select(posicion, title, topic_label, score) |> kable()
+}
+```
+
+Se definen 5 consultas siguiendo los tipos exigidos por el enunciado
+(términos literales, sinónimos/relacionados, general, específica y una en la
+que se anticipa que alguna estrategia falle):
+
+```{r consultas}
+consultas <- c(
+  literal      = "CRISPR gene editing crop improvement",
+  sinonimos    = "genome modification tools for plant breeding",
+  general      = "climate change effects on plants",
+  especifica   = "transcription factor cold stress cotton fatty acid",
+  dificil      = "arabidopsis flowering time regulation photoperiod"
+)
+```
+
+## Consulta 1 — términos literales: `r consultas["literal"]`
+
+```{r q1_bm25}
+r1_bm25 <- search_bm25(consultas["literal"], search_index, n = 5)
+mostrar_resultados(r1_bm25)
+```
+```{r q1_lsa}
+r1_lsa <- search_lsa(consultas["literal"], search_index, n = 5)
+mostrar_resultados(r1_lsa)
+```
+
+## Consulta 2 — sinónimos/términos relacionados: `r consultas["sinonimos"]`
+
+```{r q2_bm25}
+r2_bm25 <- search_bm25(consultas["sinonimos"], search_index, n = 5)
+mostrar_resultados(r2_bm25)
+```
+```{r q2_lsa}
+r2_lsa <- search_lsa(consultas["sinonimos"], search_index, n = 5)
+mostrar_resultados(r2_lsa)
+```
+
+## Consulta 3 — general: `r consultas["general"]`
+
+```{r q3_bm25}
+r3_bm25 <- search_bm25(consultas["general"], search_index, n = 5)
+mostrar_resultados(r3_bm25)
+```
+```{r q3_lsa}
+r3_lsa <- search_lsa(consultas["general"], search_index, n = 5)
+mostrar_resultados(r3_lsa)
+```
+
+## Consulta 4 — específica: `r consultas["especifica"]`
+
+```{r q4_bm25}
+r4_bm25 <- search_bm25(consultas["especifica"], search_index, n = 5)
+mostrar_resultados(r4_bm25)
+```
+```{r q4_lsa}
+r4_lsa <- search_lsa(consultas["especifica"], search_index, n = 5)
+mostrar_resultados(r4_lsa)
+```
+
+## Consulta 5 — caso difícil: `r consultas["dificil"]`
+
+```{r q5_bm25}
+r5_bm25 <- search_bm25(consultas["dificil"], search_index, n = 5)
+mostrar_resultados(r5_bm25)
+```
+```{r q5_lsa}
+r5_lsa <- search_lsa(consultas["dificil"], search_index, n = 5)
+mostrar_resultados(r5_lsa)
+```
+
+## Juicio de relevancia
+
+
+
+```{r precision, eval=FALSE}
+# EJEMPLO — reemplaza estos TRUE/FALSE por tu propio juicio para cada consulta
+relevancia <- list(
+  literal    = list(bm25 = c(TRUE, TRUE, TRUE, FALSE, TRUE),  lsa = c(TRUE, TRUE, FALSE, TRUE, FALSE)),
+  sinonimos  = list(bm25 = c(FALSE, FALSE, TRUE, FALSE, FALSE), lsa = c(TRUE, TRUE, TRUE, FALSE, TRUE)),
+  general    = list(bm25 = c(TRUE, FALSE, FALSE, FALSE, TRUE),  lsa = c(TRUE, TRUE, FALSE, TRUE, FALSE)),
+  especifica = list(bm25 = c(TRUE, TRUE, FALSE, FALSE, FALSE), lsa = c(TRUE, FALSE, FALSE, TRUE, FALSE)),
+  dificil    = list(bm25 = c(FALSE, FALSE, FALSE, FALSE, FALSE), lsa = c(FALSE, TRUE, FALSE, FALSE, FALSE))
+)
+
+tabla_precision <- purrr::imap_dfr(relevancia, function(x, nombre) {
+  tibble::tibble(consulta = nombre,
+                 precision_bm25 = precision_at_k(x$bm25, 5),
+                 precision_lsa  = precision_at_k(x$lsa, 5))
+})
+kable(tabla_precision)
+```
+
+*(El chunk anterior está marcado `eval=FALSE` porque los valores de
+relevancia son un ejemplo ilustrativo; cambia `eval=FALSE` por `eval=TRUE` una
+vez hayas puesto tu propio juicio de relevancia para que el reporte final se
+calcule con tus datos reales.)*
+
+## Discusión esperada por consulta
+
+Para cada consulta, completa con tu análisis tras ver los resultados reales:
+
+1. **Literal**: se espera que BM25 tenga buen desempeño porque los términos de
+   la consulta aparecen tal cual en el corpus.
+2. **Sinónimos**: se espera que LSA supere a BM25, porque el espacio latente
+   puede relacionar "genome modification" con "gene editing"/"CRISPR" aunque
+   no compartan literalmente las palabras.
+3. **General**: consulta amplia; ambas estrategias probablemente devuelvan
+   artículos de temas diversos, con precisión moderada.
+4. **Específica**: se espera alta precisión en ambas estrategias si existe un
+   artículo muy cercano a esos términos exactos en el corpus.
+5. **Caso difícil**: si el corpus no contiene artículos sobre ese tema
+   puntual (florecimiento/fotoperiodo en Arabidopsis), ambas estrategias
+   deberían mostrar una precisión baja — es el caso que ilustra el límite del
+   sistema, no un error del código.
+
+#Escribir las discuciones depues de que corra bien 
+
+# Consideraciones computacionales
+
+```{r tiempos}
+t_bm25 <- system.time(search_bm25("machine learning disease resistance", search_index, n = 10))
+t_lsa  <- system.time(search_lsa("machine learning disease resistance", search_index, n = 10))
+tibble::tibble(estrategia = c("BM25", "LSA"),
+               tiempo_segundos = c(t_bm25["elapsed"], t_lsa["elapsed"]),
+               memoria_vectores_doc = c(
+                 paste0(dim_original, " columnas dispersas"),
+                 paste0(k_lsa, " columnas densas (", n_docs, "x", k_lsa, ")")
+               )) |> kable()
+```
+
+
+# Conclusión
+
