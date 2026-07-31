@@ -1,0 +1,282 @@
+---
+title: "Taller_clase_20"
+author: "Sebastian Tabares Segovia"
+date: "2026-07-17"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(caret)
+library(psych)
+
+# --- Simulación de los datos (no contamos con los datos reales) ---
+set.seed(123)
+n <- 300
+datos <- tibble(
+  cobertura_acueducto = c(rnorm(n / 2, 85, 6),     rnorm(n / 2, 45, 8)),
+  alcantarillado      = c(rnorm(n / 2, 78, 7),     rnorm(n / 2, 38, 9)),
+  irca                = c(rnorm(n / 2, 14, 5),     rnorm(n / 2, 56, 8)),
+  poblacion           = c(rlnorm(n / 2, 10.6, 0.6), rlnorm(n / 2, 9.0, 0.7)),
+  altitud             = c(rnorm(n / 2, 1200, 400),  rnorm(n / 2, 600, 300)),
+  ruido_1             = rnorm(n, 0, 1),
+  ruido_2             = rnorm(n, 0, 1)
+)
+
+# A partir de aquí: datos es su punto de partida.
+# Complete usted las cuatro tareas del ejercicio.
+```
+
+Utilizando los datos dados en el código esqueleto, responda las siguientes preguntas:
+
+#Pregunta 1
+
+Aplique un filtro de varianza casi nula y elimine variables con correlación mayor a 0.9. ¿Cuántas variables sobreviven?
+
+
+```{r}
+# Seleccionar únicamente las variables numéricas
+datos_num <- datos %>%
+  select(where(is.numeric))
+
+# Identificar variables con varianza casi nula
+filtro_nzv <- caret::nearZeroVar(
+  datos_num,
+  saveMetrics = TRUE
+)
+
+# Conservar solamente las variables que no presentan varianza casi nula
+datos_sin_nzv <- datos_num[
+  ,
+  !filtro_nzv$nzv,
+  drop = FALSE
+]
+
+# Calcular la matriz de correlaciones
+matriz_correlacion <- cor(
+  datos_sin_nzv,
+  use = "complete.obs"
+)
+
+# Identificar variables que deben eliminarse por presentar
+# correlaciones absolutas superiores a 0.90
+variables_correlacionadas <- caret::findCorrelation(
+  matriz_correlacion,
+  cutoff = 0.90,
+  names = TRUE
+)
+
+# Eliminar las variables altamente correlacionadas
+datos_pca <- datos_sin_nzv %>%
+  select(
+    -any_of(variables_correlacionadas)
+  )
+
+# Mostrar las variables eliminadas por cada criterio
+filtro_nzv %>%
+  tibble::rownames_to_column("Variable") %>%
+  filter(nzv)
+
+variables_correlacionadas
+
+# Mostrar cuántas variables sobreviven y cuáles son
+ncol(datos_pca)
+names(datos_pca)
+```
+```{r}
+variables_correlacionadas
+ncol(datos_pca)
+names(datos_pca)
+```
+## Interpretacion
+
+Después de aplicar el filtro de varianza casi nula no se identificaron variables que requirieran ser eliminadas. Posteriormente, se calculó la matriz de correlaciones y se removieron aquellas variables con una correlación absoluta superior a 0.90. En este caso, la variable **IRCA** fue eliminada debido a su alta redundancia con otras variables relacionadas con la infraestructura del sistema de agua.
+
+Como resultado del proceso de depuración, el conjunto de datos quedó conformado por **6 variables**, las cuales fueron utilizadas para realizar el análisis de componentes principales (PCA).
+
+# Punto 2
+
+Ajuste PCA sobre las variables estandarizadas. Reporte la varianza explicada por las primeras 3 componentes y dibuje el scree plot.
+
+```{r}
+
+library(factoextra)
+
+# Estandarizar las variables antes de aplicar PCA
+datos_pca_esc <- scale(datos_pca)
+
+# Ajustar el Análisis de Componentes Principales
+modelo_pca <- prcomp(
+  datos_pca_esc,
+  center = FALSE,
+  scale. = FALSE
+)
+
+# Calcular la proporción de varianza explicada por cada componente
+varianza <- summary(modelo_pca)$importance
+
+# Mostrar la varianza explicada por las tres primeras componentes
+round(
+  varianza[, 1:3],
+  4
+)
+
+# Construir una tabla con la varianza explicada
+tabla_varianza <- tibble(
+  Componente = paste0(
+    "PC",
+    1:ncol(datos_pca)
+  ),
+  Varianza = modelo_pca$sdev^2,
+  Proporcion = modelo_pca$sdev^2 / sum(modelo_pca$sdev^2),
+  Acumulada = cumsum(modelo_pca$sdev^2 / sum(modelo_pca$sdev^2))
+)
+
+tabla_varianza
+
+
+```
+
+```{r}
+# Dibujar el Scree Plot
+fviz_eig(
+  modelo_pca,
+  addlabels = TRUE,
+  ylim = c(0, 100)
+)
+```
+## Interpretacion
+
+El Análisis de Componentes Principales (PCA) se ajustó sobre las variables previamente estandarizadas con el fin de eliminar el efecto de las diferentes escalas de medición.
+
+Los resultados muestran que la **primera componente principal (PC1)** explica el **46.76 %** de la variabilidad total de los datos. Al incorporar la **segunda componente (PC2)**, la varianza acumulada aumenta hasta **65.02 %**, mientras que las **tres primeras componentes principales** explican conjuntamente el **80.34 %** de la variabilidad total.
+
+Estos resultados indican que la mayor parte de la información contenida en las seis variables originales puede resumirse utilizando únicamente tres componentes principales, logrando una reducción importante de la dimensionalidad con una pérdida relativamente pequeña de información.
+
+El Scree Plot permite visualizar la disminución progresiva de la varianza explicada por cada componente. En este caso se observa que las primeras componentes concentran la mayor parte de la información, mientras que las componentes restantes realizan aportes considerablemente menores. En consecuencia, conservar las tres primeras componentes constituye una decisión adecuada para representar el conjunto de datos.
+
+
+# Punto 3
+
+Interprete la primera componente principal: ¿qué variables originales tienen los loadings más grandes?
+
+
+```{r}
+# Extraer los loadings de la primera componente principal
+loadings_pc1 <- modelo_pca$rotation[
+  ,
+  "PC1",
+  drop = FALSE
+]
+
+# Construir una tabla con los loadings
+tabla_loadings <- tibble(
+  Variable = rownames(loadings_pc1),
+  Loading = loadings_pc1[, 1],
+  Loading_abs = abs(loadings_pc1[, 1])
+) %>%
+  arrange(
+    desc(Loading_abs)
+  )
+
+# Mostrar la tabla ordenada
+tabla_loadings
+```
+
+
+## Interpretación
+
+La interpretación de la primera componente principal se realizó mediante el análisis de sus *loadings*, los cuales representan la contribución de cada variable original en la construcción de dicha componente.
+
+Las variables con mayor peso fueron **alcantarillado** (|loading| = 0.551) y **cobertura de acueducto** (|loading| = 0.543), seguidas por **altitud** (|loading| = 0.448) y **población** (|loading| = 0.445). En contraste, las variables **ruido_1** y **ruido_2** presentaron cargas cercanas a cero, indicando que su aporte a la primera componente principal es prácticamente nulo.
+
+En conjunto, estos resultados sugieren que la primera componente principal resume principalmente la información relacionada con las condiciones de infraestructura y el contexto territorial de los municipios, mientras que las variables de ruido no contribuyen de manera significativa a explicar la variabilidad de los datos.
+
+# Punto 4
+
+Ajuste un análisis factorial con 2 factores y rotación Varimax. Compare sus cargas con los loadings de PCA.
+
+```{r}
+# Ajustar un análisis factorial con 2 factores
+# y rotación Varimax
+modelo_fa <- psych::fa(
+  r = datos_pca_esc,
+  nfactors = 2,
+  rotate = "varimax",
+  fm = "ml"
+)
+
+# Mostrar el resumen del modelo factorial
+print(modelo_fa)
+
+# Extraer las cargas factoriales
+cargas_factoriales <- as.data.frame(
+  unclass(modelo_fa$loadings)
+)
+
+# Agregar los nombres de las variables como una columna
+cargas_factoriales <- cargas_factoriales %>%
+  tibble::rownames_to_column("Variable")
+
+# Redondear únicamente las columnas numéricas
+cargas_factoriales_tabla <- cargas_factoriales %>%
+  mutate(
+    across(
+      where(is.numeric),
+      ~ round(.x, 3)
+    )
+  )
+
+# Mostrar la tabla de cargas factoriales
+knitr::kable(
+  cargas_factoriales_tabla,
+  caption = "Cargas factoriales con rotación Varimax."
+)
+
+# Extraer los loadings de las dos primeras componentes del PCA
+loadings_pca <- as.data.frame(
+  modelo_pca$rotation[, 1:2]
+) %>%
+  tibble::rownames_to_column("Variable") %>%
+  rename(
+    PC1 = PC1,
+    PC2 = PC2
+  )
+
+# Unir los loadings del PCA con las cargas factoriales
+comparacion_pca_fa <- loadings_pca %>%
+  left_join(
+    cargas_factoriales,
+    by = "Variable"
+  )
+
+# Redondear únicamente las columnas numéricas
+comparacion_pca_fa <- comparacion_pca_fa %>%
+  mutate(
+    across(
+      where(is.numeric),
+      ~ round(.x, 3)
+    )
+  )
+
+
+```
+
+```{r}
+# Mostrar la comparación final
+knitr::kable(
+  comparacion_pca_fa,
+  caption = "Comparación entre los loadings del PCA y las cargas del análisis factorial."
+)
+```
+
+## Interpretación
+
+El análisis factorial se ajustó utilizando **dos factores** y una **rotación Varimax**, con el objetivo de facilitar la interpretación de los factores latentes presentes en los datos.
+
+Los resultados muestran que el **Factor 1 (ML1)** concentra las mayores cargas para las variables **cobertura de acueducto (0.918)**, **alcantarillado (0.948)**, **población (0.618)** y **altitud (0.611)**. Esto indica que estas variables comparten una estructura común y representan una misma dimensión latente relacionada con las condiciones de infraestructura y el contexto territorial.
+
+Por el contrario, las variables **ruido_1** y **ruido_2** presentan cargas muy pequeñas sobre el primer factor, lo que indica que prácticamente no contribuyen a explicar la estructura común de los datos. Estas variables aparecen asociadas principalmente al segundo factor (ML2), el cual explica una proporción mucho menor de la variabilidad y está dominado por información aleatoria introducida durante la simulación.
+
+Al comparar las cargas factoriales con los *loadings* obtenidos mediante PCA, se observa que ambas técnicas identifican como variables más relevantes a **cobertura de acueducto**, **alcantarillado**, **población** y **altitud**. Sin embargo, mientras el PCA busca maximizar la varianza explicada mediante componentes principales, el análisis factorial organiza las variables en factores latentes más fácilmente interpretables gracias a la rotación Varimax.
+
+En consecuencia, el PCA constituye una herramienta de reducción de dimensionalidad, mientras que el análisis factorial permite identificar las dimensiones subyacentes que explican las correlaciones entre las variables originales.
