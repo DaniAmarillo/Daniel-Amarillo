@@ -1,0 +1,2586 @@
+---
+title: "Taller 4 de Minería de Datos"
+subtitle: "Búsqueda y recuperación de artículos científicos con TF-IDF y LSA"
+author: "Cristian Harvey Ardila Bolívar"
+date: "`r format(Sys.Date(), '%d de %B de %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    toc_depth: 3
+    number_sections: false
+    code_folding: show
+    theme: cosmo
+    highlight: textmate
+    df_print: paged
+    self_contained: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 9,
+  fig.height = 5.2,
+  out.width = "100%",
+  fig.path = "salidas_taller4/figuras_rmd/"
+)
+
+options(width = 130, scipen = 999)
+
+dir.create(
+  "salidas_taller4/figuras_rmd",
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+```
+
+```{css, echo=FALSE}
+body {
+  font-size: 16px;
+  line-height: 1.58;
+  color: #2d3748;
+}
+
+h1, h2, h3 {
+  color: #243845;
+}
+
+pre,
+code {
+  font-size: 0.91em;
+  font-family: Consolas, "Liberation Mono", Menlo, Monaco, monospace;
+}
+
+pre,
+div.sourceCode pre {
+  background-color: #f8f9fa !important;
+  border: 1px solid #e4e7eb;
+  border-radius: 8px;
+  padding: 12px 14px;
+  line-height: 1.44;
+  overflow-x: auto;
+}
+
+table {
+  font-size: 0.92em;
+}
+
+caption {
+  color: #333333;
+  font-weight: 700;
+  padding-bottom: 6px;
+}
+
+.callout {
+  border-left: 5px solid #497a8a;
+  background: #f4f9fa;
+  padding: 12px 16px;
+  margin: 16px 0;
+  border-radius: 6px;
+}
+
+.note {
+  border-left: 5px solid #8b7b61;
+  background: #faf8f4;
+  padding: 12px 16px;
+  margin: 16px 0;
+  border-radius: 6px;
+}
+
+.resultado {
+  border-left: 5px solid #6c7d63;
+  background: #f7faf6;
+  padding: 12px 16px;
+  margin: 16px 0;
+  border-radius: 6px;
+}
+
+.tocify {
+  border-radius: 8px;
+  border: 1px solid #e4e7eb;
+}
+```
+
+```{r paquetes}
+# Cargar únicamente los paquetes utilizados en el documento.
+paquetes <- c(
+  "DBI", "RSQLite", "dplyr", "stringr", "tibble", "readr",
+  "purrr", "tidyr", "lubridate", "tidytext", "proxy",
+  "ggplot2", "scales", "knitr", "janitor"
+)
+
+faltantes <- paquetes[
+  !purrr::map_lgl(
+    paquetes,
+    requireNamespace,
+    quietly = TRUE
+  )
+]
+
+if (!requireNamespace("tm", quietly = TRUE)) {
+  faltantes <- union(faltantes, "tm")
+}
+
+if (length(faltantes) > 0) {
+  stop(
+    "Faltan paquetes requeridos para compilar el documento: ",
+    paste(faltantes, collapse = ", "),
+    "."
+  )
+}
+
+invisible(
+  lapply(
+    paquetes,
+    library,
+    character.only = TRUE
+  )
+)
+```
+
+```{r funciones-presentacion}
+# Funciones breves para presentar tablas y valores de forma consistente.
+fmt_num <- function(x, digits = 3) {
+  x <- suppressWarnings(as.numeric(x))
+
+  ifelse(
+    is.na(x) | !is.finite(x),
+    "No disponible",
+    format(
+      round(x, digits),
+      big.mark = ".",
+      decimal.mark = ",",
+      scientific = FALSE,
+      trim = TRUE
+    )
+  )
+}
+
+fmt_entero <- function(x) {
+  fmt_num(x, digits = 0)
+}
+
+fmt_pct <- function(x, digits = 1, escala_01 = TRUE) {
+  x <- suppressWarnings(as.numeric(x))
+
+  if (escala_01) {
+    x <- 100 * x
+  }
+
+  ifelse(
+    is.na(x) | !is.finite(x),
+    "No disponible",
+    paste0(fmt_num(x, digits), " %")
+  )
+}
+
+fmt_mb <- function(x, digits = 3) {
+  paste0(fmt_num(x, digits), " MB")
+}
+
+fmt_ms <- function(x, digits = 2) {
+  paste0(fmt_num(x, digits), " ms")
+}
+
+limpiar_texto_tabla <- function(x) {
+  x |>
+    as.character() |>
+    stringr::str_replace_all("[\uFFFE\uFFFD]", "") |>
+    stringr::str_replace_all("[[:cntrl:]]+", " ") |>
+    stringr::str_squish()
+}
+
+mostrar_tabla <- function(
+    tabla,
+    n = Inf,
+    caption = NULL,
+    digits = 3,
+    escape = TRUE
+) {
+  tabla_mostrar <- tabla
+
+  if (!is.infinite(n) && nrow(tabla_mostrar) > n) {
+    tabla_mostrar <- dplyr::slice_head(
+      tabla_mostrar,
+      n = n
+    )
+  }
+
+  tabla_mostrar <- tabla_mostrar |>
+    dplyr::mutate(
+      dplyr::across(
+        where(is.numeric),
+        ~ fmt_num(.x, digits = digits)
+      ),
+      dplyr::across(
+        where(is.character),
+        limpiar_texto_tabla
+      )
+    )
+
+  knitr::kable(
+    tabla_mostrar,
+    caption = caption,
+    escape = escape,
+    align = "l"
+  )
+}
+
+leer_csv_flexible <- function(ruta) {
+  if (!file.exists(ruta)) {
+    return(tibble::tibble())
+  }
+
+  primera_linea <- readLines(
+    ruta,
+    n = 1,
+    warn = FALSE,
+    encoding = "UTF-8"
+  )
+
+  n_punto_coma <- stringr::str_count(
+    primera_linea,
+    fixed(";")
+  )
+
+  n_comas <- stringr::str_count(
+    primera_linea,
+    fixed(",")
+  )
+
+  separador <- if (
+    n_punto_coma > n_comas
+  ) {
+    ";"
+  } else {
+    ","
+  }
+
+  readr::read_delim(
+    ruta,
+    delim = separador,
+    show_col_types = FALSE,
+    trim_ws = TRUE
+  ) |>
+    janitor::clean_names()
+}
+
+buscar_seguro <- function(
+    funcion_busqueda,
+    consulta,
+    estrategia,
+    modelo,
+    n_resultados = 5L
+) {
+  tryCatch(
+    funcion_busqueda(
+      consulta = consulta,
+      n_resultados = n_resultados,
+      modelo = modelo
+    ) |>
+      dplyr::mutate(
+        estrategia = estrategia,
+        estado = "Resultado válido",
+        mensaje = NA_character_,
+        .before = posicion
+      ),
+    error = function(e) {
+      tibble::tibble(
+        estrategia = estrategia,
+        estado = "Sin resultados",
+        mensaje = conditionMessage(e),
+        posicion = NA_integer_,
+        paper_id = NA_integer_,
+        title = NA_character_,
+        authors_raw = NA_character_,
+        publication_date = as.Date(NA),
+        topic_label = NA_character_,
+        doi = NA_character_,
+        url = NA_character_,
+        puntaje = NA_real_,
+        fragmento = NA_character_
+      )
+    }
+  )
+}
+
+tabla_ranking <- function(datos) {
+  datos |>
+    dplyr::transmute(
+      Estrategia = estrategia,
+      Posición = posicion,
+      Artículo = title,
+      Autores = stringr::str_trunc(
+        dplyr::coalesce(authors_raw, ""),
+        80
+      ),
+      Fecha = publication_date,
+      Tema = dplyr::coalesce(topic_label, ""),
+      DOI = dplyr::coalesce(doi, ""),
+      Similitud = puntaje,
+      Fragmento = fragmento
+    )
+}
+
+valor_indicador <- function(
+    tabla,
+    indicador,
+    defecto = NA_real_
+) {
+  if (
+    !all(
+      c("indicador", "valor") %in%
+        names(tabla)
+    )
+  ) {
+    return(defecto)
+  }
+
+  valor <- tabla |>
+    dplyr::filter(
+      .data$indicador == indicador
+    ) |>
+    dplyr::pull(valor)
+
+  if (length(valor) == 0) {
+    defecto
+  } else {
+    valor[1]
+  }
+}
+```
+
+```{r rutas-y-recursos}
+# Definir rutas relativas para que el análisis pueda ejecutarse
+# desde la carpeta principal del Taller 4.
+ruta_sqlite <- "revista_q1_2025.sqlite"
+tabla_principal <- "papers"
+
+archivo_preparacion <- file.path(
+  "R",
+  "preparar_indices_busqueda.R"
+)
+
+archivo_medicion <- file.path(
+  "R",
+  "medir_rendimiento_busqueda.R"
+)
+
+archivo_modelo <- file.path(
+  "modelos",
+  "modelo_busqueda_taller4.rds"
+)
+
+archivo_funciones <- file.path(
+  "modelos",
+  "funciones_busqueda_taller4.rds"
+)
+
+archivo_rendimiento <- file.path(
+  "modelos",
+  "resultados_rendimiento_busqueda.rds"
+)
+
+archivo_consultas <- file.path(
+  "evaluacion",
+  "consultas_evaluacion.csv"
+)
+
+archivo_juicios <- file.path(
+  "evaluacion",
+  "juicios_relevancia.csv"
+)
+
+archivo_metricas <- file.path(
+  "evaluacion",
+  "metricas_rankings.csv"
+)
+
+archivos_minimos <- c(
+  ruta_sqlite,
+  archivo_preparacion
+)
+
+faltantes_minimos <- archivos_minimos[
+  !file.exists(archivos_minimos)
+]
+
+if (length(faltantes_minimos) > 0) {
+  stop(
+    "No se encontraron los siguientes archivos: ",
+    paste(faltantes_minimos, collapse = ", ")
+  )
+}
+
+dir.create(
+  "modelos",
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+dir.create(
+  "evaluacion",
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+```
+
+## 1. Introducción y objetivo
+
+En este taller la colección de artículos desarollada durante los talleres 1 y 2 de otra manera: el usuario escribe una consulta en lenguaje natural y recibe una lista de artículos ordenada por relevancia.
+
+El objetivo es comparar dos estrategias de recuperación. La primera utiliza **TF-IDF con similitud coseno**, por lo que responde principalmente a coincidencias léxicas ponderadas. La segunda aplica **análisis semántico latente (LSA)** mediante una descomposición SVD, reduce la dimensión del espacio de términos y calcula la similitud después de proyectar documentos y consultas al mismo espacio reducido.
+
+Se discutirá una conclusión importante: TF-IDF y LSA ayudan a organizar el contenido, pero no alcanzan por sí solos la comprensión semántica de un modelo de lenguaje.
+
+<div class="callout">
+El puntaje mostrado por el buscador es una similitud. No corresponde a una probabilidad y sus valores no deben compararse directamente entre TF-IDF y LSA.
+</div>
+
+## 2. Base SQLite y construcción del corpus
+
+Antes de representar el texto conviene revisar el estado actual de la colección. El conteo se toma directamente de SQLite, de modo que el documento refleja las publicaciones disponibles en el momento de la compilación.
+
+```{r lectura-sqlite}
+# Leer la tabla papers y cerrar la conexión después de completar la consulta.
+con <- DBI::dbConnect(
+  RSQLite::SQLite(),
+  ruta_sqlite
+)
+
+papers <- DBI::dbGetQuery(
+  con,
+  paste0(
+    "SELECT * FROM ",
+    DBI::dbQuoteIdentifier(
+      con,
+      tabla_principal
+    )
+  )
+)
+
+DBI::dbDisconnect(con)
+
+papers <- papers |>
+  tibble::as_tibble() |>
+  dplyr::mutate(
+    publication_date = as.Date(
+      publication_date
+    ),
+    dplyr::across(
+      dplyr::any_of(c(
+        "title",
+        "abstract",
+        "keywords",
+        "authors_raw",
+        "topic_label",
+        "doi",
+        "url"
+      )),
+      as.character
+    ),
+    dplyr::across(
+      dplyr::any_of(c(
+        "year",
+        "volume_number",
+        "volume_year",
+        "n_authors",
+        "citations",
+        "downloads",
+        "n_references"
+      )),
+      as.numeric
+    ),
+    dplyr::across(
+      where(is.character),
+      stringr::str_squish
+    )
+  )
+```
+
+Cada artículo se representa con tres campos: **título**, **resumen** y **palabras clave**. Cuando alguno falta, se usa una cadena vacía únicamente para concatenar; no se inventa contenido. Un artículo solo se excluye cuando los tres campos están vacíos.
+
+```{r auditoria-corpus}
+# Resumir faltantes, fechas, duplicados e inclusión documental.
+doi_duplicados <- papers |>
+  dplyr::filter(
+    !is.na(doi),
+    doi != ""
+  ) |>
+  dplyr::transmute(
+    doi = stringr::str_to_lower(doi)
+  ) |>
+  dplyr::count(
+    doi,
+    name = "n"
+  ) |>
+  dplyr::filter(n > 1)
+
+corpus_articulos <- papers |>
+  dplyr::mutate(
+    texto_documento = stringr::str_squish(
+      paste(
+        dplyr::coalesce(title, ""),
+        dplyr::coalesce(abstract, ""),
+        dplyr::coalesce(keywords, "")
+      )
+    )
+  ) |>
+  dplyr::filter(
+    texto_documento != ""
+  ) |>
+  dplyr::select(
+    paper_id,
+    title,
+    authors_raw,
+    publication_date,
+    topic_label,
+    doi,
+    url,
+    abstract,
+    keywords,
+    texto_documento
+  )
+
+auditoria_corpus <- tibble::tibble(
+  Indicador = c(
+    "Artículos en SQLite",
+    "Artículos incluidos en el corpus",
+    "Artículos excluidos sin texto utilizable",
+    "Artículos sin título",
+    "Artículos sin resumen",
+    "Artículos sin palabras clave",
+    "DOI duplicados",
+    "Fecha mínima",
+    "Fecha máxima"
+  ),
+  Valor = c(
+    nrow(papers),
+    nrow(corpus_articulos),
+    nrow(papers) - nrow(corpus_articulos),
+    sum(is.na(papers$title) | papers$title == ""),
+    sum(is.na(papers$abstract) | papers$abstract == ""),
+    sum(is.na(papers$keywords) | papers$keywords == ""),
+    nrow(doi_duplicados),
+    as.character(
+      min(
+        papers$publication_date,
+        na.rm = TRUE
+      )
+    ),
+    as.character(
+      max(
+        papers$publication_date,
+        na.rm = TRUE
+      )
+    )
+  )
+)
+
+mostrar_tabla(
+  auditoria_corpus,
+  n = Inf,
+  caption = "Estado de la colección y construcción del corpus"
+)
+```
+
+La colección contiene `r fmt_entero(nrow(papers))` artículos y el corpus conserva `r fmt_entero(nrow(corpus_articulos))`. Se encontraron `r fmt_entero(sum(is.na(papers$abstract) | papers$abstract == ""))` artículos sin resumen; ese faltante se mantiene como ausencia de información y no se reemplaza por texto artificial.
+
+### 2.1 Idioma y caracteres científicos
+
+La colección incluye símbolos tipográficos, letras griegas y términos técnicos. En lugar de convertir todo a ASCII, se considera preservar los caracteres que pueden tener valor científico. El idioma predominante se estima con palabras frecuentes en inglés y español.
+
+```{r idioma-corpus}
+# Tokenizar sin retirar palabras vacías para estimar el idioma predominante.
+tokens_sin_filtrar <- corpus_articulos |>
+  dplyr::transmute(
+    paper_id,
+    texto_limpio = texto_documento |>
+      stringr::str_replace_all(
+        "[‐‑‒–—−]",
+        "-"
+      ) |>
+      stringr::str_replace_all(
+        "[[:cntrl:]]+",
+        " "
+      ) |>
+      stringr::str_to_lower() |>
+      stringr::str_squish()
+  ) |>
+  tidytext::unnest_tokens(
+    output = token,
+    input = texto_limpio,
+    token = "regex",
+    pattern = "[^[:alnum:]-]+"
+  ) |>
+  dplyr::mutate(
+    token = stringr::str_remove_all(
+      token,
+      "^-+|-+$"
+    )
+  ) |>
+  dplyr::filter(
+    token != "",
+    stringr::str_detect(
+      token,
+      "[[:alpha:]]"
+    )
+  )
+
+marcadores_idioma <- tibble::tibble(
+  Idioma = rep(
+    c("Inglés", "Español"),
+    each = 12
+  ),
+  token = c(
+    "the", "of", "and", "to", "in", "for",
+    "a", "is", "with", "on", "by", "from",
+    "el", "la", "los", "las", "de", "y",
+    "en", "para", "con", "un", "una", "por"
+  )
+)
+
+auditoria_idioma <- tokens_sin_filtrar |>
+  dplyr::count(
+    token,
+    name = "Coincidencias"
+  ) |>
+  dplyr::inner_join(
+    marcadores_idioma,
+    by = "token"
+  ) |>
+  dplyr::group_by(Idioma) |>
+  dplyr::summarise(
+    Coincidencias = sum(Coincidencias),
+    .groups = "drop"
+  ) |>
+  dplyr::arrange(
+    dplyr::desc(Coincidencias)
+  )
+
+idioma_predominante <- auditoria_idioma |>
+  dplyr::slice_head(n = 1) |>
+  dplyr::pull(Idioma)
+
+mostrar_tabla(
+  auditoria_idioma,
+  n = Inf,
+  caption = "Marcadores observados por idioma"
+)
+```
+
+El idioma predominante es **`r idioma_predominante`**. Por esta razón se retiran stopwords en inglés. Los pocos marcadores españoles no cambian la naturaleza general del corpus.
+
+## 3. Procesamiento del texto
+
+La preparación es moderada. El texto pasa a minúsculas, los diferentes tipos de guion se normalizan, se eliminan caracteres de control y se tokeniza con una expresión regular. Luego se retiran stopwords y tokens de un solo carácter.
+
+No se aplican stemming ni lematización. En una colección especializada esas operaciones pueden deformar genes, siglas, nombres de técnicas y variantes morfológicas útiles. También se trabaja con unigramas para evitar un crecimiento innecesario del vocabulario. Los términos con guion, letras griegas y números se conservan cuando contienen información alfabética.
+
+El núcleo del procesamiento puede resumirse en estas operaciones:
+
+```{r codigo-clave-procesamiento, echo=TRUE, eval=FALSE}
+tokens_articulos <- corpus_articulos |>
+  tidytext::unnest_tokens(
+    token,
+    texto_documento,
+    token = "regex",
+    pattern = "[^[:alnum:]-]+"
+  ) |>
+  dplyr::filter(
+    !token %in% tm::stopwords("english"),
+    stringr::str_length(token) > 1
+  )
+```
+
+```{r procesamiento-texto}
+# Retirar stopwords y conservar términos científicos informativos.
+stopwords_corpus <- if (
+  idioma_predominante == "Español"
+) {
+  tm::stopwords("spanish")
+} else {
+  tm::stopwords("english")
+}
+
+terminos_descartados <- tokens_sin_filtrar |>
+  dplyr::filter(
+    token %in% stopwords_corpus
+  ) |>
+  dplyr::count(
+    token,
+    sort = TRUE,
+    name = "Frecuencia"
+  )
+
+tokens_articulos <- tokens_sin_filtrar |>
+  dplyr::filter(
+    !token %in% stopwords_corpus,
+    stringr::str_length(token) > 1
+  )
+
+tokens_frecuentes <- tokens_articulos |>
+  dplyr::count(
+    token,
+    sort = TRUE,
+    name = "Frecuencia"
+  ) |>
+  dplyr::slice_head(n = 20)
+
+tokens_cientificos <- tokens_articulos |>
+  dplyr::filter(
+    stringr::str_detect(token, "[0-9]") |
+      stringr::str_detect(token, "-") |
+      stringr::str_detect(token, "[α-ω]")
+  ) |>
+  dplyr::count(
+    token,
+    sort = TRUE,
+    name = "Frecuencia"
+  ) |>
+  dplyr::slice_head(n = 20)
+
+mostrar_tabla(
+  tokens_frecuentes,
+  n = Inf,
+  caption = "Términos informativos más frecuentes"
+)
+
+mostrar_tabla(
+  tokens_cientificos,
+  n = Inf,
+  caption = "Muestra de términos científicos conservados"
+)
+```
+
+Los términos frecuentes permiten reconocer el carácter bioinformático del corpus, mientras que ejemplos como `single-cell`, `rna-seq`, `multi-omics` o expresiones equivalentes muestran que la limpieza no está destruyendo el vocabulario especializado.
+
+### 3.1 Ejemplo de transformación
+
+Para hacer visible el cambio, se presenta un artículo antes y después de la tokenización como ejemplo.
+
+```{r ejemplo-procesamiento}
+# Comparar el texto original con los términos conservados.
+ejemplo_id <- corpus_articulos$paper_id[1]
+
+ejemplo_procesamiento <- corpus_articulos |>
+  dplyr::filter(
+    paper_id == ejemplo_id
+  ) |>
+  dplyr::transmute(
+    paper_id,
+    Título = title,
+    `Texto original` = stringr::str_trunc(
+      texto_documento,
+      500
+    )
+  ) |>
+  dplyr::left_join(
+    tokens_articulos |>
+      dplyr::filter(
+        paper_id == ejemplo_id
+      ) |>
+      dplyr::group_by(paper_id) |>
+      dplyr::summarise(
+        `Texto procesado` = stringr::str_trunc(
+          stringr::str_c(
+            token,
+            collapse = " "
+          ),
+          500
+        ),
+        .groups = "drop"
+      ),
+    by = "paper_id"
+  )
+
+mostrar_tabla(
+  ejemplo_procesamiento,
+  n = Inf,
+  caption = "Ejemplo de texto antes y después del procesamiento"
+)
+```
+
+La transformación reduce conectores y ruido de formato, pero mantiene los términos que permiten distinguir técnicas, organismos, enfermedades y métodos computacionales.
+
+## 4. Representación TF-IDF
+
+TF-IDF asigna mayor peso a los términos frecuentes dentro de un artículo que, al mismo tiempo, aparecen en una proporción limitada de la colección. Así evita que palabras comunes dominen la comparación y conserva términos capaces de diferenciar documentos.
+
+Los términos presentes en un único artículo se excluyen para disminuir ruido y tamaño. También se fija un máximo del 90 % de los documentos, aunque en esta colección el filtro de rareza resulta ser el que tiene mayor efecto.
+
+La representación se construye ponderando los conteos y conservando una matriz dispersa:
+
+```{r codigo-clave-tfidf, echo=TRUE, eval=FALSE}
+tfidf_articulos <- conteo_terminos |>
+  tidytext::bind_tf_idf(
+    term = token,
+    document = paper_id,
+    n = frecuencia
+  )
+
+dtm_tfidf <- tfidf_articulos |>
+  tidytext::cast_dtm(
+    document = paper_id,
+    term = token,
+    value = tf_idf
+  )
+```
+
+Antes de mostrar las dimensiones, se comprueba que la base y las representaciones guardadas correspondan a los mismos artículos. Cuando todavía no existen los archivos de búsqueda, se construyen con la misma función utilizada por la aplicación.
+
+```{r preparar-modelo}
+# Cargar o construir las representaciones utilizadas por la aplicación.
+source(archivo_preparacion)
+
+if (
+  !file.exists(archivo_modelo) ||
+    !file.exists(archivo_funciones)
+) {
+  preparar_indices_busqueda(
+    ruta_sqlite = ruta_sqlite,
+    tabla_principal = tabla_principal,
+    archivo_modelo = archivo_modelo,
+    archivo_funciones = archivo_funciones,
+    k_lsa = 150L
+  )
+}
+
+modelo_busqueda <- readRDS(
+  archivo_modelo
+)
+
+funciones_busqueda <- readRDS(
+  archivo_funciones
+)
+
+ids_sqlite <- sort(
+  as.integer(papers$paper_id)
+)
+
+ids_modelo <- sort(
+  as.integer(
+    modelo_busqueda$metadatos$paper_id
+  )
+)
+
+if (!identical(ids_sqlite, ids_modelo)) {
+  k_vigente <- modelo_busqueda$svd$k_final
+
+  preparar_indices_busqueda(
+    ruta_sqlite = ruta_sqlite,
+    tabla_principal = tabla_principal,
+    archivo_modelo = archivo_modelo,
+    archivo_funciones = archivo_funciones,
+    k_lsa = k_vigente
+  )
+
+  modelo_busqueda <- readRDS(
+    archivo_modelo
+  )
+
+  funciones_busqueda <- readRDS(
+    archivo_funciones
+  )
+}
+
+if (
+  !is.environment(funciones_busqueda) ||
+    !all(
+      c(
+        "procesar_consulta",
+        "vectorizar_consulta_tfidf",
+        "buscar_tfidf",
+        "buscar_lsa"
+      ) %in% ls(funciones_busqueda)
+    )
+) {
+  stop(
+    "Las funciones de búsqueda no tienen la estructura esperada."
+  )
+}
+```
+
+```{r dimension-tfidf}
+# Informar dimensión, dispersión y memoria de la representación original.
+dtm_tfidf <- modelo_busqueda$dtm_tfidf
+matriz_tfidf <- modelo_busqueda$matriz_tfidf
+
+n_celdas_tfidf <- nrow(dtm_tfidf) *
+  ncol(dtm_tfidf)
+
+n_valores_no_cero <- length(
+  dtm_tfidf$v
+)
+
+resumen_tfidf <- tibble::tibble(
+  Indicador = c(
+    "Documentos representados",
+    "Términos del vocabulario",
+    "Celdas lógicas",
+    "Proporción de ceros",
+    "Tamaño de la matriz dispersa (MB)",
+    "Tamaño de la matriz densa (MB)",
+    "Frecuencia documental mínima",
+    "Proporción documental máxima"
+  ),
+  Valor = c(
+    nrow(dtm_tfidf),
+    ncol(dtm_tfidf),
+    n_celdas_tfidf,
+    1 - n_valores_no_cero /
+      n_celdas_tfidf,
+    as.numeric(
+      object.size(dtm_tfidf)
+    ) / 1024^2,
+    as.numeric(
+      object.size(matriz_tfidf)
+    ) / 1024^2,
+    modelo_busqueda$parametros$
+      min_documentos_termino,
+    modelo_busqueda$parametros$
+      max_proporcion_documentos
+  )
+)
+
+mostrar_tabla(
+  resumen_tfidf,
+  n = Inf,
+  caption = "Características de la representación TF-IDF"
+)
+```
+
+La matriz tiene `r fmt_entero(nrow(matriz_tfidf))` documentos y `r fmt_entero(ncol(matriz_tfidf))` términos. Su proporción de ceros es `r fmt_pct(1 - n_valores_no_cero / n_celdas_tfidf, 1)`, de modo que la forma dispersa es la opción natural para almacenamiento. La versión densa ocupa `r fmt_mb(as.numeric(object.size(matriz_tfidf)) / 1024^2, 2)`; en esta colección moderada puede utilizarse para la SVD y la similitud sin acercarse al límite de memoria, aunque esa decisión tendría que revisarse si el corpus creciera mucho más.
+
+## 5. Recuperación léxica mediante similitud coseno
+
+Una consulta recibe exactamente la misma limpieza que los artículos. Después se cuenta la frecuencia de sus términos, se aplican los pesos IDF del corpus y se construye un vector con una posición por término del vocabulario.
+
+La relevancia se calcula con similitud coseno:
+
+\[
+\operatorname{coseno}(\mathbf d,\mathbf q)=
+\frac{\mathbf d^\mathsf{T}\mathbf q}
+{\lVert\mathbf d\rVert\,\lVert\mathbf q\rVert}.
+\]
+
+Un valor alto indica que el artículo y la consulta apuntan en una dirección parecida dentro del espacio TF-IDF. Los resultados se ordenan por similitud descendente; los empates se resuelven por fecha descendente y luego por `paper_id` ascendente. Citas y visualizaciones no se considertan en el cálculo del puntaje.
+
+La consulta se vectoriza con el vocabulario del corpus y se compara con todos los artículos:
+
+```{r codigo-clave-busqueda-tfidf, echo=TRUE, eval=FALSE}
+vector_consulta <- vectorizar_consulta_tfidf(
+  consulta,
+  modelo_busqueda
+)
+
+similitudes <- proxy::simil(
+  modelo_busqueda$matriz_tfidf,
+  matrix(vector_consulta, nrow = 1),
+  method = "cosine"
+)
+```
+
+```{r ejemplo-ranking-tfidf}
+# Ejecutar una consulta de términos directos en el espacio TF-IDF.
+consulta_ejemplo <- "single-cell RNA sequencing"
+
+ranking_tfidf_ejemplo <- funciones_busqueda$
+  buscar_tfidf(
+    consulta = consulta_ejemplo,
+    n_resultados = 5,
+    modelo = modelo_busqueda
+  ) |>
+  dplyr::mutate(
+    estrategia = "TF-IDF",
+    .before = posicion
+  )
+
+mostrar_tabla(
+  tabla_ranking(
+    ranking_tfidf_ejemplo
+  ),
+  n = Inf,
+  caption = paste(
+    "Primeros resultados TF-IDF para:",
+    consulta_ejemplo
+  ),
+  digits = 4
+)
+```
+
+En una consulta literal, TF-IDF suele favorecer artículos que contienen de forma explícita los términos escritos por el usuario. Esta cualidad es útil cuando la terminología está bien definida, aunque puede dejar por fuera documentos relacionados que usen expresiones distintas o más interdisciplinares.
+
+## 6. Reducción dimensional mediante SVD y LSA
+
+La matriz TF-IDF original vive en un espacio con miles de términos. LSA utiliza una descomposición SVD para encontrar direcciones latentes y representar cada artículo con un número menor de componentes:
+
+\[
+\mathbf X \approx \mathbf U_k\mathbf D_k\mathbf V_k^\mathsf{T}.
+\]
+
+En la implementación utilizada por el buscador, las coordenadas reducidas de los documentos se obtienen como:
+
+\[
+\mathbf X_{\mathrm{LSA}}=\mathbf X_{\mathrm{TFIDF}}\mathbf V_k.
+\]
+
+La dimensión final se escogió comparando varios valores de \(k\). Para cada candidato se observa la información acumulada, la coincidencia con el top 5 de TF-IDF, la estabilidad frente al valor anterior, el tiempo de proyección y el tamaño de la matriz reducida.
+
+La reducción y la proyección de una consulta se apoyan en los mismos vectores singulares:
+
+```{r codigo-clave-lsa, echo=TRUE, eval=FALSE}
+descomposicion <- svd(
+  matriz_tfidf,
+  nu = k,
+  nv = k
+)
+
+matriz_lsa <- matriz_tfidf %*%
+  descomposicion$v[, 1:k]
+
+consulta_lsa <- matrix(
+  vector_consulta,
+  nrow = 1
+) %*% descomposicion$v[, 1:k]
+```
+
+```{r seleccion-k}
+# Evaluar dimensiones candidatas usando la misma matriz y las mismas reglas
+# de orden que emplea el buscador.
+rango_disponible <- min(
+  nrow(matriz_tfidf),
+  ncol(matriz_tfidf)
+)
+
+k_candidatos <- c(
+  10, 20, 30, 40, 50,
+  60, 75, 100, 125, 150
+)
+
+k_candidatos <- k_candidatos[
+  k_candidatos < rango_disponible
+]
+
+k_maximo <- max(k_candidatos)
+
+svd_diagnostico <- svd(
+  matriz_tfidf,
+  nu = k_maximo,
+  nv = k_maximo
+)
+
+informacion_total <- sum(
+  svd_diagnostico$d^2
+)
+
+consultas_preliminares <- c(
+  "machine learning for cancer gene expression",
+  "single-cell RNA sequencing",
+  "protein function prediction"
+)
+
+vectores_consultas <- purrr::map(
+  consultas_preliminares,
+  ~ funciones_busqueda$
+    vectorizar_consulta_tfidf(
+      .x,
+      modelo_busqueda
+    )
+)
+
+top_ids <- function(puntajes, n = 5L) {
+  tibble::tibble(
+    paper_id = as.integer(
+      rownames(matriz_tfidf)
+    ),
+    puntaje = puntajes
+  ) |>
+    dplyr::left_join(
+      modelo_busqueda$metadatos |>
+        dplyr::select(
+          paper_id,
+          publication_date
+        ),
+      by = "paper_id"
+    ) |>
+    dplyr::arrange(
+      dplyr::desc(puntaje),
+      dplyr::desc(publication_date),
+      paper_id
+    ) |>
+    dplyr::slice_head(n = n) |>
+    dplyr::pull(paper_id)
+}
+
+top5_tfidf <- purrr::map(
+  vectores_consultas,
+  function(vector_consulta) {
+    proxy::simil(
+      matriz_tfidf,
+      matrix(
+        vector_consulta,
+        nrow = 1
+      ),
+      method = "cosine"
+    ) |>
+      as.numeric() |>
+      top_ids(n = 5L)
+  }
+)
+
+resultados_k <- vector(
+  "list",
+  length(k_candidatos)
+)
+
+top5_lsa_por_k <- vector(
+  "list",
+  length(k_candidatos)
+)
+
+for (i in seq_along(k_candidatos)) {
+  k <- k_candidatos[i]
+
+  vectores_k <- svd_diagnostico$v[
+    , 1:k,
+    drop = FALSE
+  ]
+
+  tiempo_k <- system.time({
+    matriz_lsa_k <- matriz_tfidf %*%
+      vectores_k
+
+    top5_lsa_k <- purrr::map(
+      vectores_consultas,
+      function(vector_consulta) {
+        consulta_lsa_k <- matrix(
+          vector_consulta,
+          nrow = 1
+        ) %*% vectores_k
+
+        proxy::simil(
+          matriz_lsa_k,
+          consulta_lsa_k,
+          method = "cosine"
+        ) |>
+          as.numeric() |>
+          top_ids(n = 5L)
+      }
+    )
+  })
+
+  top5_lsa_por_k[[i]] <- top5_lsa_k
+
+  coincidencia_tfidf <- mean(
+    purrr::map2_dbl(
+      top5_lsa_k,
+      top5_tfidf,
+      ~ length(
+        intersect(.x, .y)
+      ) / 5
+    )
+  )
+
+  resultados_k[[i]] <- tibble::tibble(
+    k = k,
+    informacion_acumulada = sum(
+      svd_diagnostico$d[1:k]^2
+    ) / informacion_total,
+    coincidencia_tfidf_top5 =
+      coincidencia_tfidf,
+    tiempo_segundos = unname(
+      tiempo_k["elapsed"]
+    ),
+    tamano_lsa_mb = as.numeric(
+      object.size(matriz_lsa_k)
+    ) / 1024^2
+  )
+}
+
+resumen_k <- dplyr::bind_rows(
+  resultados_k
+)
+
+estabilidad_top5 <- c(
+  NA_real_,
+  vapply(
+    2:length(top5_lsa_por_k),
+    function(i) {
+      mean(
+        purrr::map2_dbl(
+          top5_lsa_por_k[[i]],
+          top5_lsa_por_k[[i - 1]],
+          ~ length(
+            intersect(.x, .y)
+          ) / 5
+        )
+      )
+    },
+    numeric(1)
+  )
+)
+
+resumen_k <- resumen_k |>
+  dplyr::mutate(
+    estabilidad_top5 =
+      estabilidad_top5
+  )
+
+informacion_objetivo <- 0.80
+estabilidad_objetivo <- 0.80
+
+k_elegibles <- resumen_k |>
+  dplyr::filter(
+    informacion_acumulada >=
+      informacion_objetivo,
+    estabilidad_top5 >=
+      estabilidad_objetivo
+  )
+
+if (nrow(k_elegibles) > 0) {
+  k_seleccionado <- min(
+    k_elegibles$k
+  )
+} else {
+  k_con_informacion <- resumen_k |>
+    dplyr::filter(
+      informacion_acumulada >=
+        informacion_objetivo
+    )
+
+  k_seleccionado <- if (
+    nrow(k_con_informacion) > 0
+  ) {
+    min(k_con_informacion$k)
+  } else {
+    max(resumen_k$k)
+  }
+}
+
+if (
+  k_seleccionado !=
+    modelo_busqueda$svd$k_final
+) {
+  stop(
+    "La dimensión seleccionada no coincide con la utilizada por la aplicación."
+  )
+}
+
+mostrar_tabla(
+  resumen_k |>
+    dplyr::transmute(
+      Componentes = k,
+      `Información acumulada` =
+        informacion_acumulada,
+      `Coincidencia con TF-IDF` =
+        coincidencia_tfidf_top5,
+      `Estabilidad del top 5` =
+        estabilidad_top5,
+      `Tiempo (s)` =
+        tiempo_segundos,
+      `Tamaño LSA (MB)` =
+        tamano_lsa_mb
+    ),
+  n = Inf,
+  caption = "Comparación de dimensiones candidatas",
+  digits = 4
+)
+```
+
+```{r grafico-seleccion-k}
+# Mostrar cómo cambian la información y la estabilidad.
+resumen_k |>
+  dplyr::select(
+    k,
+    informacion_acumulada,
+    estabilidad_top5
+  ) |>
+  tidyr::pivot_longer(
+    cols = c(
+      informacion_acumulada,
+      estabilidad_top5
+    ),
+    names_to = "Indicador",
+    values_to = "Valor"
+  ) |>
+  dplyr::mutate(
+    Indicador = dplyr::recode(
+      Indicador,
+      informacion_acumulada =
+        "Información acumulada",
+      estabilidad_top5 =
+        "Estabilidad del top 5"
+    )
+  ) |>
+  ggplot2::ggplot(
+    ggplot2::aes(
+      x = k,
+      y = Valor,
+      linetype = Indicador
+    )
+  ) +
+  ggplot2::geom_line() +
+  ggplot2::geom_point() +
+  ggplot2::geom_hline(
+    yintercept = 0.80,
+    linetype = 3
+  ) +
+  ggplot2::geom_vline(
+    xintercept = k_seleccionado,
+    linetype = 2
+  ) +
+  ggplot2::scale_y_continuous(
+    labels = scales::percent_format(
+      accuracy = 1
+    )
+  ) +
+  ggplot2::labs(
+    title = "Información y estabilidad según la dimensión LSA",
+    x = "Número de componentes",
+    y = "Proporción",
+    linetype = "Indicador"
+  ) +
+  ggplot2::theme_minimal()
+```
+
+Se seleccionaron **`r fmt_entero(k_seleccionado)` componentes** frente a `r fmt_entero(ncol(matriz_tfidf))` términos originales. La información acumulada fue `r fmt_pct(resumen_k$informacion_acumulada[resumen_k$k == k_seleccionado], 1)` y la estabilidad del top 5 alcanzó `r fmt_pct(resumen_k$estabilidad_top5[resumen_k$k == k_seleccionado], 1)`.
+
+Ninguno de los candidatos evaluados llegó al 80 % de información. En ese escenario se conservó el mayor valor considerado, porque ofrecía la mejor cobertura disponible dentro del rango evaluado y mantenía una estabilidad razonable. La reducción implica pérdida: relaciones poco representadas pueden desaparecer. A cambio, el espacio queda bastante más compacto y suaviza parte de la variación léxica.
+
+## 7. Recuperación en el espacio LSA
+
+La consulta no se compara directamente con la matriz reducida. Primero se procesa y vectoriza con TF-IDF; después se proyecta con los mismos vectores de términos utilizados para los documentos:
+
+\[
+\mathbf q_{\mathrm{LSA}}=
+\mathbf q_{\mathrm{TFIDF}}\mathbf V_k.
+\]
+
+Solo entonces se calcula la similitud coseno. La salida tiene las mismas columnas del ranking TF-IDF.
+
+```{r ejemplo-ranking-lsa}
+# Ejecutar la misma consulta en el espacio reducido.
+ranking_lsa_ejemplo <- funciones_busqueda$
+  buscar_lsa(
+    consulta = consulta_ejemplo,
+    n_resultados = 5,
+    modelo = modelo_busqueda
+  ) |>
+  dplyr::mutate(
+    estrategia = "LSA",
+    .before = posicion
+  )
+
+mostrar_tabla(
+  tabla_ranking(
+    ranking_lsa_ejemplo
+  ),
+  n = Inf,
+  caption = paste(
+    "Primeros resultados LSA para:",
+    consulta_ejemplo
+  ),
+  digits = 4
+)
+```
+
+LSA puede cambiar posiciones y recuperar artículos relacionados por patrones compartidos en el corpus, aun cuando no repitan todos los términos de la consulta. No obstante, se trata de una semántica aproximada y dependiente de coocurrencias; no equivale a comprender el texto.
+
+## 8. Comparación de rankings
+
+Las cinco consultas cubren situaciones distintas: términos literales, expresiones relacionadas, una formulación general, una consulta específica y un caso difícil. Los rankings se generan nuevamente con los mismos archivos que utiliza la aplicación.
+
+```{r consultas-evaluacion}
+# Leer o crear las cinco consultas requeridas.
+consultas_evaluacion <- leer_csv_flexible(
+  archivo_consultas
+)
+
+if (
+  nrow(consultas_evaluacion) == 0 ||
+    !all(
+      c(
+        "consulta_id",
+        "tipo_consulta",
+        "consulta"
+      ) %in% names(
+        consultas_evaluacion
+      )
+    )
+) {
+  consultas_evaluacion <- tibble::tribble(
+    ~consulta_id, ~tipo_consulta, ~consulta,
+    "E1", "Términos literales",
+    "single-cell RNA sequencing",
+    "E2", "Términos relacionados o sinónimos",
+    "artificial intelligence tumor biomarkers",
+    "E3", "Consulta general",
+    "bioinformatics data analysis",
+    "E4", "Consulta específica",
+    "microbiome 16S sequencing",
+    "E5", "Consulta difícil",
+    "data methods results"
+  )
+
+  readr::write_csv(
+    consultas_evaluacion,
+    archivo_consultas
+  )
+}
+
+consultas_evaluacion <- consultas_evaluacion |>
+  dplyr::select(
+    consulta_id,
+    tipo_consulta,
+    consulta
+  ) |>
+  dplyr::distinct()
+
+mostrar_tabla(
+  consultas_evaluacion,
+  n = Inf,
+  caption = "Consultas utilizadas para comparar las estrategias"
+)
+```
+
+```{r ejecutar-consultas}
+# Obtener cinco resultados por consulta y estrategia.
+resultados_evaluacion <- purrr::pmap_dfr(
+  consultas_evaluacion,
+  function(
+      consulta_id,
+      tipo_consulta,
+      consulta
+  ) {
+    dplyr::bind_rows(
+      buscar_seguro(
+        funciones_busqueda$buscar_tfidf,
+        consulta,
+        "TF-IDF",
+        modelo_busqueda,
+        n_resultados = 5L
+      ),
+      buscar_seguro(
+        funciones_busqueda$buscar_lsa,
+        consulta,
+        "LSA",
+        modelo_busqueda,
+        n_resultados = 5L
+      )
+    ) |>
+      dplyr::mutate(
+        consulta_id = consulta_id,
+        tipo_consulta = tipo_consulta,
+        consulta = consulta,
+        .before = estrategia
+      )
+  }
+)
+
+auditoria_resultados <- resultados_evaluacion |>
+  dplyr::group_by(
+    consulta_id,
+    estrategia
+  ) |>
+  dplyr::summarise(
+    resultados_validos = sum(
+      estado == "Resultado válido" &
+        !is.na(paper_id)
+    ),
+    .groups = "drop"
+  )
+
+if (
+  nrow(auditoria_resultados) != 10 ||
+    any(
+      auditoria_resultados$
+        resultados_validos != 5
+    )
+) {
+  stop(
+    "No se obtuvieron cinco resultados válidos para cada consulta y estrategia."
+  )
+}
+```
+
+La comparación por artículos compartidos permite observar cuánto cambia el ranking al reducir la dimensión.
+
+```{r resumen-comparacion}
+# Alinear los rankings y contar coincidencias, exclusividades y cambios.
+comparacion_posiciones <- resultados_evaluacion |>
+  dplyr::filter(
+    estado == "Resultado válido",
+    !is.na(paper_id)
+  ) |>
+  dplyr::select(
+    consulta_id,
+    tipo_consulta,
+    consulta,
+    estrategia,
+    posicion,
+    paper_id,
+    title,
+    puntaje
+  ) |>
+  tidyr::pivot_wider(
+    names_from = estrategia,
+    values_from = c(
+      posicion,
+      puntaje
+    ),
+    names_sep = "_"
+  ) |>
+  dplyr::mutate(
+    aparece_tfidf =
+      !is.na(`posicion_TF-IDF`),
+    aparece_lsa =
+      !is.na(posicion_LSA),
+    compartido =
+      aparece_tfidf & aparece_lsa,
+    cambio_posicion =
+      `posicion_TF-IDF` -
+      posicion_LSA
+  )
+
+resumen_comparacion <- comparacion_posiciones |>
+  dplyr::group_by(
+    consulta_id,
+    tipo_consulta,
+    consulta
+  ) |>
+  dplyr::summarise(
+    `Compartidos en top 5` =
+      sum(compartido),
+    `Exclusivos TF-IDF` =
+      sum(
+        aparece_tfidf &
+          !aparece_lsa
+      ),
+    `Exclusivos LSA` =
+      sum(
+        aparece_lsa &
+          !aparece_tfidf
+      ),
+    `Cambios de posición` =
+      sum(
+        compartido &
+          cambio_posicion != 0,
+        na.rm = TRUE
+      ),
+    .groups = "drop"
+  )
+
+mostrar_tabla(
+  resumen_comparacion,
+  n = Inf,
+  caption = "Diferencias observadas entre los rankings"
+)
+```
+
+Los métodos comparten parte de sus primeros resultados, pero no producen la misma lista ni el mismo orden. TF-IDF conserva una ventaja cuando la consulta reproduce la terminología de los artículos. LSA, por su parte, puede introducir documentos que se relacionan con la consulta mediante patrones más amplios del corpus.
+
+### 8.1 Un ejemplo lado a lado
+
+```{r ranking-comparado-ejemplo}
+# Presentar ambas estrategias para una consulta representativa.
+consulta_comparada <- "E1"
+
+tabla_comparada <- resultados_evaluacion |>
+  dplyr::filter(
+    consulta_id == consulta_comparada,
+    estado == "Resultado válido"
+  ) |>
+  tabla_ranking()
+
+mostrar_tabla(
+  tabla_comparada,
+  n = Inf,
+  caption = paste(
+    "Comparación de rankings para",
+    consultas_evaluacion$consulta[
+      consultas_evaluacion$
+        consulta_id ==
+        consulta_comparada
+    ]
+  ),
+  digits = 4
+)
+```
+
+Los puntajes no se comparan entre métodos como si estuvieran en una escala común. La lectura apropiada se concentra en el orden dentro de cada estrategia, los artículos compartidos y la pertinencia de los resultados.
+
+## 9. Evaluación con Precision@5
+
+La relevancia se registra de manera binaria: **1** cuando el artículo responde razonablemente a la intención de la consulta y **0** cuando la relación es insuficiente. La revisión considera título, resumen y palabras clave; una coincidencia aislada no basta para declarar un resultado pertinente.
+
+El criterio cambia ligeramente según la intención de cada consulta. En E1 se exige que el trabajo trate secuenciación o análisis de RNA de célula única. En E2 se busca una relación sustancial con inteligencia artificial aplicada a biomarcadores o predicción en cáncer. E3 admite trabajos cuyo centro sea el análisis bioinformático, sus herramientas o su evaluación. En E4 se requiere uso o procesamiento de secuenciación 16S en estudios de microbioma. E5 es deliberadamente amplia, por lo que se consideran pertinentes los artículos cuyo aporte principal sea un método de análisis de datos o la presentación de resultados obtenidos con él.
+
+El documento conserva las etiquetas cuando coinciden `consulta_id`, estrategia y `paper_id`. De esta forma, el cálculo siempre corresponde a los rankings vigentes y no reutiliza decisiones asociadas con artículos que dejaron de aparecer entre los primeros cinco.
+
+```{r preparar-juicios}
+# Unir los rankings actuales con los juicios de relevancia disponibles.
+juicios_previos <- leer_csv_flexible(
+  archivo_juicios
+)
+
+if (
+  nrow(juicios_previos) > 0 &&
+    all(
+      c(
+        "consulta_id",
+        "estrategia",
+        "paper_id",
+        "relevante"
+      ) %in% names(
+        juicios_previos
+      )
+    )
+) {
+  juicios_previos <- juicios_previos |>
+    dplyr::mutate(
+      relevante = suppressWarnings(
+        as.integer(relevante)
+      )
+    ) |>
+    dplyr::select(
+      consulta_id,
+      estrategia,
+      paper_id,
+      relevante,
+      dplyr::any_of(
+        "observacion"
+      )
+    ) |>
+    dplyr::distinct(
+      consulta_id,
+      estrategia,
+      paper_id,
+      .keep_all = TRUE
+    )
+} else {
+  juicios_previos <- tibble::tibble(
+    consulta_id = character(),
+    estrategia = character(),
+    paper_id = integer(),
+    relevante = integer(),
+    observacion = character()
+  )
+}
+
+if (
+  !"observacion" %in%
+    names(juicios_previos)
+) {
+  juicios_previos$observacion <-
+    NA_character_
+}
+
+juicios_relevancia <- resultados_evaluacion |>
+  dplyr::filter(
+    estado == "Resultado válido",
+    !is.na(paper_id)
+  ) |>
+  dplyr::select(
+    consulta_id,
+    tipo_consulta,
+    consulta,
+    estrategia,
+    posicion,
+    paper_id,
+    title,
+    authors_raw,
+    publication_date,
+    topic_label,
+    doi,
+    url,
+    puntaje,
+    fragmento
+  ) |>
+  dplyr::left_join(
+    juicios_previos,
+    by = c(
+      "consulta_id",
+      "estrategia",
+      "paper_id"
+    )
+  )
+
+valores_invalidos <- juicios_relevancia |>
+  dplyr::filter(
+    !is.na(relevante),
+    !relevante %in% c(0L, 1L)
+  )
+
+if (nrow(valores_invalidos) > 0) {
+  stop(
+    "La columna relevante solo puede contener 1, 0 o estar vacía."
+  )
+}
+
+readr::write_csv(
+  juicios_relevancia,
+  archivo_juicios,
+  na = ""
+)
+
+evaluaciones_pendientes <- juicios_relevancia |>
+  dplyr::filter(
+    is.na(relevante)
+  )
+
+n_pendientes <- nrow(
+  evaluaciones_pendientes
+)
+
+evaluacion_completa <-
+  n_pendientes == 0
+```
+
+```{r estado-evaluacion, results='asis'}
+if (evaluacion_completa) {
+  cat(
+    '<div class="resultado">',
+    "Las cincuenta decisiones de relevancia están completas.",
+    "La métrica se calcula para las cinco consultas y las dos estrategias.",
+    "</div>"
+  )
+} else {
+  cat(
+    '<div class="note">',
+    "La estructura de evaluación está lista, pero faltan ",
+    n_pendientes,
+    " decisiones en <code>evaluacion/juicios_relevancia.csv</code>.",
+    "Complete la columna <code>relevante</code> con 1 o 0 y vuelva a compilar.",
+    "El documento no inventa etiquetas ni calcula una precisión parcial.",
+    "</div>"
+  )
+}
+```
+
+### 9.1 Resultados revisados {.tabset}
+
+#### E1 — Términos literales
+
+```{r resultados-e1}
+mostrar_tabla(
+  juicios_relevancia |>
+    dplyr::filter(
+      consulta_id == "E1"
+    ) |>
+    dplyr::transmute(
+      Estrategia = estrategia,
+      Posición = posicion,
+      Artículo = title,
+      Similitud = puntaje,
+      Relevante = relevante,
+      Observación = observacion
+    ),
+  n = Inf,
+  caption = "Resultados para: single-cell RNA sequencing",
+  digits = 4
+)
+```
+
+#### E2 — Términos relacionados
+
+```{r resultados-e2}
+mostrar_tabla(
+  juicios_relevancia |>
+    dplyr::filter(
+      consulta_id == "E2"
+    ) |>
+    dplyr::transmute(
+      Estrategia = estrategia,
+      Posición = posicion,
+      Artículo = title,
+      Similitud = puntaje,
+      Relevante = relevante,
+      Observación = observacion
+    ),
+  n = Inf,
+  caption = "Resultados para: artificial intelligence tumor biomarkers",
+  digits = 4
+)
+```
+
+#### E3 — Consulta general
+
+```{r resultados-e3}
+mostrar_tabla(
+  juicios_relevancia |>
+    dplyr::filter(
+      consulta_id == "E3"
+    ) |>
+    dplyr::transmute(
+      Estrategia = estrategia,
+      Posición = posicion,
+      Artículo = title,
+      Similitud = puntaje,
+      Relevante = relevante,
+      Observación = observacion
+    ),
+  n = Inf,
+  caption = "Resultados para: bioinformatics data analysis",
+  digits = 4
+)
+```
+
+#### E4 — Consulta específica
+
+```{r resultados-e4}
+mostrar_tabla(
+  juicios_relevancia |>
+    dplyr::filter(
+      consulta_id == "E4"
+    ) |>
+    dplyr::transmute(
+      Estrategia = estrategia,
+      Posición = posicion,
+      Artículo = title,
+      Similitud = puntaje,
+      Relevante = relevante,
+      Observación = observacion
+    ),
+  n = Inf,
+  caption = "Resultados para: microbiome 16S sequencing",
+  digits = 4
+)
+```
+
+#### E5 — Consulta difícil
+
+```{r resultados-e5}
+mostrar_tabla(
+  juicios_relevancia |>
+    dplyr::filter(
+      consulta_id == "E5"
+    ) |>
+    dplyr::transmute(
+      Estrategia = estrategia,
+      Posición = posicion,
+      Artículo = title,
+      Similitud = puntaje,
+      Relevante = relevante,
+      Observación = observacion
+    ),
+  n = Inf,
+  caption = "Resultados para: data methods results",
+  digits = 4
+)
+```
+
+### 9.2 Cálculo de Precision@5
+
+\[
+\operatorname{Precision@5}=
+\frac{\text{artículos relevantes entre los primeros cinco}}{5}.
+\]
+
+```{r precision-cinco}
+# Calcular la métrica solo cuando las cincuenta etiquetas estén completas.
+if (evaluacion_completa) {
+  precision_5 <- juicios_relevancia |>
+    dplyr::group_by(
+      consulta_id,
+      tipo_consulta,
+      consulta,
+      estrategia
+    ) |>
+    dplyr::summarise(
+      resultados_evaluados = dplyr::n(),
+      relevantes_top5 = sum(relevante),
+      precision_5 =
+        relevantes_top5 / 5,
+      .groups = "drop"
+    ) |>
+    dplyr::arrange(
+      consulta_id,
+      estrategia
+    )
+
+  if (
+    nrow(precision_5) != 10 ||
+      any(
+        precision_5$
+          resultados_evaluados != 5
+      )
+  ) {
+    stop(
+      "La evaluación no contiene cinco resultados por consulta y estrategia."
+    )
+  }
+
+  readr::write_csv(
+    precision_5,
+    archivo_metricas
+  )
+} else {
+  precision_5 <- tibble::tibble()
+}
+
+if (evaluacion_completa) {
+  mostrar_tabla(
+    precision_5 |>
+      dplyr::transmute(
+        Consulta = consulta_id,
+        Tipo = tipo_consulta,
+        Texto = consulta,
+        Estrategia = estrategia,
+        `Relevantes en top 5` =
+          relevantes_top5,
+        `Precision@5` =
+          precision_5
+      ),
+    n = Inf,
+    caption = "Precision@5 por consulta y estrategia",
+    digits = 3
+  )
+}
+```
+
+```{r grafico-precision, eval=TRUE}
+if (evaluacion_completa) {
+  precision_5 |>
+    ggplot2::ggplot(
+      ggplot2::aes(
+        x = consulta_id,
+        y = precision_5,
+        fill = estrategia
+      )
+    ) +
+    ggplot2::geom_col(
+      position = "dodge"
+    ) +
+    ggplot2::scale_y_continuous(
+      limits = c(0, 1),
+      labels = scales::percent_format(
+        accuracy = 1
+      )
+    ) +
+    ggplot2::labs(
+      title = "Precision@5 de las dos estrategias",
+      x = "Consulta",
+      y = "Precision@5",
+      fill = "Estrategia"
+    ) +
+    ggplot2::theme_minimal()
+}
+```
+
+```{r resumen-evaluacion, include=FALSE}
+if (evaluacion_completa) {
+  promedio_precision <- precision_5 |>
+    dplyr::group_by(estrategia) |>
+    dplyr::summarise(
+      promedio = mean(precision_5),
+      .groups = "drop"
+    ) |>
+    dplyr::arrange(
+      dplyr::desc(promedio)
+    )
+
+  diferencia_promedios <-
+    diff(
+      rev(
+        promedio_precision$promedio
+      )
+    )
+
+  obtener_precision <- function(
+      consulta_buscada,
+      estrategia_buscada
+  ) {
+    precision_5 |>
+      dplyr::filter(
+        consulta_id == consulta_buscada,
+        estrategia == estrategia_buscada
+      ) |>
+      dplyr::pull(precision_5) |>
+      dplyr::first()
+  }
+
+  precision_e1_tfidf <- obtener_precision("E1", "TF-IDF")
+  precision_e1_lsa <- obtener_precision("E1", "LSA")
+  precision_e2_tfidf <- obtener_precision("E2", "TF-IDF")
+  precision_e2_lsa <- obtener_precision("E2", "LSA")
+  precision_e3_tfidf <- obtener_precision("E3", "TF-IDF")
+  precision_e3_lsa <- obtener_precision("E3", "LSA")
+  precision_e4_tfidf <- obtener_precision("E4", "TF-IDF")
+  precision_e4_lsa <- obtener_precision("E4", "LSA")
+  precision_e5_tfidf <- obtener_precision("E5", "TF-IDF")
+  precision_e5_lsa <- obtener_precision("E5", "LSA")
+
+  precision_promedio_tfidf <- promedio_precision |>
+    dplyr::filter(estrategia == "TF-IDF") |>
+    dplyr::pull(promedio) |>
+    dplyr::first()
+
+  precision_promedio_lsa <- promedio_precision |>
+    dplyr::filter(estrategia == "LSA") |>
+    dplyr::pull(promedio) |>
+    dplyr::first()
+
+  if (
+    nrow(promedio_precision) == 2 &&
+      abs(
+        promedio_precision$promedio[1] -
+          promedio_precision$promedio[2]
+      ) < 1e-12
+  ) {
+    lectura_precision <- paste(
+      "Las dos estrategias obtuvieron el mismo promedio de Precision@5:",
+      fmt_pct(
+        promedio_precision$promedio[1],
+        1
+      ),
+      "."
+    )
+  } else {
+    lectura_precision <- paste(
+      promedio_precision$estrategia[1],
+      "alcanzó el mayor promedio de Precision@5, con",
+      fmt_pct(
+        promedio_precision$promedio[1],
+        1
+      ),
+      "frente a",
+      fmt_pct(
+        promedio_precision$promedio[2],
+        1
+      ),
+      "de",
+      promedio_precision$estrategia[2],
+      "."
+    )
+  }
+} else {
+  lectura_precision <- paste(
+    "La comparación cuantitativa quedará disponible",
+    "cuando se completen los cincuenta juicios de relevancia."
+  )
+}
+```
+
+`r lectura_precision`
+
+```{r promedio-precision-estrategia}
+if (evaluacion_completa) {
+  mostrar_tabla(
+    promedio_precision |>
+      dplyr::transmute(
+        Estrategia = estrategia,
+        `Precision@5 promedio` = promedio
+      ),
+    n = Inf,
+    caption = "Precision@5 promedio por estrategia",
+    digits = 3
+  )
+}
+```
+
+### 9.3 Análisis de un resultado poco relevante
+
+```{r resultado-poco-relevante}
+# Seleccionar el primer resultado marcado como no relevante.
+resultado_error <- juicios_relevancia |>
+  dplyr::filter(
+    relevante == 0L
+  ) |>
+  dplyr::arrange(
+    consulta_id,
+    estrategia,
+    posicion
+  ) |>
+  dplyr::slice_head(n = 1)
+
+if (nrow(resultado_error) > 0) {
+  mostrar_tabla(
+    resultado_error |>
+      dplyr::transmute(
+        Consulta = consulta,
+        Estrategia = estrategia,
+        Posición = posicion,
+        Artículo = title,
+        Similitud = puntaje,
+        Observación = observacion,
+        Fragmento = fragmento
+      ),
+    n = Inf,
+    caption = "Ejemplo de resultado marcado como poco relevante",
+    digits = 4
+  )
+}
+```
+
+```{r lectura-error, results='asis'}
+if (nrow(resultado_error) > 0) {
+  cat(
+    '<div class="note">',
+    "Para la consulta <strong>",
+    resultado_error$consulta[1],
+    "</strong>, el artículo <strong>",
+    resultado_error$title[1],
+    "</strong> fue marcado como poco relevante.",
+    "La razón registrada fue: ",
+    resultado_error$observacion[1],
+    "Este caso muestra que una coincidencia de vocabulario o una cercanía latente",
+    "puede elevar el puntaje aunque la intención completa de la consulta no esté resuelta.",
+    "Por eso una similitud alta no equivale, por sí sola, a pertinencia.",
+    "</div>"
+  )
+} else {
+  cat(
+    '<div class="note">',
+    "El análisis de error se completará al registrar al menos un resultado no relevante",
+    "en el archivo de evaluación.",
+    "</div>"
+  )
+}
+```
+
+## 10. Integración en la aplicación Shiny
+
+La aplicación carga el modelo y las funciones al iniciar. Una búsqueda normal únicamente limpia la consulta, construye su vector, la proyecta cuando se selecciona LSA y calcula similitudes contra las representaciones ya disponibles. No vuelve a procesar toda la colección.
+
+La actualización por scraping sigue una regla distinta. Cuando no se insertan artículos, las representaciones se mantienen. Cuando SQLite recibe publicaciones nuevas, TF-IDF y LSA se reconstruyen una sola vez y se recargan en la sesión. Esta separación mantiene el buscador ágil y evita que la base y los rankings correspondan a colecciones diferentes.
+
+```{r coherencia-aplicacion}
+# Confirmar que SQLite y el modelo representan los mismos artículos.
+coherencia_aplicacion <- tibble::tibble(
+  Comprobación = c(
+    "Artículos en SQLite",
+    "Artículos en el modelo",
+    "Identificadores coincidentes",
+    "Términos TF-IDF",
+    "Componentes LSA",
+    "Resultados permitidos",
+    "Búsqueda TF-IDF disponible",
+    "Búsqueda LSA disponible"
+  ),
+  Resultado = c(
+    nrow(papers),
+    nrow(
+      modelo_busqueda$metadatos
+    ),
+    setequal(
+      papers$paper_id,
+      modelo_busqueda$
+        metadatos$paper_id
+    ),
+    ncol(
+      modelo_busqueda$
+        matriz_tfidf
+    ),
+    ncol(
+      modelo_busqueda$
+        matriz_lsa
+    ),
+    paste(
+      modelo_busqueda$parametros$
+        n_resultados_disponibles,
+      collapse = ", "
+    ),
+    "buscar_tfidf" %in%
+      ls(funciones_busqueda),
+    "buscar_lsa" %in%
+      ls(funciones_busqueda)
+  )
+)
+
+mostrar_tabla(
+  coherencia_aplicacion,
+  n = Inf,
+  caption = "Correspondencia entre la colección y el buscador"
+)
+```
+
+La aplicación conserva los filtros, indicadores, gráficos, tabla y actualización del Taller 2. El módulo de relevancia añade el campo de consulta, la selección entre TF-IDF, LSA o ambas estrategias y rankings de 5, 10 o 20 artículos.
+
+## 11. Consideraciones computacionales
+
+El consumo se evalúa con `object.size()` y los tiempos con `system.time()`. Las consultas se repiten con el modelo y las funciones ya cargados; la preparación completa se mide por separado utilizando archivos temporales.
+
+```{r rendimiento}
+# Leer las mediciones del paso computacional o generarlas cuando no existan.
+if (!file.exists(archivo_rendimiento)) {
+  if (!file.exists(archivo_medicion)) {
+    stop(
+      "No se encontró R/medir_rendimiento_busqueda.R."
+    )
+  }
+
+  source(archivo_medicion)
+
+  resultados_rendimiento <-
+    medir_rendimiento_busqueda(
+      archivo_modelo =
+        archivo_modelo,
+      archivo_funciones =
+        archivo_funciones,
+      archivo_preparacion =
+        archivo_preparacion,
+      ruta_sqlite =
+        ruta_sqlite,
+      tabla_principal =
+        tabla_principal,
+      consultas =
+        consultas_evaluacion,
+      repeticiones = 25L,
+      n_resultados = 5L,
+      limite_memoria_gb = 16
+    )
+
+  saveRDS(
+    resultados_rendimiento,
+    archivo_rendimiento,
+    compress = "xz"
+  )
+} else {
+  resultados_rendimiento <- readRDS(
+    archivo_rendimiento
+  )
+}
+```
+
+```{r tablas-rendimiento}
+mostrar_tabla(
+  resultados_rendimiento$
+    dimensiones_busqueda |>
+    dplyr::rename(
+      Representación =
+        representacion,
+      Documentos =
+        documentos,
+      Columnas =
+        columnas,
+      Celdas =
+        celdas
+    ),
+  n = Inf,
+  caption = "Dimensión original y dimensión reducida"
+)
+
+mostrar_tabla(
+  resultados_rendimiento$
+    memoria_objetos |>
+    dplyr::transmute(
+      Objeto = objeto,
+      `Tamaño (MB)` =
+        megabytes,
+      `Tamaño (GB)` =
+        gigabytes
+    ),
+  n = Inf,
+  caption = "Tamaño de matrices y objetos cargados",
+  digits = 4
+)
+
+mostrar_tabla(
+  resultados_rendimiento$
+    tiempos_operaciones |>
+    dplyr::rename(
+      Operación = operacion,
+      `Tiempo (segundos)` =
+        tiempo_segundos
+    ),
+  n = Inf,
+  caption = "Tiempo de carga y preparación",
+  digits = 4
+)
+
+mostrar_tabla(
+  resultados_rendimiento$
+    resumen_tiempos_estrategia |>
+    dplyr::rename(
+      Estrategia = estrategia,
+      `Consultas medidas` =
+        consultas_medidas,
+      `Promedio (ms)` =
+        tiempo_promedio_ms,
+      `Mediana (ms)` =
+        tiempo_mediano_ms,
+      `Máximo (ms)` =
+        tiempo_maximo_ms,
+      `Todas válidas` =
+        todas_validas
+    ),
+  n = Inf,
+  caption = "Tiempo de respuesta por estrategia",
+  digits = 3
+)
+```
+
+```{r valores-rendimiento, include=FALSE}
+reduccion_columnas <- valor_indicador(
+  resultados_rendimiento$
+    reduccion_dimension,
+  "Reducción de columnas (%)"
+)
+
+reduccion_celdas <- valor_indicador(
+  resultados_rendimiento$
+    reduccion_dimension,
+  "Reducción de celdas (%)"
+)
+
+reduccion_memoria <- valor_indicador(
+  resultados_rendimiento$
+    resumen_memoria,
+  "Reducción de memoria entre matrices (%)"
+)
+
+memoria_total_gb <- valor_indicador(
+  resultados_rendimiento$
+    resumen_memoria,
+  "Memoria total de objetos cargados (GB)"
+)
+
+porcentaje_limite <- valor_indicador(
+  resultados_rendimiento$
+    resumen_memoria,
+  "Porcentaje del límite utilizado"
+)
+
+tiempo_preparacion <- resultados_rendimiento$
+  tiempos_operaciones |>
+  dplyr::filter(
+    operacion ==
+      "Preparación completa de TF-IDF y LSA"
+  ) |>
+  dplyr::pull(
+    tiempo_segundos
+  )
+
+tiempo_carga <- resultados_rendimiento$
+  tiempos_operaciones |>
+  dplyr::filter(
+    operacion ==
+      "Carga inicial de los RDS"
+  ) |>
+  dplyr::pull(
+    tiempo_segundos
+  )
+
+tiempo_tfidf <- resultados_rendimiento$
+  resumen_tiempos_estrategia |>
+  dplyr::filter(
+    estrategia == "TF-IDF"
+  ) |>
+  dplyr::pull(
+    tiempo_promedio_ms
+  )
+
+tiempo_lsa <- resultados_rendimiento$
+  resumen_tiempos_estrategia |>
+  dplyr::filter(
+    estrategia == "LSA"
+  ) |>
+  dplyr::pull(
+    tiempo_promedio_ms
+  )
+```
+
+La reducción disminuye `r fmt_num(reduccion_columnas, 1)` % de las columnas y `r fmt_num(reduccion_celdas, 1)` % de las celdas. La matriz LSA ocupa `r fmt_num(reduccion_memoria, 1)` % menos memoria que la TF-IDF densa. En conjunto, el modelo y las funciones usan aproximadamente `r fmt_num(memoria_total_gb, 4)` GB, equivalentes a `r fmt_num(porcentaje_limite, 3)` % del límite de 16 GB.
+
+La preparación completa tarda `r fmt_num(tiempo_preparacion, 3)` segundos, mientras que cargar los RDS tarda `r fmt_num(tiempo_carga, 3)` segundos. Una consulta TF-IDF responde, en promedio, en `r fmt_ms(tiempo_tfidf, 2)` y una consulta LSA en `r fmt_ms(tiempo_lsa, 2)`. La diferencia confirma que conviene calcular las representaciones con anticipación y atender las búsquedas con los objetos ya disponibles.
+
+```{r auditoria-consulta-normal}
+mostrar_tabla(
+  resultados_rendimiento$
+    auditoria_busqueda_cargada |>
+    dplyr::rename(
+      Comprobación = indicador,
+      Resultado = valor
+    ),
+  n = Inf,
+  caption = "Comportamiento de una búsqueda normal"
+)
+```
+
+Los archivos permanecen sin cambios durante las consultas y la preparación no se ejecuta dentro de una búsqueda normal. Con el tamaño actual, la matriz densa es manejable; aun así, la matriz dispersa se conserva y la densificación debe reconsiderarse si la colección crece de manera considerable.
+
+```{r resumen-discusion, include=FALSE}
+coincidencia_promedio_top5 <- mean(
+  resumen_comparacion$
+    `Compartidos en top 5`
+) / 5
+
+coincidencia_e1 <- resumen_comparacion |>
+  dplyr::filter(
+    consulta_id == "E1"
+  ) |>
+  dplyr::pull(
+    `Compartidos en top 5`
+  )
+
+coincidencia_e2 <- resumen_comparacion |>
+  dplyr::filter(
+    consulta_id == "E2"
+  ) |>
+  dplyr::pull(
+    `Compartidos en top 5`
+  )
+
+coincidencia_e4 <- resumen_comparacion |>
+  dplyr::filter(
+    consulta_id == "E4"
+  ) |>
+  dplyr::pull(
+    `Compartidos en top 5`
+  )
+
+informacion_lsa_final <- resumen_k |>
+  dplyr::filter(
+    k == k_seleccionado
+  ) |>
+  dplyr::pull(
+    informacion_acumulada
+  )
+
+estabilidad_lsa_final <- resumen_k |>
+  dplyr::filter(
+    k == k_seleccionado
+  ) |>
+  dplyr::pull(
+    estabilidad_top5
+  )
+
+coincidencia_tfidf_final <- resumen_k |>
+  dplyr::filter(
+    k == k_seleccionado
+  ) |>
+  dplyr::pull(
+    coincidencia_tfidf_top5
+  )
+
+diferencia_tiempo_ms <- tiempo_tfidf -
+  tiempo_lsa
+```
+
+## 12. Discusión de resultados
+
+### 12.1 Calidad del corpus y efecto del procesamiento
+
+La colección ofrece una base sólida para el experimento: los `r fmt_entero(nrow(papers))` artículos quedaron representados, no aparecieron DOI duplicados y solo un artículo carecía de resumen. Esta cobertura reduce el riesgo de que las diferencias entre rankings provengan de vacíos extensos en los textos. Al mismo tiempo, la presencia de un documento sin resumen recuerda que el buscador no parte de una descripción homogénea en todos los casos; para ese artículo el título y las palabras clave tienen un peso proporcionalmente mayor.
+
+Se plantea la normalización como una forma de llevar el texto a una representación consistente antes de analizarlo. Ese principio se observa en la conversión a minúsculas, la normalización de guiones y la eliminación de caracteres de control. La retirada de stopwords también fue razonable para una tarea de búsqueda, porque artículos, preposiciones y conectores añaden frecuencia, pero pocas veces ayudan a separar un tema de otro. La decisión de no aplicar stemming ni lematización fue conservadora, aunque apropiada para este corpus: expresiones como `single-cell`, `rna-seq`, nombres de genes y siglas pueden perder precisión si se reducen de manera automática.
+
+Como consecuencia. Al conservar variantes morfológicas y técnicas por separado, el vocabulario crece hasta `r fmt_entero(ncol(matriz_tfidf))` términos. En otras palabras, se protege el significado local de la terminología científica, pero se acepta una representación más grande y complicada.
+
+### 12.2 Comportamiento de TF-IDF
+
+La matriz TF-IDF presentó una proporción de ceros de `r fmt_pct(1 - n_valores_no_cero / n_celdas_tfidf, 1)`. Lo que es común en minería de texto: cada artículo utiliza solo una fracción pequeña del vocabulario completo. TF-IDF mejora el conteo simple al combinar importancia dentro del documento y rareza en el corpus. Los rankings observados siguen ese comportamiento.
+
+En la consulta **single-cell RNA sequencing**, los primeros resultados de TF-IDF contienen de forma explícita la expresión consultada o variantes muy cercanas. La ventaja es clara: cuando el usuario conoce la terminología del área, el método devuelve artículos fáciles de justificar. Sin embargo, el quinto resultado, *An extended miRNA repertoire in Rattus norvegicus*, parece menos alineado con la intención completa de la consulta. Comparte vocabulario relacionado con RNA, pero no necesariamente aborda secuenciación de célula única. Es un ejemplo del límite léxico: el método puede premiar coincidencias parciales sin reconocer bien el contexto global.
+
+La consulta difícil, **data methods results**, mostró puntajes TF-IDF considerablemente menores que las consultas específicas. Esto era esperable porque sus palabras son generales y aparecen en numerosos artículos. Según la lógica de IDF, un término frecuente en el corpus pierde capacidad discriminante; por eso la consulta produce un ranking más amplio y menos concluyente.
+
+### 12.3 Efecto de la reducción con LSA
+
+La representación pasó de `r fmt_entero(ncol(matriz_tfidf))` términos a `r fmt_entero(k_seleccionado)` componentes. La reducción fue de `r fmt_num(reduccion_columnas, 1)` % en columnas y conservó `r fmt_pct(informacion_lsa_final, 1)` de la información medida por los valores singulares. Aquí, la SVD truncada es una aproximación de bajo rango: las primeras direcciones resumen los patrones dominantes, mientras que las restantes contienen estructura más débil, variación específica o ruido.
+
+En este caso, ningún candidato alcanzó el 80 % de información. Aunque no significa que LSA haya fallado; muestra que el corpus es heterogéneo y que la información no se concentra rápidamente en pocas direcciones. Escoger 150 componentes fue un compromiso razonable dentro del rango evaluado: la estabilidad del top 5 llegó a `r fmt_pct(estabilidad_lsa_final, 1)` y la coincidencia con TF-IDF fue `r fmt_pct(coincidencia_tfidf_final, 1)`. Aun así, la pérdida cercana al 29 % debe mantenerse visible porque algunas asociaciones raras o muy especializadas pueden desaparecer durante la compresión.
+
+La hipótesis distribucional, ayuda a interpretar los cambios de LSA: términos que aparecen en contextos parecidos pueden quedar próximos aunque no sean idénticos. Esto se observa en la consulta **single-cell RNA sequencing**, donde LSA incorpora un artículo sobre transiciones celulares en cáncer de mama a resolución de célula única. El resultado no repite toda la frase de consulta, pero comparte un contexto científico coherente. En contraste, para **artificial intelligence tumor biomarkers** LSA también recupera un artículo general de inteligencia artificial aplicada al descubrimiento de fármacos. La relación existe, pero se aleja del componente específico de biomarcadores tumorales. La misma propiedad que permite ampliar la recuperación puede introducir desviación temática.
+
+### 12.4 Comparación entre rankings
+
+En promedio, las dos estrategias compartieron `r fmt_pct(coincidencia_promedio_top5, 1)` de los cinco primeros resultados. El acuerdo fue alto en las consultas con vocabulario bien definido: E1 y E4 compartieron `r fmt_entero(coincidencia_e1)` y `r fmt_entero(coincidencia_e4)` artículos, respectivamente. Para E4, **microbiome 16S sequencing**, ambos métodos identificaron casi el mismo núcleo de publicaciones, aunque cambiaron sus posiciones. Esto sugiere que, cuando existen marcadores técnicos muy claros como `16S`, la reducción no altera de manera drástica el tema recuperado.
+
+La mayor diferencia apareció en E2, donde solo se compartieron `r fmt_entero(coincidencia_e2)` artículos. La consulta combina inteligencia artificial, tumores y biomarcadores; por ello admite documentos relacionados desde varios frentes. TF-IDF favoreció coincidencias explícitas con *tumor* y *biomarkers*, mientras que LSA extendió la búsqueda hacia contextos generales de inteligencia artificial en biología y descubrimiento de fármacos. Ninguna de las dos listas puede declararse mejor únicamente por el puntaje: esa decisión depende de la pertinencia juzgada artículo por artículo.
+
+Se debe tener en cuenta que la similitud coseno compara direcciones y no longitudes. Esto explica por qué un artículo breve puede quedar bien posicionado si concentra vocabulario relevante. Además, los valores de TF-IDF y LSA no están en una escala común. Los puntajes LSA fueron más altos en varias consultas porque el espacio reducido concentra la representación; sin significar que el método sea automáticamente más preciso.
+
+### 12.5 Memoria, tiempos y uso en la aplicación
+
+La matriz TF-IDF densa ocupó `r fmt_mb(as.numeric(object.size(matriz_tfidf)) / 1024^2, 2)`, mientras que la matriz LSA quedó en `r fmt_mb(as.numeric(object.size(modelo_busqueda$matriz_lsa)) / 1024^2, 3)`. Esta diferencia confirma una de las ventajas centrales de la reducción dimensional: la consulta opera sobre un espacio mucho menor.
+
+LSA respondió, en promedio, `r fmt_num(diferencia_tiempo_ms, 2)` ms más rápido que TF-IDF. La mejora absoluta fue pequeña porque la colección todavía tiene un tamaño moderado; con 360 documentos ambas estrategias responden en pocas decenas de milisegundos. El efecto más importante aparece al comparar preparación y uso: reconstruir TF-IDF y LSA tardó `r fmt_num(tiempo_preparacion, 3)` segundos, mientras que cargar los RDS necesitó `r fmt_num(tiempo_carga, 3)` segundos. Esto respalda la arquitectura de la aplicación: preparar una vez cuando cambia la colección y reutilizar los objetos para cada consulta.
+
+El consumo total quedó muy por debajo de 16 GB. La densificación fue manejable aquí, aunque no debe asumirse como una decisión permanente si el número de artículos o el vocabulario crece de manera importante.
+
+### 12.6 Resultados de Precision@5
+
+La revisión de los cincuenta resultados produjo una Precision@5 promedio de `r fmt_pct(precision_promedio_tfidf, 1)` para TF-IDF y `r fmt_pct(precision_promedio_lsa, 1)` para LSA. La diferencia de cuatro puntos porcentuales favorece ligeramente a TF-IDF, pero no permite hablar de una superioridad clara. Con solo cinco consultas, una variación de un artículo relevante cambia la métrica de una consulta en veinte puntos porcentuales, por lo que el promedio debe leerse con prudencia.
+
+En E1, **single-cell RNA sequencing**, LSA obtuvo `r fmt_pct(precision_e1_lsa, 0)` y TF-IDF `r fmt_pct(precision_e1_tfidf, 0)`. La reducción semántica mantuvo cinco trabajos vinculados con datos de célula única, mientras que TF-IDF incorporó *An extended miRNA repertoire in Rattus norvegicus*. Este último comparte vocabulario de RNA, pero no desarrolla análisis de secuenciación de célula única. Aquí se observa una fortaleza de LSA: al reunir patrones de coocurrencia pudo sostener mejor el contexto general de la consulta.
+
+La situación cambió en E2, **artificial intelligence tumor biomarkers**. TF-IDF alcanzó `r fmt_pct(precision_e2_tfidf, 0)` y LSA `r fmt_pct(precision_e2_lsa, 0)`. La consulta combina tres ideas que no siempre aparecen juntas: inteligencia artificial, tumores y biomarcadores. TF-IDF encontró una revisión sobre aprendizaje automático para descubrir biomarcadores y un editorial sobre predicción clínica en cáncer. LSA, en cambio, amplió la recuperación hacia inteligencia artificial en descubrimiento de fármacos, identificación de variantes y biomarcadores de enfermedades no tumorales. La cercanía distribucional resultó demasiado amplia y produjo deriva temática.
+
+En E3, **bioinformatics data analysis**, ambas estrategias obtuvieron `r fmt_pct(precision_e3_tfidf, 0)`. El resultado es coherente con una consulta general que admite herramientas, procesos, aplicaciones y estudios metodológicos de bioinformática. Sin embargo, esta precisión alta no significa que el ranking sea muy selectivo. Como la intención es amplia, también lo es el criterio de relevancia; muchos artículos pueden cumplirlo sin responder a una necesidad concreta.
+
+En E4, **microbiome 16S sequencing**, los dos métodos alcanzaron `r fmt_pct(precision_e4_tfidf, 0)`. El marcador `16S` tiene gran capacidad para orientar la búsqueda, pero no garantiza la pertinencia. El resultado ilustra que la coincidencia de una entidad técnica debe interpretarse junto con la tarea descrita por la consulta.
+
+En E5, **data methods results**, TF-IDF y LSA obtuvieron `r fmt_pct(precision_e5_tfidf, 0)`. Esta cifra parece favorable, aunque la consulta es tan abierta que casi cualquier artículo metodológico con análisis de datos puede considerarse pertinente. La métrica mide coherencia con el criterio establecido, pero no refleja necesariamente una utilidad para una intención de búsqueda bien delimitada. Precision@5 no corrige una necesidad de información ambigua.
+
+### 12.7 Fortalezas, debilidades y alcance de la evaluación
+
+TF-IDF conserva como fortalezas la transparencia y la respuesta ante términos técnicos explícitos. Su mejor resultado relativo en E2 muestra que la coincidencia léxica puede ser útil cuando una consulta reúne conceptos que deben aparecer de manera simultánea. A la vez, el error de E1 confirma que compartir palabras como `RNA` no basta para preservar el contexto completo.
+
+LSA redujo memoria, respondió un poco más rápido y mejoró la recuperación en E1. Su debilidad apareció con claridad en E2: al resumir el corpus mediante patrones globales, acercó documentos relacionados con inteligencia artificial o biomarcadores, aunque no con biomarcadores tumorales. La reducción captura asociaciones, pero no comprende por sí sola las condiciones lógicas de una consulta compuesta.
+
+La evaluación también tiene límites. Los juicios son binarios y fueron establecidos a partir de título, resumen y palabras clave; algunos casos podrían admitir una valoración gradual. Precision@5 no distingue si el artículo relevante aparece primero o quinto, no mide cobertura del total de documentos relevantes y se calculó con solo cinco consultas. Por ello, el resultado más defendible no es que un método se haya impuesto, sino que su desempeño depende del contexto de la búsqueda.
+
+## 13. Conclusiones
+
+El buscador logró representar y ordenar los artículos de la revista mediante dos estrategias coherentes con objetivos diferentes. TF-IDF funciona como una recuperación léxica directa: ofrece resultados especialmente claros cuando la consulta contiene términos técnicos presentes en el corpus. LSA utiliza la estructura de coocurrencias para ampliar la búsqueda hacia artículos que comparten un contexto, sin necesidad de repetición de las mismas palabras.
+
+La reducción de `r fmt_entero(ncol(matriz_tfidf))` términos a `r fmt_entero(k_seleccionado)` componentes produjo una disminución marcada de dimensión y memoria, junto con una respuesta ligeramente más rápida. El costo fue conservar `r fmt_pct(informacion_lsa_final, 1)` de la información y aceptar que algunos resultados cambien de posición o se alejen parcialmente de la intención específica.
+
+Se confirmó que ambas estrategias son complementarias. TF-IDF alcanzó una Precision@5 promedio de `r fmt_pct(precision_promedio_tfidf, 1)` y LSA de `r fmt_pct(precision_promedio_lsa, 1)`. La ventaja promedio de TF-IDF fue pequeña y se concentró en la consulta compuesta sobre inteligencia artificial, tumores y biomarcadores. LSA, en cambio, obtuvo el mejor resultado en la consulta literal de secuenciación de RNA de célula única.
+
+Se evidencia que no existe una estrategia dominante para todos los casos. TF-IDF es especialmente útil cuando deben conservarse términos explícitos y simultáneos; LSA puede ampliar la recuperación cuando distintas expresiones comparten un contexto científico. Esa ampliación también puede alejar el ranking de una intención muy específica. La aplicación permite comparar ambos comportamientos.
+
+## 14. Reproducibilidad
+
+La carpeta debe conservar las rutas relativas y los archivos que permiten reconstruir y/o ejecutar la solución. El documento usó la misma base SQLite, las mismas funciones de búsqueda, la misma dimensión LSA y las mismas reglas de orden que la aplicación.
+
+```{r archivos-reproducibilidad}
+# Verificar la presencia de los archivos centrales de la entrega.
+archivos_entrega <- tibble::tibble(
+  Archivo = c(
+    "taller_4.Rmd",
+    "app.R",
+    "revista_q1_2025.sqlite",
+    "R/scraping_frontiers.R",
+    "R/preparar_indices_busqueda.R",
+    "R/medir_rendimiento_busqueda.R",
+    "modelos/modelo_busqueda_taller4.rds",
+    "modelos/funciones_busqueda_taller4.rds",
+    "modelos/resultados_rendimiento_busqueda.rds",
+    "evaluacion/consultas_evaluacion.csv",
+    "evaluacion/juicios_relevancia.csv",
+    "README.md",
+    "renv.lock"
+  )
+) |>
+  dplyr::mutate(
+    Disponible = file.exists(Archivo)
+  )
+
+mostrar_tabla(
+  archivos_entrega,
+  n = Inf,
+  caption = "Archivos centrales del Taller 4"
+)
+```
+
+Para reproducir el documento desde una sesión limpia:
+
+```r
+rmarkdown::render("taller_4.Rmd")
+```
+
+Para abrir la aplicación:
+
+```r
+shiny::runApp()
+```
+
+La aplicación funciona con búsquedas con los RDS ya construidos. Cuando el scraping inserta publicaciones nuevas, actualiza las representaciones una vez antes de volver a consultar.

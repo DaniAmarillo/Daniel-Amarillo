@@ -1,0 +1,11 @@
+consulta_id,tipo_consulta,consulta,estrategia,resultados_evaluados,relevantes_top5,precision_5
+E1,Términos literales,single-cell RNA sequencing,LSA,5,5,1
+E1,Términos literales,single-cell RNA sequencing,TF-IDF,5,4,0.8
+E2,Términos relacionados o sinónimos,artificial intelligence tumor biomarkers,LSA,5,0,0
+E2,Términos relacionados o sinónimos,artificial intelligence tumor biomarkers,TF-IDF,5,2,0.4
+E3,Consulta general,bioinformatics data analysis,LSA,5,5,1
+E3,Consulta general,bioinformatics data analysis,TF-IDF,5,5,1
+E4,Consulta específica,microbiome 16S sequencing,LSA,5,3,0.6
+E4,Consulta específica,microbiome 16S sequencing,TF-IDF,5,3,0.6
+E5,Consulta difícil,data methods results,LSA,5,5,1
+E5,Consulta difícil,data methods results,TF-IDF,5,5,1
