@@ -28,10 +28,12 @@ dm_2016325/
 - Some student folders deviate from the strict `taller_XX` pattern (e.g. `Web-Scrapping_Taller_2_Mineria_de_Datos`, `Web-Scrapping Taller 1 Mineria de datos`) — these are student-created project folders for larger deliverables (Streamlit/Shiny apps) rather than the plain `taller_XX/` convention.
 - `.gitkeep` files preserve empty `taller_XX` folders before a student has submitted; do not delete them.
 - Submissions are heterogeneous by design: expect a mix of Jupyter notebooks (`.ipynb`), R Markdown (`.Rmd`), plain scripts (`.py`, `.R`), SQL/SQLite databases (`.db`, `.sqlite`), CSV datasets, and small Shiny/Streamlit apps with their own `requirements.txt`.
+- The repo root also has some stray files (`README.txt`, `Rplot.png`, `Taller-1_files/`, `entropy_2025.csv`, `links_articulos_entropy.csv`) that are actually a misplaced student submission (per `README.txt`, Taller 3 by Tabares Segovia), not course infrastructure. Don't treat them as shared/root-level assets, and don't build on them; if asked to fix scope for that student, the content belongs under `grupo_1/tabares_sebastian/taller_03/` (or `Tabares_Sebastian`, both casings currently exist in `grupo_1/`), not at root.
 
 ## Working in this repository
 
 - **Scope discipline is the core rule.** Per `README.md`, any change should touch only one student's folder (or, for course-admin work, root-level files). Do not modify another student's folder, rename existing folders, delete classmates' work, or restructure `grupo_1`/`grupo_2`/`taller_XX` conventions.
 - **Branch/PR convention**: submissions are made via a branch named `<apellido_nombre>/taller_XX` and a PR titled like `Taller 01 - Nombre Apellido`, touching only `grupo_X/apellido_nombre/taller_XX/`.
+- Students may clone with `git sparse-checkout set grupo_X/apellido_nombre` to work with just their own folder; `git sparse-checkout disable` restores the full tree. This is a client-side view only — it doesn't change what belongs in a PR.
 - **No global lint/build/test step** — validate a submission by running/opening it with whatever tool matches its files (e.g. `Rscript -e "rmarkdown::render('taller.Rmd')"` for `.Rmd`, `python script.py` for scripts, `jupyter nbconvert --execute` for notebooks, `Rscript app.R` / shiny run for Shiny apps).
 - When asked to inspect or fix a specific submission, treat that student's subfolder as the entire project root — do not assume conventions from one student's folder apply to another's.
